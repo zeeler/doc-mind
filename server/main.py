@@ -7,3 +7,6 @@ app.include_router(documents_router)
 
 from server.routers.conversations import router as conversations_router
 app.include_router(conversations_router)
+
+from server.routers.chat import router as chat_router
+app.include_router(chat_router)
