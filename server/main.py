@@ -10,3 +10,6 @@ app.include_router(conversations_router)
 
 from server.routers.chat import router as chat_router
 app.include_router(chat_router)
+
+from server.routers.config import router as config_router
+app.include_router(config_router)
