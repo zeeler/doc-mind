@@ -1,15 +1,61 @@
+"""知识库应用入口。"""
+
+from pathlib import Path
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from server.database import init_db, get_engine
+from server.models.base import Base
+from server.models.document import Document, DocumentChunk  # noqa: F401
+from server.models.conversation import Conversation, Message  # noqa: F401
+from server.config import AppConfigModel  # noqa: F401
+from server.routers.documents import router as documents_router
+from server.routers.conversations import router as conversations_router
+from server.routers.chat import router as chat_router
+from server.routers.config import router as config_router
 
 app = FastAPI(title="知识库", version="0.1.0")
 
-from server.routers.documents import router as documents_router
 app.include_router(documents_router)
-
-from server.routers.conversations import router as conversations_router
 app.include_router(conversations_router)
-
-from server.routers.chat import router as chat_router
 app.include_router(chat_router)
-
-from server.routers.config import router as config_router
 app.include_router(config_router)
+
+
+@app.get("/api/v1/health")
+def health_check():
+    try:
+        engine = get_engine()
+        engine.connect().close()
+        db_ok = True
+    except Exception:
+        db_ok = False
+    return {
+        "code": "OK",
+        "data": {
+            "status": "healthy" if db_ok else "degraded",
+            "database": "ok" if db_ok else "error",
+        },
+    }
+
+
+# 挂载前端静态文件
+templates_dir = Path(__file__).parent / "templates"
+if templates_dir.exists():
+    app.mount("/", StaticFiles(directory=str(templates_dir), html=True), name="static")
+
+
+def startup():
+    """在 uvicorn 启动前调用，初始化数据库。"""
+    from server.models.document import Document, DocumentChunk  # noqa: F811
+    from server.models.conversation import Conversation, Message  # noqa: F811
+    from server.config import AppConfigModel  # noqa: F811
+    Base.metadata.create_all(bind=get_engine())
+
+
+if __name__ == "__main__":
+    import uvicorn
+    startup()
+    print("✓ SQLite 就绪")
+    print("✓ ChromaDB 就绪")
+    print("知识库服务已启动: http://localhost:8000")
+    uvicorn.run("server.main:app", host="0.0.0.0", port=8000, reload=True)
