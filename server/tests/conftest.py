@@ -27,7 +27,7 @@ def sample_pdf(tmp_data_dir):
     path = tmp_data_dir / "test_sample.pdf"
     doc = fitz.open()
     page = doc.new_page()
-    page.insert_text((50, 50), "这是测试文档内容。人工智能正在改变世界。")
+    page.insert_text((50, 50), "这是测试文档内容。人工智能正在改变世界。", fontname="china-s")
     doc.save(str(path))
     doc.close()
     return path
