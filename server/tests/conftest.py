@@ -1,6 +1,5 @@
 import pytest
 import tempfile
-import os
 from pathlib import Path
 
 
@@ -22,23 +21,21 @@ def test_db_url(tmp_data_dir):
 
 
 @pytest.fixture
-def sample_pdf():
+def sample_pdf(tmp_data_dir):
     """返回一个简单 PDF 文件的路径（用于解析测试）。"""
     import fitz
-    path = Path(tempfile.gettempdir()) / "test_sample.pdf"
+    path = tmp_data_dir / "test_sample.pdf"
     doc = fitz.open()
     page = doc.new_page()
     page.insert_text((50, 50), "这是测试文档内容。人工智能正在改变世界。")
     doc.save(str(path))
     doc.close()
-    yield path
-    path.unlink(missing_ok=True)
+    return path
 
 
 @pytest.fixture
-def sample_txt():
+def sample_txt(tmp_data_dir):
     """返回一个简单 TXT 文件的路径。"""
-    path = Path(tempfile.gettempdir()) / "test_sample.txt"
+    path = tmp_data_dir / "test_sample.txt"
     path.write_text("这是第一段测试内容。\n\n这是第二段测试内容。", encoding="utf-8")
-    yield path
-    path.unlink(missing_ok=True)
+    return path
