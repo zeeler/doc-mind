@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识库</title>
+    <script src="https://cdn.jsdelivr.net/npm/petite-vue@0.4.1/dist/petite-vue.iife.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        [v-cloak] { display: none; }
+        .markdown-content p { margin-bottom: 0.5rem; }
+        .markdown-content code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+        .typing::after { content: '▊'; animation: blink 1s infinite; }
+        @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+<div id="app" v-cloak>
+    <header class="bg-gradient-to-br from-green-600 to-green-500 text-white px-4 py-4 shadow-md">
+        <div class="max-w-3xl mx-auto flex items-center justify-between">
+            <h1 class="text-lg font-semibold">知识库</h1>
+            <div class="flex gap-2">
+                <button @click="view = 'chat'" :class="view === 'chat' ? 'bg-white/20' : ''" class="px-3 py-1.5 rounded-lg text-sm transition">对话</button>
+                <button @click="view = 'docs'; loadDocuments()" :class="view === 'docs' ? 'bg-white/20' : ''" class="px-3 py-1.5 rounded-lg text-sm transition">文档</button>
+                <button @click="view = 'settings'; loadConfig()" :class="view === 'settings' ? 'bg-white/20' : ''" class="px-3 py-1.5 rounded-lg text-sm transition">设置</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-3xl mx-auto p-4">
+        <!-- Chat View -->
+        <div v-if="view === 'chat'" class="space-y-4">
+            <div v-if="!currentConversation" class="space-y-4">
+                <button @click="createConversation" class="w-full py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 transition">
+                    + 新建对话
+                </button>
+                <div v-for="conv in conversations" :key="conv.id"
+                     @click="openConversation(conv.id)"
+                     class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition">
+                    <div class="font-medium text-gray-800">{{ conv.title }}</div>
+                    <div class="text-sm text-gray-400 mt-1">{{ conv.created_at?.slice(0, 10) }} · {{ conv.message_count }} 条消息</div>
+                </div>
+                <div v-if="conversations.length === 0" class="text-center text-gray-400 py-12">
+                    还没有对话，上传文档后开始提问吧
+                </div>
+            </div>
+
+            <div v-if="currentConversation" class="space-y-4">
+                <button @click="currentConversation = null; messages = []" class="text-sm text-gray-500 hover:text-gray-700 transition">
+                    ← 返回列表
+                </button>
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 min-h-[60vh] max-h-[60vh] overflow-y-auto space-y-4" ref="chatContainer">
+                    <div v-for="msg in messages" :key="msg.id" class="space-y-2">
+                        <div v-if="msg.role === 'user'" class="flex justify-end">
+                            <div class="bg-green-50 text-gray-800 px-4 py-2.5 rounded-2xl rounded-br-md max-w-[80%] text-sm">{{ msg.content }}</div>
+                        </div>
+                        <div v-if="msg.role === 'assistant'" class="space-y-2">
+                            <div class="text-gray-800 px-1 text-sm markdown-content" v-html="renderMarkdown(msg.content)"></div>
+                            <div v-if="msg.citations && msg.citations.length" class="flex flex-wrap gap-1.5 px-1">
+                                <span v-for="(cit, i) in msg.citations" :key="i"
+                                      class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+                                    {{ cit.document_title || cit.file_name }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-if="streaming" class="text-gray-800 text-sm markdown-content" v-html="renderMarkdown(streamContent) + '<span class=typing></span>'"></div>
+                </div>
+                <form @submit.prevent="sendMessage" class="flex gap-2">
+                    <input v-model="input" type="text" placeholder="输入问题..." :disabled="streaming"
+                           class="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-50">
+                    <button type="submit" :disabled="!input.trim() || streaming"
+                            class="px-5 py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 disabled:opacity-40 transition text-sm">
+                        发送
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Docs View -->
+        <div v-if="view === 'docs'" class="space-y-4">
+            <label class="block bg-white rounded-xl shadow-sm border-2 border-dashed border-gray-200 p-8 text-center cursor-pointer hover:border-green-400 transition">
+                <input type="file" @change="uploadFile" accept=".pdf,.docx,.md,.txt,.markdown" class="hidden" :disabled="uploading">
+                <div v-if="uploading" class="text-gray-400">上传中...</div>
+                <div v-else class="text-gray-400">拖拽文件到此处 或 点击上传<br><span class="text-xs">支持 PDF / Word / Markdown / TXT</span></div>
+            </label>
+            <div v-for="doc in documents" :key="doc.id" class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
+                <div class="flex-1 min-w-0">
+                    <div class="font-medium text-gray-800 truncate">{{ doc.title }}</div>
+                    <div class="text-xs text-gray-400 mt-1">{{ doc.file_type }} · {{ formatSize(doc.file_size) }} · <span :class="statusColor(doc.status)">{{ statusLabel(doc.status) }}</span> · {{ doc.chunk_count }} 块</div>
+                </div>
+                <button @click="deleteDocument(doc.id)" class="text-red-400 hover:text-red-600 text-sm ml-4 transition">删除</button>
+            </div>
+            <div v-if="documents.length === 0 && !uploading" class="text-center text-gray-400 py-12">
+                还没有文档，上传你的第一个文档吧
+            </div>
+        </div>
+
+        <!-- Settings View -->
+        <div v-if="view === 'settings'" class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
+            <h2 class="font-semibold text-gray-800">AI 模型配置</h2>
+            <div class="space-y-3">
+                <div>
+                    <label class="text-sm text-gray-500">LLM 提供商</label>
+                    <select v-model="config.llm_provider" @change="saveConfig" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                        <option value="mlx">MLX (本地)</option>
+                        <option value="openai">OpenAI (云端)</option>
+                        <option value="claude">Claude (云端)</option>
+                    </select>
+                </div>
+                <div v-if="config.llm_provider === 'mlx'">
+                    <label class="text-sm text-gray-500">Chat 模型名称</label>
+                    <input v-model="config.mlx_chat_model" @change="saveConfig" placeholder="mlx-community/Qwen2.5-7B-Instruct-4bit" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    <label class="text-sm text-gray-500 mt-2 block">Embedding 模型名称</label>
+                    <input v-model="config.mlx_embedding_model" @change="saveConfig" placeholder="mlx-community/bge-small-en-mlx" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    <label class="text-sm text-gray-500 mt-2 block">API 地址</label>
+                    <input v-model="config.mlx_api_base" @change="saveConfig" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                </div>
+                <div v-if="config.llm_provider === 'openai'">
+                    <label class="text-sm text-gray-500">API Key</label>
+                    <input v-model="config.openai_api_key" @change="saveConfig" type="password" placeholder="sk-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                </div>
+                <div v-if="config.llm_provider === 'claude'">
+                    <label class="text-sm text-gray-500">API Key</label>
+                    <input v-model="config.claude_api_key" @change="saveConfig" type="password" placeholder="sk-ant-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                </div>
+            </div>
+            <div class="text-xs text-gray-400 pt-2">
+                切换提供商后需刷新页面重新加载模型。
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+PetiteVue.createApp({
+    view: 'chat',
+    conversations: [],
+    currentConversation: null,
+    messages: [],
+    input: '',
+    streaming: false,
+    streamContent: '',
+    documents: [],
+    uploading: false,
+    config: {},
+
+    async mounted() {
+        await this.loadConversations();
+        await this.loadConfig();
+    },
+
+    async loadConversations() {
+        const res = await fetch('/api/v1/conversations');
+        const data = await res.json();
+        this.conversations = data.data || [];
+    },
+
+    async createConversation() {
+        const res = await fetch('/api/v1/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const data = await res.json();
+        this.openConversation(data.data.id);
+    },
+
+    async openConversation(id) {
+        const res = await fetch(`/api/v1/conversations/${id}`);
+        const data = await res.json();
+        this.currentConversation = id;
+        this.messages = data.data.messages || [];
+        this.$nextTick(() => { const el = this.$refs.chatContainer; if (el) el.scrollTop = el.scrollHeight; });
+    },
+
+    async sendMessage() {
+        if (!this.input.trim() || this.streaming) return;
+        const question = this.input.trim();
+        this.input = '';
+        this.messages.push({ id: Date.now().toString(), role: 'user', content: question });
+        this.streaming = true;
+        this.streamContent = '';
+
+        try {
+            const res = await fetch('/api/v1/chat/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ conversation_id: this.currentConversation, question }),
+            });
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const payload = JSON.parse(line.slice(6));
+                            if (payload.type === 'token') {
+                                this.streamContent += payload.content;
+                                this.$nextTick(() => { const el = this.$refs.chatContainer; if (el) el.scrollTop = el.scrollHeight; });
+                            }
+                        } catch(e) {}
+                    }
+                }
+            }
+        } catch(e) {
+            console.error('Stream error:', e);
+        }
+        this.streaming = false;
+        this.streamContent = '';
+        await this.openConversation(this.currentConversation);
+        await this.loadConversations();
+    },
+
+    async loadDocuments() {
+        const res = await fetch('/api/v1/documents');
+        const data = await res.json();
+        this.documents = data.data || [];
+    },
+
+    async uploadFile(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        this.uploading = true;
+        const form = new FormData();
+        form.append('file', file);
+        await fetch('/api/v1/documents/upload', { method: 'POST', body: form });
+        this.uploading = false;
+        await this.loadDocuments();
+    },
+
+    async deleteDocument(id) {
+        if (!confirm('确定删除此文档？')) return;
+        await fetch(`/api/v1/documents/${id}`, { method: 'DELETE' });
+        await this.loadDocuments();
+    },
+
+    async loadConfig() {
+        const res = await fetch('/api/v1/config');
+        const data = await res.json();
+        this.config = data.data || {};
+    },
+
+    async saveConfig() {
+        await fetch('/api/v1/config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(this.config),
+        });
+    },
+
+    renderMarkdown(text) {
+        if (!text) return '';
+        return text
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\n\n/g, '</p><p>')
+            .replace(/\n/g, '<br>')
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/^/, '<p>').replace(/$/, '</p>');
+    },
+
+    formatSize(bytes) {
+        if (!bytes) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let i = 0;
+        let size = bytes;
+        while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+        return size.toFixed(1) + ' ' + units[i];
+    },
+
+    statusLabel(s) {
+        const map = { pending: '待处理', parsing: '解析中', chunking: '切块中', indexing: '索引中', done: '已完成', failed: '失败' };
+        return map[s] || s;
+    },
+
+    statusColor(s) {
+        if (s === 'done') return 'text-green-500';
+        if (s === 'failed') return 'text-red-500';
+        if (s === 'pending') return 'text-gray-400';
+        return 'text-blue-500';
+    },
+}).mount('#app');
+</script>
+</body>
+</html>
