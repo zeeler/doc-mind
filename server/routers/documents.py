@@ -45,6 +45,15 @@ async def upload_document(file: UploadFile = File(...)):
         session.add(doc)
         session.commit()
         session.refresh(doc)
+
+        # 处理文档（解析→切块→embedding→索引）
+        try:
+            from server.services.pipeline import process_document
+            from server.config import AppConfig
+            process_document(doc_id, AppConfig().get_all())
+        except Exception:
+            pass
+
         return {
             "code": "OK",
             "message": "success",
