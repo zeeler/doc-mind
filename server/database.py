@@ -37,6 +37,13 @@ def get_session():
         db.close()
 
 
+def reset_engine():
+    """重置引擎和会话工厂（用于测试时切换 DATA_DIR）。"""
+    global _engine, _SessionLocal
+    _engine = None
+    _SessionLocal = None
+
+
 def init_db():
     """创建所有表。在模型导入后调用。"""
     from server.models.base import Base
