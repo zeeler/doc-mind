@@ -35,6 +35,8 @@ def get_models():
     elif provider == "claude":
         models["chat"].append({"id": config.get("claude_chat_model", ""), "name": config.get("claude_chat_model", ""), "source": "claude"})
     elif provider == "custom":
-        models["chat"].append({"id": config.get("custom_chat_model", ""), "name": config.get("custom_chat_model", "未配置"), "source": "custom"})
-        models["embedding"].append({"id": config.get("custom_embedding_model", ""), "name": config.get("custom_embedding_model", "未配置"), "source": "custom"})
+        api_type = config.get("custom_api_type", "openai")
+        label = f"自定义 ({'Anthropic格式' if api_type == 'anthropic' else 'OpenAI格式'})"
+        models["chat"].append({"id": config.get("custom_chat_model", ""), "name": config.get("custom_chat_model", "未配置"), "source": label})
+        models["embedding"].append({"id": config.get("custom_embedding_model", ""), "name": config.get("custom_embedding_model", "未配置"), "source": label})
     return {"code": "OK", "message": "success", "data": {"models": models, "provider": provider}}

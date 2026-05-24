@@ -1,7 +1,10 @@
-"""LLM 适配器 — 支持 MLX / OpenAI / Claude / 第三方兼容接口。"""
+"""LLM 适配器 — 支持 OpenAI 格式和 Anthropic 格式。"""
 
+import json
 import logging
+from typing import AsyncIterator
 from openai import OpenAI
+import httpx
 
 logger = logging.getLogger("knowledge-base")
 
@@ -10,15 +13,21 @@ class LLMAdapter:
     def __init__(self, config: dict):
         self._cfg = {k: v for k, v in config.items()}
         self.provider = self._cfg.get("llm_provider", "mlx")
-        self._client = self._build_client()
+        self._client = self._build_openai_client()
         self.chat_model = self._get_chat_model()
         self.embedding_model = self._get_embedding_model()
+        self.api_type = self._get_api_type()
 
-        # 输出当前配置便于调试
         base = str(self._client.base_url) if hasattr(self._client, 'base_url') else "unknown"
-        logger.info(f"LLM 适配器: provider={self.provider}, chat_model={self.chat_model}, base_url={base}")
+        logger.info(f"LLM 适配器: provider={self.provider}, api_type={self.api_type}, model={self.chat_model}, base_url={base}")
 
-    def _build_client(self) -> OpenAI:
+    def _get_api_type(self) -> str:
+        """返回 API 格式类型: 'openai' 或 'anthropic'"""
+        if self.provider == "custom":
+            return self._cfg.get("custom_api_type", "openai")
+        return "openai"
+
+    def _build_openai_client(self) -> OpenAI:
         if self.provider == "mlx":
             return OpenAI(
                 base_url=self._cfg.get("mlx_api_base", "http://localhost:8080/v1"),
@@ -35,8 +44,12 @@ class LLMAdapter:
                 api_key=self._cfg.get("claude_api_key", ""),
             )
         if self.provider == "custom":
+            custom_base = self._cfg.get("custom_api_base", "")
+            if self._cfg.get("custom_api_type", "openai") == "anthropic":
+                # Anthropic 格式不使用 OpenAI SDK，给一个 dummy client
+                return OpenAI(base_url=custom_base, api_key=self._cfg.get("custom_api_key", ""))
             return OpenAI(
-                base_url=self._cfg.get("custom_api_base", ""),
+                base_url=custom_base,
                 api_key=self._cfg.get("custom_api_key", ""),
             )
         raise ValueError(f"不支持的 LLM provider: {self.provider}")
@@ -64,3 +77,123 @@ class LLMAdapter:
     @property
     def client(self) -> OpenAI:
         return self._client
+
+    # ---- 统一对话接口 ----
+
+    def chat(self, messages: list[dict], temperature: float = 0.3) -> dict:
+        """同步对话，返回 {"content": str, ...}。"""
+        if self.api_type == "anthropic":
+            return self._anthropic_chat(messages, temperature)
+        return self._openai_chat(messages, temperature)
+
+    async def chat_stream(self, messages: list[dict], temperature: float = 0.3) -> AsyncIterator[dict]:
+        """流式对话，yield {"type": "token", "content": str} | {"type": "done"}。"""
+        if self.api_type == "anthropic":
+            async for chunk in self._anthropic_chat_stream(messages, temperature):
+                yield chunk
+        else:
+            for chunk in self._openai_chat_stream(messages, temperature):
+                yield chunk
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        """文本转向量。"""
+        response = self._client.embeddings.create(
+            model=self.embedding_model,
+            input=texts,
+        )
+        return [d.embedding for d in response.data]
+
+    # ---- OpenAI 格式 ----
+
+    def _openai_chat(self, messages: list[dict], temperature: float) -> dict:
+        response = self._client.chat.completions.create(
+            model=self.chat_model,
+            messages=messages,
+            temperature=temperature,
+        )
+        return {"content": response.choices[0].message.content or ""}
+
+    def _openai_chat_stream(self, messages: list[dict], temperature: float):
+        stream = self._client.chat.completions.create(
+            model=self.chat_model,
+            messages=messages,
+            temperature=temperature,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta
+            if delta.content:
+                yield {"type": "token", "content": delta.content}
+        yield {"type": "done"}
+
+    # ---- Anthropic 格式 ----
+
+    def _anthropic_headers(self) -> dict:
+        base = self._cfg.get("custom_api_base", "").rstrip("/")
+        return {
+            "x-api-key": self._cfg.get("custom_api_key", ""),
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+
+    def _anthropic_messages_url(self) -> str:
+        base = self._cfg.get("custom_api_base", "").rstrip("/")
+        return f"{base}/messages"
+
+    def _to_anthropic_messages(self, messages: list[dict]) -> list[dict]:
+        """将 OpenAI 格式 messages 转为 Anthropic 格式。"""
+        result = []
+        for m in messages:
+            result.append({
+                "role": m["role"],
+                "content": [{"type": "text", "text": m["content"]}],
+            })
+        return result
+
+    def _anthropic_chat(self, messages: list[dict], temperature: float) -> dict:
+        url = self._anthropic_messages_url()
+        headers = self._anthropic_headers()
+        body = {
+            "model": self.chat_model,
+            "max_tokens": 4096,
+            "temperature": temperature,
+            "messages": self._to_anthropic_messages(messages),
+        }
+
+        with httpx.Client(timeout=120) as http:
+            resp = http.post(url, headers=headers, json=body)
+            resp.raise_for_status()
+            data = resp.json()
+
+        # 提取文本内容
+        parts = []
+        for block in data.get("content", []):
+            if block.get("type") == "text":
+                parts.append(block.get("text", ""))
+        return {"content": "".join(parts)}
+
+    async def _anthropic_chat_stream(self, messages: list[dict], temperature: float):
+        url = self._anthropic_messages_url()
+        headers = self._anthropic_headers()
+        body = {
+            "model": self.chat_model,
+            "max_tokens": 4096,
+            "temperature": temperature,
+            "messages": self._to_anthropic_messages(messages),
+            "stream": True,
+        }
+
+        async with httpx.AsyncClient(timeout=120) as http:
+            async with http.stream("POST", url, headers=headers, json=body) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if line.startswith("data: "):
+                        try:
+                            event = json.loads(line[6:])
+                            if event.get("type") == "content_block_delta":
+                                delta = event.get("delta", {})
+                                if delta.get("type") == "text_delta":
+                                    yield {"type": "token", "content": delta.get("text", "")}
+                        except (json.JSONDecodeError, KeyError):
+                            pass
+        yield {"type": "done"}

@@ -31,7 +31,7 @@ DEFAULTS = {
     "custom_api_key": "",
     "custom_chat_model": "",
     "custom_embedding_model": "",
-    "custom_api_type": "openai",     # "openai" | "claude" — API 兼容格式
+    "custom_api_type": "openai",     # "openai" | "anthropic" — API 格式
     "chunk_size": "800",
     "chunk_overlap": "100",
     "retrieval_top_k": "5",

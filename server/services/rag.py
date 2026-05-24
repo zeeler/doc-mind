@@ -52,27 +52,19 @@ class RAGService:
     def ask_sync(self, question: str) -> dict:
         chunks = self.retriever.retrieve(question)
         prompt = build_qa_prompt(question, chunks)
-        response = self.llm.client.chat.completions.create(
-            model=self.llm.chat_model,
+        result = self.llm.chat(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
         )
-        answer = response.choices[0].message.content or ""
         citations = format_citations(chunks)
-        return {"answer": answer, "citations": citations}
+        return {"answer": result["content"], "citations": citations}
 
     async def ask_stream(self, question: str) -> AsyncIterator[dict]:
         chunks = self.retriever.retrieve(question)
         prompt = build_qa_prompt(question, chunks)
-        stream = self.llm.client.chat.completions.create(
-            model=self.llm.chat_model,
+        async for chunk in self.llm.chat_stream(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            stream=True,
-        )
-        for chunk in stream:
-            delta = chunk.choices[0].delta
-            if delta.content:
-                yield {"type": "token", "content": delta.content}
+        ):
+            yield chunk
         yield {"type": "citations", "data": format_citations(chunks)}
-        yield {"type": "done"}

@@ -127,11 +127,18 @@
                 </div>
                 <div v-if="config.llm_provider === 'custom'" class="space-y-3">
                     <div class="text-xs text-gray-400 bg-blue-50 p-2 rounded-lg">
-                        OpenAI 兼容接口，适用于 DeepSeek、通义千问、智谱等第三方 API。Claude 请在上方选择 Claude 提供商。
+                        支持 OpenAI 兼容和 Anthropic 兼容两种格式。DeepSeek 请选择 Anthropic 格式，Base URL 填写 <code class="bg-blue-100 px-1 rounded">https://api.deepseek.com/anthropic</code>
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-500">API 格式</label>
+                        <select v-model="config.custom_api_type" @change="saveConfig" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                            <option value="openai">OpenAI 兼容 (通义千问 / 智谱 / 硅基流动等)</option>
+                            <option value="anthropic">Anthropic 兼容 (DeepSeek 等)</option>
+                        </select>
                     </div>
                     <div>
                         <label class="text-sm text-gray-500">Base URL</label>
-                        <input v-model="config.custom_api_base" @change="saveConfig" placeholder="https://api.deepseek.com/v1" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                        <input v-model="config.custom_api_base" @change="saveConfig" placeholder="https://api.deepseek.com/anthropic" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
                     </div>
                     <div>
                         <label class="text-sm text-gray-500">API Key</label>
@@ -139,7 +146,7 @@
                     </div>
                     <div>
                         <label class="text-sm text-gray-500">Chat 模型名称</label>
-                        <input v-model="config.custom_chat_model" @change="saveConfig" placeholder="deepseek-chat" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                        <input v-model="config.custom_chat_model" @change="saveConfig" placeholder="deepseek-v4-pro" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
                     </div>
                     <div>
                         <label class="text-sm text-gray-500">Embedding 模型名称（可选，留空使用内置 embedding）</label>
