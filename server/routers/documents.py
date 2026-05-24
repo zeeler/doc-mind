@@ -51,8 +51,10 @@ async def upload_document(file: UploadFile = File(...)):
             from server.services.pipeline import process_document
             from server.config import AppConfig
             process_document(doc_id, AppConfig().get_all())
-        except Exception:
-            pass
+            session.refresh(doc)
+        except Exception as e:
+            doc.status = "failed"
+            session.commit()
 
         return {
             "code": "OK",

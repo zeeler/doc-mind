@@ -43,11 +43,15 @@ def chat_ask(body: dict, session: Session = Depends(get_session)):
     )
     session.add(user_msg)
 
-    rag = _get_rag_service(DATA_DIR)
-    result = rag.ask_sync(question)
-
     if conv.title == "新会话":
         conv.title = question[:50] + ("..." if len(question) > 50 else "")
+
+    try:
+        rag = _get_rag_service(DATA_DIR)
+        result = rag.ask_sync(question)
+    except Exception as e:
+        session.commit()
+        raise HTTPException(status_code=502, detail=f"LLM 调用失败: {str(e)}")
 
     assistant_msg = Message(
         id=str(uuid.uuid4()),

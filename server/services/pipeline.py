@@ -34,8 +34,17 @@ def process_document(doc_id: str, config: dict) -> None:
         doc.status = "indexing"
         session.commit()
 
-        embedder = Embedder(config)
         store = VectorStore(persist_dir=str(DATA_DIR / "chroma"))
+
+        # 尝试获取外部 embedding，失败则降级为 ChromaDB 内置 embedding
+        use_external_embedding = False
+        if config.get("custom_embedding_model", "") or config.get("openai_embedding_model", "") or config.get("mlx_embedding_model", ""):
+            try:
+                embedder = Embedder(config)
+                _ = embedder.embed(["test"])
+                use_external_embedding = True
+            except Exception:
+                use_external_embedding = False
 
         for i, chunk_content in enumerate(chunks_text):
             chunk = DocumentChunk(
@@ -47,11 +56,28 @@ def process_document(doc_id: str, config: dict) -> None:
             )
             session.add(chunk)
 
-            embedding = embedder.embed([chunk_content])[0]
+            if use_external_embedding:
+                try:
+                    embedding = embedder.embed([chunk_content])[0]
+                    store.add(
+                        ids=[chunk.id],
+                        texts=[chunk_content],
+                        embeddings=[embedding],
+                        metadatas=[{
+                            "document_id": doc_id,
+                            "title": doc.title,
+                            "file_name": doc.file_name,
+                            "chunk_no": i + 1,
+                        }],
+                    )
+                    continue
+                except Exception:
+                    pass
+
+            # 降级：使用 ChromaDB 内置 embedding
             store.add(
                 ids=[chunk.id],
                 texts=[chunk_content],
-                embeddings=[embedding],
                 metadatas=[{
                     "document_id": doc_id,
                     "title": doc.title,
