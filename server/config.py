@@ -32,6 +32,10 @@ DEFAULTS = {
     "custom_chat_model": "",
     "custom_embedding_model": "",
     "custom_api_type": "openai",     # "openai" | "anthropic" — API 格式
+    "ocr_enabled": "true",
+    "ocr_engine": "tesseract",       # "tesseract" | "ollama" — OCR 引擎
+    "ocr_ollama_model": "llama3.2-vision:11b",
+    "ocr_ollama_base_url": "http://localhost:11434/v1",
     "chunk_size": "800",
     "chunk_overlap": "100",
     "retrieval_top_k": "5",

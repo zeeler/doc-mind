@@ -18,7 +18,7 @@ def process_document(doc_id: str, config: dict) -> None:
         session.commit()
 
         try:
-            text = parse_file(doc.file_path)
+            text = parse_file(doc.file_path, config)
         except Exception:
             doc.status = "failed"
             session.commit()
