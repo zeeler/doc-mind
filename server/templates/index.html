@@ -104,8 +104,9 @@
                     <label class="text-sm text-gray-500">LLM 提供商</label>
                     <select v-model="config.llm_provider" @change="saveConfig" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
                         <option value="mlx">MLX (本地)</option>
-                        <option value="openai">OpenAI (云端)</option>
-                        <option value="claude">Claude (云端)</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="claude">Claude</option>
+                        <option value="custom">自定义 (第三方)</option>
                     </select>
                 </div>
                 <div v-if="config.llm_provider === 'mlx'">
@@ -123,6 +124,31 @@
                 <div v-if="config.llm_provider === 'claude'">
                     <label class="text-sm text-gray-500">API Key</label>
                     <input v-model="config.claude_api_key" @change="saveConfig" type="password" placeholder="sk-ant-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                </div>
+                <div v-if="config.llm_provider === 'custom'" class="space-y-3">
+                    <div>
+                        <label class="text-sm text-gray-500">API 兼容模式</label>
+                        <select v-model="config.custom_api_type" @change="saveConfig" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                            <option value="openai">OpenAI 兼容 (DeepSeek / 通义千问 / 智谱等)</option>
+                            <option value="claude">Claude 兼容</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-500">Base URL</label>
+                        <input v-model="config.custom_api_base" @change="saveConfig" placeholder="https://api.deepseek.com/v1" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-500">API Key</label>
+                        <input v-model="config.custom_api_key" @change="saveConfig" type="password" placeholder="sk-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-500">Chat 模型名称</label>
+                        <input v-model="config.custom_chat_model" @change="saveConfig" placeholder="deepseek-chat" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-500">Embedding 模型名称（可选）</label>
+                        <input v-model="config.custom_embedding_model" @change="saveConfig" placeholder="text-embedding-3-small" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    </div>
                 </div>
             </div>
             <div class="text-xs text-gray-400 pt-2">

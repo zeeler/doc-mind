@@ -17,7 +17,7 @@ class AppConfigModel(Base):
 
 
 DEFAULTS = {
-    "llm_provider": "mlx",
+    "llm_provider": "mlx",           # "mlx" | "openai" | "claude" | "custom"
     "mlx_chat_model": "",
     "mlx_embedding_model": "",
     "mlx_api_base": "http://localhost:8080/v1",
@@ -27,6 +27,11 @@ DEFAULTS = {
     "openai_api_base": "https://api.openai.com/v1",
     "claude_api_key": "",
     "claude_chat_model": "claude-sonnet-4-6",
+    "custom_api_base": "",
+    "custom_api_key": "",
+    "custom_chat_model": "",
+    "custom_embedding_model": "",
+    "custom_api_type": "openai",     # "openai" | "claude" — API 兼容格式
     "chunk_size": "800",
     "chunk_overlap": "100",
     "retrieval_top_k": "5",

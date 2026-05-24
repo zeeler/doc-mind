@@ -1,4 +1,4 @@
-"""LLM 适配器 — 统一 OpenAI 兼容接口，支持 MLX / OpenAI / Claude。"""
+"""LLM 适配器 — 支持 MLX / OpenAI / Claude / 第三方兼容接口。"""
 
 from openai import OpenAI
 
@@ -27,6 +27,11 @@ class LLMAdapter:
                 base_url="https://api.anthropic.com/v1",
                 api_key=self._cfg.get("claude_api_key", ""),
             )
+        if self.provider == "custom":
+            return OpenAI(
+                base_url=self._cfg.get("custom_api_base", ""),
+                api_key=self._cfg.get("custom_api_key", ""),
+            )
         raise ValueError(f"不支持的 LLM provider: {self.provider}")
 
     def _get_chat_model(self) -> str:
@@ -36,6 +41,8 @@ class LLMAdapter:
             return self._cfg.get("openai_chat_model", "gpt-4o-mini")
         if self.provider == "claude":
             return self._cfg.get("claude_chat_model", "claude-sonnet-4-6")
+        if self.provider == "custom":
+            return self._cfg.get("custom_chat_model", "")
         return ""
 
     def _get_embedding_model(self) -> str:
@@ -43,6 +50,8 @@ class LLMAdapter:
             return self._cfg.get("mlx_embedding_model", "")
         if self.provider == "openai":
             return self._cfg.get("openai_embedding_model", "text-embedding-3-small")
+        if self.provider == "custom":
+            return self._cfg.get("custom_embedding_model", "")
         return ""
 
     @property

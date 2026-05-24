@@ -34,4 +34,7 @@ def get_models():
         models["embedding"].append({"id": config.get("openai_embedding_model", ""), "name": config.get("openai_embedding_model", ""), "source": "openai"})
     elif provider == "claude":
         models["chat"].append({"id": config.get("claude_chat_model", ""), "name": config.get("claude_chat_model", ""), "source": "claude"})
+    elif provider == "custom":
+        models["chat"].append({"id": config.get("custom_chat_model", ""), "name": config.get("custom_chat_model", "未配置"), "source": "custom"})
+        models["embedding"].append({"id": config.get("custom_embedding_model", ""), "name": config.get("custom_embedding_model", "未配置"), "source": "custom"})
     return {"code": "OK", "message": "success", "data": {"models": models, "provider": provider}}
