@@ -8,169 +8,229 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         [v-cloak] { display: none; }
-        .markdown-content p { margin-bottom: 0.5rem; }
+        .markdown-content p { margin-bottom: 0.5rem; line-height: 1.7; }
+        .markdown-content p:last-child { margin-bottom: 0; }
         .markdown-content code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+        .markdown-content strong { font-weight: 600; }
         .typing::after { content: '▊'; animation: blink 1s infinite; }
         @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+        .scrollbar-thin::-webkit-scrollbar { width: 6px; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
-<div id="app" v-cloak>
-    <header class="bg-gradient-to-br from-green-600 to-green-500 text-white px-4 py-4 shadow-md">
-        <div class="max-w-3xl mx-auto flex items-center justify-between">
-            <h1 class="text-lg font-semibold">知识库</h1>
-            <div class="flex gap-2">
-                <button @click="view = 'chat'" :class="view === 'chat' ? 'bg-white/20' : ''" class="px-3 py-1.5 rounded-lg text-sm transition">对话</button>
-                <button @click="view = 'docs'; loadDocuments()" :class="view === 'docs' ? 'bg-white/20' : ''" class="px-3 py-1.5 rounded-lg text-sm transition">文档</button>
-                <button @click="view = 'settings'; loadConfig()" :class="view === 'settings' ? 'bg-white/20' : ''" class="px-3 py-1.5 rounded-lg text-sm transition">设置</button>
+<body class="bg-white h-screen overflow-hidden">
+<div id="app" v-cloak class="h-full flex">
+
+    <!-- ====== 左侧边栏 ====== -->
+    <aside class="w-64 bg-gray-50 flex flex-col border-r border-gray-200 flex-shrink-0">
+        <!-- Logo / 标题 -->
+        <div class="px-4 py-4 flex items-center justify-between">
+            <span class="font-semibold text-gray-800 text-base">知识库</span>
+            <button @click="sidebarCollapsed = !sidebarCollapsed" class="md:hidden text-gray-400 hover:text-gray-600">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+        </div>
+
+        <!-- 新建任务 -->
+        <div class="px-3 pb-2">
+            <button @click="createConversation"
+                class="w-full flex items-center gap-2 px-3 py-2.5 bg-gray-200/70 hover:bg-gray-200 text-gray-700 rounded-lg text-sm transition">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                新建任务
+            </button>
+        </div>
+
+        <!-- 分割线 -->
+        <div class="mx-3 border-t border-gray-200"></div>
+
+        <!-- 任务列表 -->
+        <nav class="flex-1 overflow-y-auto scrollbar-thin px-2 py-2 space-y-0.5">
+            <div v-for="conv in conversations" :key="conv.id"
+                 @click="openConversation(conv.id)"
+                 :class="['px-3 py-2.5 rounded-lg cursor-pointer text-sm transition truncate',
+                          currentConversation === conv.id ? 'bg-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100']">
+                {{ conv.title }}
+            </div>
+            <div v-if="conversations.length === 0" class="text-gray-400 text-xs text-center py-8">
+                暂无任务
+            </div>
+        </nav>
+
+        <!-- 底部菜单 -->
+        <div class="px-3 py-3 border-t border-gray-200 space-y-0.5">
+            <button @click="view = 'docs'; loadDocuments()" :class="['w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition', view === 'docs' ? 'bg-gray-200 text-gray-900' : 'text-gray-500 hover:bg-gray-100']">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                文档管理
+            </button>
+            <button @click="view = 'settings'; loadConfig()" :class="['w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition', view === 'settings' ? 'bg-gray-200 text-gray-900' : 'text-gray-500 hover:bg-gray-100']">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                设置
+            </button>
+        </div>
+    </aside>
+
+    <!-- ====== 右侧主区域 ====== -->
+    <div class="flex-1 flex flex-col min-w-0">
+
+        <!-- 文档管理视图 -->
+        <div v-if="view === 'docs'" class="flex-1 overflow-y-auto scrollbar-thin">
+            <div class="max-w-3xl mx-auto p-6 space-y-4">
+                <h2 class="text-lg font-semibold text-gray-800">文档管理</h2>
+                <label class="block bg-white rounded-xl shadow-sm border-2 border-dashed border-gray-200 p-8 text-center cursor-pointer hover:border-green-400 transition">
+                    <input type="file" @change="uploadFile" accept=".pdf,.docx,.md,.txt,.markdown" class="hidden" :disabled="uploading">
+                    <div v-if="uploading" class="text-gray-400">上传中...</div>
+                    <div v-else class="text-gray-400">拖拽文件到此处 或 点击上传<br><span class="text-xs">支持 PDF / Word / Markdown / TXT</span></div>
+                </label>
+                <div v-for="doc in documents" :key="doc.id" class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
+                    <div class="flex-1 min-w-0">
+                        <div class="font-medium text-gray-800 truncate">{{ doc.title }}</div>
+                        <div class="text-xs text-gray-400 mt-1">{{ doc.file_type }} · {{ formatSize(doc.file_size) }} · <span :class="statusColor(doc.status)">{{ statusLabel(doc.status) }}</span> · {{ doc.chunk_count }} 块</div>
+                    </div>
+                    <button @click="deleteDocument(doc.id)" class="text-red-400 hover:text-red-600 text-sm ml-4 transition">删除</button>
+                </div>
+                <div v-if="documents.length === 0 && !uploading" class="text-center text-gray-400 py-12">
+                    还没有文档，上传你的第一个文档吧
+                </div>
             </div>
         </div>
-    </header>
 
-    <main class="max-w-3xl mx-auto p-4">
-        <!-- Chat View -->
-        <div v-if="view === 'chat'" class="space-y-4">
-            <div v-if="!currentConversation" class="space-y-4">
-                <button @click="createConversation" class="w-full py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 transition">
-                    + 新建对话
-                </button>
-                <div v-for="conv in conversations" :key="conv.id"
-                     @click="openConversation(conv.id)"
-                     class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition">
-                    <div class="font-medium text-gray-800">{{ conv.title }}</div>
-                    <div class="text-sm text-gray-400 mt-1">{{ conv.created_at?.slice(0, 10) }} · {{ conv.message_count }} 条消息</div>
-                </div>
-                <div v-if="conversations.length === 0" class="text-center text-gray-400 py-12">
-                    还没有对话，上传文档后开始提问吧
-                </div>
-            </div>
-
-            <div v-if="currentConversation" class="space-y-4">
-                <button @click="currentConversation = null; messages = []" class="text-sm text-gray-500 hover:text-gray-700 transition">
-                    ← 返回列表
-                </button>
-                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 min-h-[60vh] max-h-[60vh] overflow-y-auto space-y-4" ref="chatContainer">
-                    <div v-for="msg in messages" :key="msg.id" class="space-y-2">
-                        <div v-if="msg.role === 'user'" class="flex justify-end">
-                            <div class="bg-green-50 text-gray-800 px-4 py-2.5 rounded-2xl rounded-br-md max-w-[80%] text-sm">{{ msg.content }}</div>
+        <!-- 设置视图 -->
+        <div v-if="view === 'settings'" class="flex-1 overflow-y-auto scrollbar-thin">
+            <div class="max-w-2xl mx-auto p-6">
+                <h2 class="text-lg font-semibold text-gray-800 mb-4">AI 模型配置</h2>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
+                    <div class="space-y-3">
+                        <div>
+                            <label class="text-sm text-gray-500">LLM 提供商</label>
+                            <select v-model="config.llm_provider" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                <option value="mlx">MLX (本地)</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="claude">Claude</option>
+                                <option value="custom">自定义 (第三方)</option>
+                            </select>
                         </div>
-                        <div v-if="msg.role === 'assistant'" class="space-y-2">
-                            <div class="text-gray-800 px-1 text-sm markdown-content" v-html="renderMarkdown(msg.content)"></div>
-                            <div v-if="msg.citations && msg.citations.length" class="flex flex-wrap gap-1.5 px-1">
-                                <span v-for="(cit, i) in msg.citations" :key="i"
-                                      class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-                                    {{ cit.document_title || cit.file_name }}
-                                </span>
+                        <div v-if="config.llm_provider === 'mlx'">
+                            <label class="text-sm text-gray-500">Chat 模型名称</label>
+                            <input v-model="config.mlx_chat_model" placeholder="mlx-community/Qwen2.5-7B-Instruct-4bit" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                            <label class="text-sm text-gray-500 mt-2 block">Embedding 模型名称</label>
+                            <input v-model="config.mlx_embedding_model" placeholder="mlx-community/bge-small-en-mlx" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                            <label class="text-sm text-gray-500 mt-2 block">API 地址</label>
+                            <input v-model="config.mlx_api_base" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                        </div>
+                        <div v-if="config.llm_provider === 'openai'">
+                            <label class="text-sm text-gray-500">API Key</label>
+                            <input v-model="config.openai_api_key" type="password" placeholder="sk-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                        </div>
+                        <div v-if="config.llm_provider === 'claude'">
+                            <label class="text-sm text-gray-500">API Key</label>
+                            <input v-model="config.claude_api_key" type="password" placeholder="sk-ant-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                        </div>
+                        <div v-if="config.llm_provider === 'custom'" class="space-y-3">
+                            <div class="text-xs text-gray-400 bg-blue-50 p-2 rounded-lg">
+                                支持 OpenAI 兼容和 Anthropic 兼容两种格式。DeepSeek 请选择 Anthropic 格式，Base URL 填写 <code class="bg-blue-100 px-1 rounded">https://api.deepseek.com/anthropic</code>
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-500">API 格式</label>
+                                <select v-model="config.custom_api_type" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                    <option value="openai">OpenAI 兼容 (通义千问 / 智谱 / 硅基流动等)</option>
+                                    <option value="anthropic">Anthropic 兼容 (DeepSeek 等)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-500">Base URL</label>
+                                <input v-model="config.custom_api_base" placeholder="https://api.deepseek.com/anthropic" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-500">API Key</label>
+                                <input v-model="config.custom_api_key" type="password" placeholder="sk-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-500">Chat 模型名称</label>
+                                <input v-model="config.custom_chat_model" placeholder="deepseek-v4-pro" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-500">Embedding 模型名称（可选）</label>
+                                <input v-model="config.custom_embedding_model" placeholder="不填则使用内置 embedding" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
                             </div>
                         </div>
                     </div>
-                    <div v-if="streaming" class="text-gray-800 text-sm markdown-content" v-html="renderMarkdown(streamContent) + '<span class=typing></span>'"></div>
+                    <div class="flex gap-2">
+                        <button @click="saveConfig" class="flex-1 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">保存配置</button>
+                        <button @click="testConnection" class="flex-1 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200 transition">{{ testing ? '测试中...' : '测试连接' }}</button>
+                    </div>
+                    <div v-if="saved" class="text-green-600 text-xs text-center">✓ 已保存</div>
+                    <div v-if="testResult" :class="testResult.ok ? 'text-green-600' : 'text-red-500'" class="text-xs">{{ testResult.msg }}</div>
                 </div>
-                <form @submit.prevent="sendMessage" class="flex gap-2">
-                    <input v-model="input" type="text" placeholder="输入问题..." :disabled="streaming"
-                           class="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-50">
-                    <button type="submit" :disabled="!input.trim() || streaming"
-                            class="px-5 py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 disabled:opacity-40 transition text-sm">
-                        发送
-                    </button>
-                </form>
             </div>
         </div>
 
-        <!-- Docs View -->
-        <div v-if="view === 'docs'" class="space-y-4">
-            <label class="block bg-white rounded-xl shadow-sm border-2 border-dashed border-gray-200 p-8 text-center cursor-pointer hover:border-green-400 transition">
-                <input type="file" @change="uploadFile" accept=".pdf,.docx,.md,.txt,.markdown" class="hidden" :disabled="uploading">
-                <div v-if="uploading" class="text-gray-400">上传中...</div>
-                <div v-else class="text-gray-400">拖拽文件到此处 或 点击上传<br><span class="text-xs">支持 PDF / Word / Markdown / TXT</span></div>
-            </label>
-            <div v-for="doc in documents" :key="doc.id" class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
-                <div class="flex-1 min-w-0">
-                    <div class="font-medium text-gray-800 truncate">{{ doc.title }}</div>
-                    <div class="text-xs text-gray-400 mt-1">{{ doc.file_type }} · {{ formatSize(doc.file_size) }} · <span :class="statusColor(doc.status)">{{ statusLabel(doc.status) }}</span> · {{ doc.chunk_count }} 块</div>
+        <!-- ====== 对话视图（默认） ====== -->
+        <template v-if="view === 'chat'">
+            <!-- 无任务时：居中引导 -->
+            <div v-if="!currentConversation" class="flex-1 flex items-center justify-center">
+                <div class="text-center">
+                    <div class="text-5xl mb-4">💬</div>
+                    <div class="text-gray-500 text-lg mb-2">知识库助手</div>
+                    <div class="text-gray-400 text-sm">上传文档后即可开始提问</div>
                 </div>
-                <button @click="deleteDocument(doc.id)" class="text-red-400 hover:text-red-600 text-sm ml-4 transition">删除</button>
             </div>
-            <div v-if="documents.length === 0 && !uploading" class="text-center text-gray-400 py-12">
-                还没有文档，上传你的第一个文档吧
-            </div>
-        </div>
 
-        <!-- Settings View -->
-        <div v-if="view === 'settings'" class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
-            <h2 class="font-semibold text-gray-800">AI 模型配置</h2>
-            <div class="space-y-3">
-                <div>
-                    <label class="text-sm text-gray-500">LLM 提供商</label>
-                    <select v-model="config.llm_provider" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                        <option value="mlx">MLX (本地)</option>
-                        <option value="openai">OpenAI</option>
-                        <option value="claude">Claude</option>
-                        <option value="custom">自定义 (第三方)</option>
-                    </select>
+            <!-- 有任务时：聊天区域 -->
+            <div v-if="currentConversation" class="flex-1 flex flex-col min-h-0">
+                <!-- 消息列表 -->
+                <div class="flex-1 overflow-y-auto scrollbar-thin px-4 py-4" ref="chatContainer">
+                    <div class="max-w-3xl mx-auto space-y-6">
+                        <div v-for="msg in messages" :key="msg.id">
+                            <!-- 用户消息 -->
+                            <div v-if="msg.role === 'user'" class="flex justify-end">
+                                <div class="bg-gray-100 text-gray-800 px-4 py-2.5 rounded-2xl rounded-br-md max-w-[75%] text-sm leading-relaxed">{{ msg.content }}</div>
+                            </div>
+                            <!-- 助手消息 -->
+                            <div v-if="msg.role === 'assistant'" class="flex gap-3">
+                                <div class="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <span class="text-green-600 text-xs font-semibold">AI</span>
+                                </div>
+                                <div class="min-w-0 space-y-2">
+                                    <div class="text-gray-800 text-sm markdown-content" v-html="renderMarkdown(msg.content)"></div>
+                                    <div v-if="msg.citations && msg.citations.length" class="flex flex-wrap gap-1.5">
+                                        <span v-for="(cit, i) in msg.citations" :key="i"
+                                              class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+                                            {{ cit.document_title || cit.file_name }}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- 流式输出 -->
+                        <div v-if="streaming" class="flex gap-3">
+                            <div class="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <span class="text-green-600 text-xs font-semibold">AI</span>
+                            </div>
+                            <div class="text-gray-800 text-sm markdown-content" v-html="renderMarkdown(streamContent) + '<span class=typing></span>'"></div>
+                        </div>
+                    </div>
                 </div>
-                <div v-if="config.llm_provider === 'mlx'">
-                    <label class="text-sm text-gray-500">Chat 模型名称</label>
-                    <input v-model="config.mlx_chat_model" placeholder="mlx-community/Qwen2.5-7B-Instruct-4bit" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                    <label class="text-sm text-gray-500 mt-2 block">Embedding 模型名称</label>
-                    <input v-model="config.mlx_embedding_model" placeholder="mlx-community/bge-small-en-mlx" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                    <label class="text-sm text-gray-500 mt-2 block">API 地址</label>
-                    <input v-model="config.mlx_api_base" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                </div>
-                <div v-if="config.llm_provider === 'openai'">
-                    <label class="text-sm text-gray-500">API Key</label>
-                    <input v-model="config.openai_api_key" type="password" placeholder="sk-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                </div>
-                <div v-if="config.llm_provider === 'claude'">
-                    <label class="text-sm text-gray-500">API Key</label>
-                    <input v-model="config.claude_api_key" type="password" placeholder="sk-ant-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                </div>
-                <div v-if="config.llm_provider === 'custom'" class="space-y-3">
-                    <div class="text-xs text-gray-400 bg-blue-50 p-2 rounded-lg">
-                        支持 OpenAI 兼容和 Anthropic 兼容两种格式。DeepSeek 请选择 Anthropic 格式，Base URL 填写 <code class="bg-blue-100 px-1 rounded">https://api.deepseek.com/anthropic</code>
-                    </div>
-                    <div>
-                        <label class="text-sm text-gray-500">API 格式</label>
-                        <select v-model="config.custom_api_type" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                            <option value="openai">OpenAI 兼容 (通义千问 / 智谱 / 硅基流动等)</option>
-                            <option value="anthropic">Anthropic 兼容 (DeepSeek 等)</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="text-sm text-gray-500">Base URL</label>
-                        <input v-model="config.custom_api_base" placeholder="https://api.deepseek.com/anthropic" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                    </div>
-                    <div>
-                        <label class="text-sm text-gray-500">API Key</label>
-                        <input v-model="config.custom_api_key" type="password" placeholder="sk-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                    </div>
-                    <div>
-                        <label class="text-sm text-gray-500">Chat 模型名称</label>
-                        <input v-model="config.custom_chat_model" placeholder="deepseek-v4-pro" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                    </div>
-                    <div>
-                        <label class="text-sm text-gray-500">Embedding 模型名称（可选，留空使用内置 embedding）</label>
-                        <input v-model="config.custom_embedding_model" placeholder="不填则使用内置 embedding" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                    </div>
+
+                <!-- 输入区域 -->
+                <div class="border-t border-gray-100 px-4 py-3">
+                    <form @submit.prevent="sendMessage" class="max-w-3xl mx-auto">
+                        <div class="flex items-end gap-2 bg-white border border-gray-200 rounded-2xl px-4 py-2 shadow-sm focus-within:ring-2 focus-within:ring-green-500 focus-within:border-transparent transition">
+                            <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage" placeholder="基于知识库提问..." :disabled="streaming"
+                                rows="1" class="flex-1 resize-none text-sm py-1.5 outline-none bg-transparent disabled:opacity-40"
+                                style="max-height:120px" ref="inputEl"></textarea>
+                            <button type="submit" :disabled="!input.trim() || streaming"
+                                class="w-8 h-8 flex items-center justify-center rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-30 transition flex-shrink-0">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14m-4-4l4 4-4 4"/></svg>
+                            </button>
+                        </div>
+                    </form>
+                    <div class="text-center text-xs text-gray-400 mt-2">AI 回答可能存在错误，请核实重要信息</div>
                 </div>
             </div>
-            <div class="flex gap-2">
-                <button @click="saveConfig" class="flex-1 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">
-                    保存配置
-                </button>
-                <button @click="testConnection" class="flex-1 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200 transition">
-                    {{ testing ? '测试中...' : '测试连接' }}
-                </button>
-            </div>
-            <div v-if="saved" class="text-green-600 text-xs text-center -mt-2">✓ 已保存</div>
-            <div v-if="testResult" :class="testResult.ok ? 'text-green-600' : 'text-red-500'" class="text-xs mt-1">
-                {{ testResult.msg }}
-            </div>
-            <div class="text-xs text-gray-400 pt-2">
-                切换提供商后需刷新页面重新加载模型。
-            </div>
-        </div>
-    </main>
+        </template>
+
+    </div>
 </div>
 
 <script>
@@ -189,6 +249,7 @@ PetiteVue.createApp({
     testResult: null,
     saved: false,
     config: {},
+    sidebarCollapsed: false,
 
     async mounted() {
         await this.loadConversations();
@@ -204,15 +265,22 @@ PetiteVue.createApp({
     async createConversation() {
         const res = await fetch('/api/v1/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
         const data = await res.json();
+        this.view = 'chat';
         this.openConversation(data.data.id);
     },
 
     async openConversation(id) {
         const res = await fetch(`/api/v1/conversations/${id}`);
         const data = await res.json();
+        this.view = 'chat';
         this.currentConversation = id;
         this.messages = data.data.messages || [];
-        this.$nextTick(() => { const el = this.$refs.chatContainer; if (el) el.scrollTop = el.scrollHeight; });
+        this.$nextTick(() => { this.scrollBottom(); });
+    },
+
+    scrollBottom() {
+        const el = this.$refs.chatContainer;
+        if (el) el.scrollTop = el.scrollHeight;
     },
 
     async sendMessage() {
@@ -223,6 +291,7 @@ PetiteVue.createApp({
         this.streaming = true;
         this.streamContent = '';
         this.streamError = '';
+        this.$nextTick(() => { this.scrollBottom(); });
 
         try {
             const res = await fetch('/api/v1/chat/stream', {
@@ -257,7 +326,7 @@ PetiteVue.createApp({
                                 this.streamError = payload.message || '未知错误';
                             } else if (payload.type === 'token') {
                                 this.streamContent += payload.content;
-                                this.$nextTick(() => { const el = this.$refs.chatContainer; if (el) el.scrollTop = el.scrollHeight; });
+                                this.$nextTick(() => { this.scrollBottom(); });
                             }
                         } catch(e) {}
                     }
@@ -323,12 +392,7 @@ PetiteVue.createApp({
         this.testing = true;
         this.testResult = null;
         try {
-            // 创建临时会话
-            const convRes = await fetch('/api/v1/conversations', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: '{}',
-            });
+            const convRes = await fetch('/api/v1/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
             const convData = await convRes.json();
             const convId = convData.data.id;
 
