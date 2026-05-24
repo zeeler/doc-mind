@@ -45,6 +45,26 @@ def list_conversations(session: Session = Depends(get_session)):
     }
 
 
+@router.put("/{conv_id}")
+def update_conversation(conv_id: str, body: dict, session: Session = Depends(get_session)):
+    conv = session.get(Conversation, conv_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    if "title" in body and body["title"].strip():
+        conv.title = body["title"].strip()
+        session.commit()
+    return {
+        "code": "OK",
+        "message": "success",
+        "data": {
+            "id": conv.id,
+            "title": conv.title,
+            "status": conv.status,
+            "created_at": conv.created_at.isoformat(),
+        },
+    }
+
+
 @router.get("/{conv_id}")
 def get_conversation(conv_id: str, session: Session = Depends(get_session)):
     conv = session.get(Conversation, conv_id)

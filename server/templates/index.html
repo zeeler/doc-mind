@@ -46,11 +46,18 @@
 
         <!-- 任务列表 -->
         <nav class="flex-1 overflow-y-auto scrollbar-thin px-2 py-2 space-y-0.5">
-            <div v-for="conv in conversations" :key="conv.id"
-                 @click="openConversation(conv.id)"
-                 :class="['px-3 py-2.5 rounded-lg cursor-pointer text-sm transition truncate',
-                          currentConversation === conv.id ? 'bg-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100']">
-                {{ conv.title }}
+            <div v-for="conv in conversations" :key="conv.id">
+                <div v-if="editingConvId !== conv.id"
+                     @click="openConversation(conv.id)"
+                     @dblclick="startRename(conv)"
+                     :class="['px-3 py-2.5 rounded-lg cursor-pointer text-sm transition truncate',
+                              currentConversation === conv.id ? 'bg-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100']">
+                    {{ conv.title }}
+                </div>
+                <form v-else @submit.prevent="finishRename(conv.id)" class="px-2">
+                    <input v-model="editingConvTitle" @blur="finishRename(conv.id)" @keydown.escape="editingConvId = null"
+                           class="w-full px-2 py-1.5 text-sm border border-green-400 rounded-lg outline-none focus:ring-1 focus:ring-green-500">
+                </form>
             </div>
             <div v-if="conversations.length === 0" class="text-gray-400 text-xs text-center py-8">
                 暂无任务
@@ -166,7 +173,7 @@
         </div>
 
         <!-- ====== 对话视图（默认） ====== -->
-        <template v-if="view === 'chat'">
+        <div v-if="view === 'chat'">
             <!-- 无任务时：居中引导 -->
             <div v-if="!currentConversation" class="flex-1 flex items-center justify-center">
                 <div class="text-center">
@@ -177,7 +184,7 @@
             </div>
 
             <!-- 有任务时：聊天区域 -->
-            <div v-if="currentConversation" class="flex-1 flex flex-col min-h-0">
+            <div v-if="currentConversation" class="flex-1 flex flex-col min-h-0" style="height:100%">
                 <!-- 消息列表 -->
                 <div class="flex-1 overflow-y-auto scrollbar-thin px-4 py-4" ref="chatContainer">
                     <div class="max-w-3xl mx-auto space-y-6">
@@ -228,7 +235,7 @@
                     <div class="text-center text-xs text-gray-400 mt-2">AI 回答可能存在错误，请核实重要信息</div>
                 </div>
             </div>
-        </template>
+        </div>
 
     </div>
 </div>
@@ -250,6 +257,8 @@ PetiteVue.createApp({
     saved: false,
     config: {},
     sidebarCollapsed: false,
+    editingConvId: null,
+    editingConvTitle: '',
 
     async mounted() {
         await this.loadConversations();
@@ -276,6 +285,28 @@ PetiteVue.createApp({
         this.currentConversation = id;
         this.messages = data.data.messages || [];
         this.$nextTick(() => { this.scrollBottom(); });
+    },
+
+    startRename(conv) {
+        this.editingConvId = conv.id;
+        this.editingConvTitle = conv.title;
+        this.$nextTick(() => {
+            const inp = document.querySelector('nav input');
+            if (inp) { inp.focus(); inp.select(); }
+        });
+    },
+
+    async finishRename(convId) {
+        const title = (this.editingConvTitle || '').trim();
+        this.editingConvId = null;
+        this.editingConvTitle = '';
+        if (!title) return;
+        await fetch(`/api/v1/conversations/${convId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title }),
+        });
+        await this.loadConversations();
     },
 
     scrollBottom() {
