@@ -69,11 +69,20 @@ def _ocr_tesseract(doc) -> str:
         logger.warning("pytesseract 未安装，跳过 OCR。pip install pytesseract Pillow")
         return ""
 
+    # 探测可用语言，优先中英文混合
+    try:
+        available = pytesseract.get_languages()
+    except Exception:
+        available = ["eng"]
+    lang = "chi_sim+eng" if "chi_sim" in available else "eng"
+    if "chi_sim" not in available:
+        logger.warning("Tesseract 缺少中文语言包，仅使用英文 OCR。安装: brew install tesseract-lang")
+
     parts = []
     for page in doc:
         pix = page.get_pixmap(dpi=200)
         img = Image.open(io.BytesIO(pix.tobytes("png")))
-        text = pytesseract.image_to_string(img, lang="chi_sim+eng")
+        text = pytesseract.image_to_string(img, lang=lang)
         if text.strip():
             parts.append(text.strip())
     return "\n\n".join(parts)
