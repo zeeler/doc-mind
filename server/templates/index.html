@@ -262,15 +262,19 @@ PetiteVue.createApp({
     editingConvId: null,
     editingConvTitle: '',
 
-    async mounted() {
-        await this.loadConversations();
-        await this.loadConfig();
+    mounted() {
+        this.loadConversations();
+        this.loadConfig();
     },
 
     async loadConversations() {
-        const res = await fetch('/api/v1/conversations');
-        const data = await res.json();
-        this.conversations = data.data || [];
+        try {
+            const res = await fetch('/api/v1/conversations');
+            const data = await res.json();
+            this.conversations = data.data || [];
+        } catch(e) {
+            console.error('加载任务列表失败:', e);
+        }
     },
 
     async createConversation() {
