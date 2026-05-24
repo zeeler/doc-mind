@@ -1,7 +1,13 @@
 """知识库应用入口。"""
 
+import sys
 import logging
 from pathlib import Path
+
+# 确保项目根目录在 sys.path 中，支持直接 python server/main.py 启动
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from server.database import init_db, get_engine
