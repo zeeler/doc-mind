@@ -1,6 +1,7 @@
 """对话路由 — 同步问答 + SSE 流式问答。"""
 
 import json
+import logging
 import uuid
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
@@ -12,6 +13,7 @@ from server.services.rag import RAGService
 from server.services.retriever import Retriever
 from server.vector.store import VectorStore
 
+logger = logging.getLogger("knowledge-base")
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
 
@@ -50,6 +52,7 @@ def chat_ask(body: dict, session: Session = Depends(get_session)):
         rag = _get_rag_service(DATA_DIR)
         result = rag.ask_sync(question)
     except Exception as e:
+        logger.error(f"LLM 调用失败: {e}", exc_info=True)
         session.commit()
         raise HTTPException(status_code=502, detail=f"LLM 调用失败: {str(e)}")
 
@@ -97,7 +100,11 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
         conv.title = question[:50] + ("..." if len(question) > 50 else "")
     session.commit()
 
-    rag = _get_rag_service(DATA_DIR)
+    try:
+        rag = _get_rag_service(DATA_DIR)
+    except Exception as e:
+        logger.error(f"RAG 服务初始化失败: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"RAG 服务初始化失败: {str(e)}")
 
     async def event_stream():
         full_answer = ""
@@ -114,7 +121,8 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
                 elif chunk["type"] == "done":
                     pass
         except Exception as e:
-            yield {"event": "error", "data": json.dumps({"message": str(e)}, ensure_ascii=False)}
+            logger.error(f"LLM 流式调用失败: {e}", exc_info=True)
+            yield {"event": "error", "data": json.dumps({"message": f"LLM 调用失败: {str(e)}"}, ensure_ascii=False)}
         finally:
             with next(get_session()) as s:
                 assistant_msg = Message(

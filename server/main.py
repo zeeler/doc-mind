@@ -1,5 +1,6 @@
 """知识库应用入口。"""
 
+import logging
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +13,14 @@ from server.routers.documents import router as documents_router
 from server.routers.conversations import router as conversations_router
 from server.routers.chat import router as chat_router
 from server.routers.config import router as config_router
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger("knowledge-base")
 
 app = FastAPI(title="知识库", version="0.1.0")
 
@@ -55,7 +64,7 @@ def startup():
 if __name__ == "__main__":
     import uvicorn
     startup()
-    print("✓ SQLite 就绪")
-    print("✓ ChromaDB 就绪")
-    print("知识库服务已启动: http://localhost:8000")
-    uvicorn.run("server.main:app", host="0.0.0.0", port=8000, reload=True)
+    logger.info("SQLite 就绪")
+    logger.info("ChromaDB 就绪")
+    logger.info("知识库服务已启动: http://localhost:8000")
+    uvicorn.run("server.main:app", host="0.0.0.0", port=8000, reload=False, log_level="info")

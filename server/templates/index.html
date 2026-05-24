@@ -126,12 +126,8 @@
                     <input v-model="config.claude_api_key" @change="saveConfig" type="password" placeholder="sk-ant-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
                 </div>
                 <div v-if="config.llm_provider === 'custom'" class="space-y-3">
-                    <div>
-                        <label class="text-sm text-gray-500">API 兼容模式</label>
-                        <select v-model="config.custom_api_type" @change="saveConfig" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                            <option value="openai">OpenAI 兼容 (DeepSeek / 通义千问 / 智谱等)</option>
-                            <option value="claude">Claude 兼容</option>
-                        </select>
+                    <div class="text-xs text-gray-400 bg-blue-50 p-2 rounded-lg">
+                        OpenAI 兼容接口，适用于 DeepSeek、通义千问、智谱等第三方 API。Claude 请在上方选择 Claude 提供商。
                     </div>
                     <div>
                         <label class="text-sm text-gray-500">Base URL</label>
@@ -146,10 +142,16 @@
                         <input v-model="config.custom_chat_model" @change="saveConfig" placeholder="deepseek-chat" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
                     </div>
                     <div>
-                        <label class="text-sm text-gray-500">Embedding 模型名称（可选）</label>
-                        <input v-model="config.custom_embedding_model" @change="saveConfig" placeholder="text-embedding-3-small" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                        <label class="text-sm text-gray-500">Embedding 模型名称（可选，留空使用内置 embedding）</label>
+                        <input v-model="config.custom_embedding_model" @change="saveConfig" placeholder="不填则使用内置 embedding" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
                     </div>
                 </div>
+            </div>
+            <button @click="testConnection" class="w-full py-2 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200 transition">
+                {{ testing ? '测试中...' : '测试连接' }}
+            </button>
+            <div v-if="testResult" :class="testResult.ok ? 'text-green-600' : 'text-red-500'" class="text-xs mt-1">
+                {{ testResult.msg }}
             </div>
             <div class="text-xs text-gray-400 pt-2">
                 切换提供商后需刷新页面重新加载模型。
@@ -167,8 +169,11 @@ PetiteVue.createApp({
     input: '',
     streaming: false,
     streamContent: '',
+    streamError: '',
     documents: [],
     uploading: false,
+    testing: false,
+    testResult: null,
     config: {},
 
     async mounted() {
@@ -203,6 +208,7 @@ PetiteVue.createApp({
         this.messages.push({ id: Date.now().toString(), role: 'user', content: question });
         this.streaming = true;
         this.streamContent = '';
+        this.streamError = '';
 
         try {
             const res = await fetch('/api/v1/chat/stream', {
@@ -211,8 +217,9 @@ PetiteVue.createApp({
                 body: JSON.stringify({ conversation_id: this.currentConversation, question }),
             });
             if (!res.ok) {
-                const err = await res.json();
-                this.messages.push({ id: Date.now().toString(), role: 'assistant', content: '请求失败: ' + (err.detail || res.statusText), citations: [] });
+                let detail = res.statusText;
+                try { const err = await res.json(); detail = err.detail || detail; } catch(e) {}
+                this.messages.push({ id: Date.now().toString(), role: 'assistant', content: '❌ 请求失败: ' + detail, citations: [] });
                 this.streaming = false;
                 return;
             }
@@ -233,7 +240,7 @@ PetiteVue.createApp({
                         try {
                             const payload = JSON.parse(line.slice(6));
                             if (currentEvent === 'error') {
-                                this.streamContent = '错误: ' + (payload.message || '未知错误');
+                                this.streamError = payload.message || '未知错误';
                             } else if (payload.type === 'token') {
                                 this.streamContent += payload.content;
                                 this.$nextTick(() => { const el = this.$refs.chatContainer; if (el) el.scrollTop = el.scrollHeight; });
@@ -243,13 +250,18 @@ PetiteVue.createApp({
                 }
             }
         } catch(e) {
-            this.streamContent = '网络错误: ' + e.message;
+            this.streamError = '网络连接失败: ' + e.message;
         }
         this.streaming = false;
-        if (this.streamContent) {
-            this.messages.push({ id: Date.now().toString(), role: 'assistant', content: this.streamContent, citations: [] });
+        let finalContent = this.streamContent;
+        if (this.streamError) {
+            finalContent = this.streamContent + '\n\n---\n❌ **错误**: ' + this.streamError;
+        }
+        if (finalContent) {
+            this.messages.push({ id: Date.now().toString(), role: 'assistant', content: finalContent, citations: [] });
         }
         this.streamContent = '';
+        this.streamError = '';
         await this.openConversation(this.currentConversation);
         await this.loadConversations();
     },
@@ -289,6 +301,36 @@ PetiteVue.createApp({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(this.config),
         });
+    },
+
+    async testConnection() {
+        this.testing = true;
+        this.testResult = null;
+        try {
+            // 创建临时会话
+            const convRes = await fetch('/api/v1/conversations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}',
+            });
+            const convData = await convRes.json();
+            const convId = convData.data.id;
+
+            const res = await fetch('/api/v1/chat/ask', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ conversation_id: convId, question: '你好，请用一句话介绍自己' }),
+            });
+            const data = await res.json();
+            if (res.ok && data.data && data.data.answer) {
+                this.testResult = { ok: true, msg: '✓ 连接成功: ' + data.data.answer.slice(0, 80) + '...' };
+            } else {
+                this.testResult = { ok: false, msg: '✗ 失败: ' + (data.detail || data.message || res.statusText) };
+            }
+        } catch(e) {
+            this.testResult = { ok: false, msg: '✗ 网络错误: ' + e.message };
+        }
+        this.testing = false;
     },
 
     renderMarkdown(text) {

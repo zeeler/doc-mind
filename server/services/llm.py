@@ -1,6 +1,9 @@
 """LLM 适配器 — 支持 MLX / OpenAI / Claude / 第三方兼容接口。"""
 
+import logging
 from openai import OpenAI
+
+logger = logging.getLogger("knowledge-base")
 
 
 class LLMAdapter:
@@ -10,6 +13,10 @@ class LLMAdapter:
         self._client = self._build_client()
         self.chat_model = self._get_chat_model()
         self.embedding_model = self._get_embedding_model()
+
+        # 输出当前配置便于调试
+        base = str(self._client.base_url) if hasattr(self._client, 'base_url') else "unknown"
+        logger.info(f"LLM 适配器: provider={self.provider}, chat_model={self.chat_model}, base_url={base}")
 
     def _build_client(self) -> OpenAI:
         if self.provider == "mlx":
