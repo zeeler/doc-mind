@@ -286,8 +286,8 @@ function renderTaskList(conversations, currentConversation, openFn, renameFn) {
         div.className = 'task-item px-3 py-2.5 rounded-lg cursor-pointer text-sm transition truncate ' +
             (currentConversation === conv.id ? 'bg-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100');
         div.textContent = conv.title;
-        div.addEventListener('click', () => openFn(conv.id));
-        div.addEventListener('dblclick', () => renameFn(conv));
+        if (openFn) div.addEventListener('click', () => openFn(conv.id));
+        if (renameFn) div.addEventListener('dblclick', () => renameFn(conv));
         nav.appendChild(div);
     });
 }
@@ -314,20 +314,18 @@ PetiteVue.createApp({
     editingConvTitle: '',
 
     mounted() {
-        // 服务端注入的初始数据
         if (window.__INIT__) {
             const init = window.__INIT__;
-            if (init.conversations && init.conversations.length > 0) {
-                this.conversations = init.conversations;
-                renderTaskList(this.conversations, this.currentConversation, (cid) => this.openConversation(cid), (conv) => this.startRename(conv));
-            }
             if (init.config) {
                 this.config = init.config;
                 this.ocrEnabled = init.config.ocr_enabled !== 'false';
             }
         }
-        this.loadConversations();
         this.loadConfig();
+        // 绑定任务列表回调
+        if (window.__bindTaskListCallbacks) {
+            window.__bindTaskListCallbacks(this);
+        }
     },
 
     async loadConversations() {
@@ -602,6 +600,50 @@ PetiteVue.createApp({
         return 'text-blue-500';
     },
 }).mount('#app');
+
+// ===== 兜底：不依赖 PetiteVue 生命周期，直接异步加载任务列表 =====
+(function initTaskList() {
+    let callbacksReady = false;
+    let callbacks = {
+        open: null,
+        rename: null,
+        ctx: null,
+    };
+
+    // 暴露绑定方法，供 PetiteVue mounted 后调用
+    window.__bindTaskListCallbacks = function(ctx) {
+        callbacks.ctx = ctx;
+        callbacks.open = (cid) => ctx.openConversation(cid);
+        callbacks.rename = (c) => ctx.startRename(c);
+        callbacksReady = true;
+        // 绑定完成后立即渲染
+        loadAndRender();
+    };
+
+    async function loadAndRender() {
+        if (!callbacksReady) return;
+        try {
+            const res = await fetch('/api/v1/conversations');
+            if (!res.ok) return;
+            const data = await res.json();
+            const list = data.data || [];
+            if (list.length > 0) {
+                renderTaskList(list, callbacks.ctx.currentConversation, callbacks.open, callbacks.rename);
+            }
+        } catch(e) {
+            console.error('initTaskList 加载失败:', e);
+            setTimeout(loadAndRender, 1000);
+        }
+    }
+
+    // 服务端注入数据立即渲染（不需要回调）
+    if (window.__INIT__ && window.__INIT__.conversations) {
+        renderTaskList(window.__INIT__.conversations, null, null, null);
+    }
+
+    // 延迟加载 API 数据
+    setTimeout(loadAndRender, 200);
+})();
 </script>
 </body>
 </html>
