@@ -5,227 +5,280 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>知识库</title>
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+:root {
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+}
 html { color-scheme: light dark; }
 :root {
-  --radius: 10px;
-  --shadow: 0 1px 3px rgba(0,0,0,.06);
-}
-/* Light theme (default) */
-:root {
-  --bg: #f8f9fa;
-  --sidebar-bg: #f0f2f5;
-  --card: #fff;
+  --bg: #ffffff;
+  --bg-sidebar: #f9fafb;
+  --bg-hover: #f3f4f6;
+  --bg-active: #e5e7eb;
+  --card: #ffffff;
   --border: #e5e7eb;
-  --text: #1f2937;
-  --text2: #6b7280;
-  --text3: #9ca3af;
-  --primary: #10b981;
-  --primary-hover: #059669;
-  --primary-light: #ecfdf5;
-  --bg2: #f3f4f6;
-  --bg3: #f9fafb;
-  --hover: rgba(0,0,0,.05);
-  --hover2: rgba(0,0,0,.08);
-  --shadow-color: rgba(0,0,0,.06);
+  --text: #111827;
+  --text-secondary: #6b7280;
+  --text-tertiary: #9ca3af;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-light: #eff6ff;
+  --primary-ring: rgba(37,99,235,.15);
+  --user-bubble: #f3f4f6;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.04);
+  --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --shadow-lg: 0 4px 6px rgba(0,0,0,.04), 0 2px 4px rgba(0,0,0,.04);
   --danger: #ef4444;
   --danger-bg: #fef2f2;
+  --success: #10b981;
   --info: #3b82f6;
 }
-/* Dark theme */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #111827;
-    --sidebar-bg: #1a1f2e;
-    --card: #1f2937;
-    --border: #374151;
-    --text: #f3f4f6;
-    --text2: #9ca3af;
-    --text3: #6b7280;
-    --primary: #34d399;
-    --primary-hover: #10b981;
-    --primary-light: #064e3b;
-    --bg2: #374151;
-    --bg3: #1f2937;
-    --hover: rgba(255,255,255,.06);
-    --hover2: rgba(255,255,255,.1);
-    --shadow-color: rgba(0,0,0,.3);
+    --bg: #171717;
+    --bg-sidebar: #1a1a1a;
+    --bg-hover: #262626;
+    --bg-active: #333333;
+    --card: #1a1a1a;
+    --border: #333333;
+    --text: #f5f5f5;
+    --text-secondary: #a3a3a3;
+    --text-tertiary: #737373;
+    --primary: #3b82f6;
+    --primary-hover: #60a5fa;
+    --primary-light: #1e293b;
+    --primary-ring: rgba(59,130,246,.2);
+    --user-bubble: #262626;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.2);
+    --shadow: 0 1px 3px rgba(0,0,0,.3);
+    --shadow-lg: 0 4px 6px rgba(0,0,0,.3);
     --danger: #f87171;
     --danger-bg: #450a0a;
+    --success: #34d399;
     --info: #60a5fa;
   }
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font: 14px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color:var(--text); background:var(--bg); height:100vh; overflow:hidden; }
+body { font: 14px/1.6 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color:var(--text); background:var(--bg); height:100vh; overflow:hidden; -webkit-font-smoothing:antialiased; }
 #app { display:flex; height:100vh; }
 
-/* Sidebar */
-.sidebar { width:260px; flex-shrink:0; background:var(--sidebar-bg); display:flex; flex-direction:column; border-right:1px solid var(--border); }
-.sidebar-header { padding:16px; font-weight:700; font-size:16px; color:var(--text); display:flex; align-items:center; gap:8px; }
-.sidebar-header .dot { width:8px; height:8px; border-radius:50%; background:var(--primary); }
-.sidebar-btn { margin:0 12px 12px; padding:10px 14px; border:none; border-radius:var(--radius); background:var(--primary); color:#fff; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; transition:background .15s; }
-.sidebar-btn:hover { background:var(--primary-hover); }
-.sidebar-btn svg { width:16px; height:16px; }
+/* === Sidebar === */
+.sidebar { width:260px; flex-shrink:0; background:var(--bg-sidebar); display:flex; flex-direction:column; border-right:1px solid var(--border); }
+.sidebar-head { padding:16px 16px 12px; display:flex; align-items:center; justify-content:space-between; }
+.sidebar-logo { font-size:15px; font-weight:700; color:var(--text); letter-spacing:-0.01em; }
+.sidebar-new { margin:0 12px 8px; display:flex; align-items:center; gap:8px; padding:10px 14px; border:none; border-radius:var(--radius); background:var(--bg-hover); color:var(--text); font:13px/1 'Inter',sans-serif; font-weight:500; cursor:pointer; transition:all .15s; }
+.sidebar-new:hover { background:var(--bg-active); }
+.sidebar-new svg { width:16px; height:16px; flex-shrink:0; opacity:.7; }
+.sidebar-divider { margin:0 12px 8px; border:none; border-top:1px solid var(--border); }
 .task-list { flex:1; overflow-y:auto; padding:0 8px; }
-.task-item { padding:10px 14px; border-radius:var(--radius); cursor:pointer; font-size:13px; color:var(--text2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:2px; transition:all .1s; }
-.task-item:hover { background:var(--hover); color:var(--text); }
-.task-item.active { background:var(--hover2); color:var(--text); font-weight:500; }
-.task-item input { width:100%; padding:4px 8px; border:1.5px solid var(--primary); border-radius:6px; font-size:13px; outline:none; }
-.task-empty { text-align:center; padding:30px 12px; color:var(--text3); font-size:12px; }
-.sidebar-footer { border-top:1px solid var(--border); padding:10px 8px; display:flex; flex-direction:column; gap:4px; margin-top:4px; }
-.sidebar-footer button { padding:10px 14px; border:none; border-radius:8px; background:none; cursor:pointer; font-size:14px; font-weight:500; color:var(--text2); display:flex; align-items:center; gap:10px; transition:all .15s; }
-.sidebar-footer button:hover { background:var(--hover); color:var(--text); }
+.task-item { padding:10px 12px; border-radius:var(--radius-sm); cursor:pointer; font-size:13px; color:var(--text-secondary); line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word; margin:1px 0; transition:background .1s; }
+.task-item:hover { background:var(--bg-hover); color:var(--text); }
+.task-item.active { background:var(--bg-active); color:var(--text); font-weight:500; }
+.task-item input { width:100%; padding:4px 8px; border:2px solid var(--primary); border-radius:6px; font:13px 'Inter',sans-serif; background:var(--card); color:var(--text); outline:none; }
+.task-empty { text-align:center; padding:32px 16px; color:var(--text-tertiary); font-size:12px; }
+.sidebar-footer { border-top:1px solid var(--border); padding:8px; display:flex; flex-direction:column; gap:2px; }
+.sidebar-footer button { padding:9px 12px; border:none; border-radius:var(--radius-sm); background:none; cursor:pointer; font:13px/1 'Inter',sans-serif; font-weight:500; color:var(--text-secondary); display:flex; align-items:center; gap:10px; transition:all .15s; }
+.sidebar-footer button:hover { background:var(--bg-hover); color:var(--text); }
 .sidebar-footer button.nav-active { background:var(--primary); color:#fff; }
+.sidebar-footer button.nav-active:hover { background:var(--primary-hover); color:#fff; }
+.sidebar-footer svg { width:18px; height:18px; opacity:.7; flex-shrink:0; }
+.sidebar-footer button.nav-active svg { opacity:1; }
 
-/* Main */
-.main { flex:1; display:flex; flex-direction:column; min-width:0; }
-.welcome { flex:1; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:12px; color:var(--text3); }
-.welcome-icon { font-size:48px; opacity:.6; }
+/* === Main === */
+.main { flex:1; display:flex; flex-direction:column; min-width:0; background:var(--bg); }
 
-/* Chat */
-.chat-area { flex:1; display:flex; flex-direction:column; }
-.chat-msgs { flex:1; overflow-y:auto; padding:20px; }
-.msg { margin-bottom:20px; animation:fadeIn .2s; }
-@keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
-.msg.user { display:flex; justify-content:flex-end; }
-.msg.user .bubble { background:var(--primary-light); color:var(--text); max-width:70%; padding:10px 16px; border-radius:16px 16px 4px 16px; font-size:14px; line-height:1.6; }
-.msg.assistant { display:flex; gap:10px; }
-.msg.assistant .avatar { width:30px; height:30px; border-radius:50%; background:var(--primary); color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-.msg.assistant .bubble { color:var(--text); font-size:14px; line-height:1.7; }
-.msg .citations { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
-.msg .citations span { font-size:11px; background:#f3f4f6; color:var(--text3); padding:2px 10px; border-radius:99px; }
-.chat-input-wrap { padding:12px 20px 20px; }
-.chat-input-inner { display:flex; align-items:flex-end; gap:8px; border:1px solid var(--border); border-radius:16px; padding:8px 14px; background:var(--card); box-shadow:var(--shadow); transition:border-color .2s; }
-.chat-input-inner:focus-within { border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-light); }
-.chat-input-inner textarea { flex:1; border:none; outline:none; resize:none; font-size:14px; font-family:inherit; line-height:1.5; max-height:120px; background:transparent; }
-.chat-input-inner button { width:34px; height:34px; border:none; border-radius:50%; background:var(--primary); color:#fff; cursor:pointer; flex-shrink:0; display:flex; align-items:center; justify-content:center; transition:background .15s; }
-.chat-input-inner button:hover { background:var(--primary-hover); }
-.chat-input-inner button:disabled { opacity:.3; cursor:default; }
+/* === Welcome === */
+.welcome { flex:1; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:16px; }
+.welcome h2 { font-size:22px; font-weight:600; color:var(--text); letter-spacing:-0.02em; }
+.welcome p { font-size:14px; color:var(--text-tertiary); }
 
-/* Docs & Settings */
-.page { flex:1; overflow-y:auto; padding:30px 40px; max-width:720px; }
-.page h2 { font-size:18px; font-weight:700; margin-bottom:16px; }
-.back-link { font-size:13px; color:var(--text3); cursor:pointer; background:none; border:none; margin-bottom:16px; display:block; }
-.back-link:hover { color:var(--text2); }
-.upload-zone { border:2px dashed var(--border); border-radius:var(--radius); padding:32px; text-align:center; color:var(--text3); cursor:pointer; transition:border-color .2s; margin-bottom:16px; }
-.upload-zone:hover { border-color:var(--primary); }
-.doc-card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-.doc-card .info { min-width:0; }
-.doc-card .title { font-weight:500; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.doc-card .meta { font-size:12px; color:var(--text3); margin-top:2px; }
-.doc-card .del-btn { color:var(--danger); font-size:12px; cursor:pointer; background:none; border:none; padding:4px 8px; border-radius:6px; }
-.doc-card .del-btn:hover { background:var(--danger-bg); }
-.settings-card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px; }
-.settings-card h3 { font-size:15px; font-weight:600; margin-bottom:4px; }
-.settings-card .desc { font-size:12px; color:var(--text3); margin-bottom:14px; }
-.field { margin-bottom:12px; }
-.field label { font-size:13px; color:var(--text2); display:block; margin-bottom:4px; }
-.field input, .field select { width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:13px; outline:none; transition:border-color .2s; }
-.field input:focus, .field select:focus { border-color:var(--primary); }
-.btn { padding:8px 16px; border:none; border-radius:8px; font-size:13px; font-weight:500; cursor:pointer; transition:all .15s; }
-.btn-primary { background:var(--primary); color:#fff; width:100%; padding:10px; }
+/* === Chat === */
+.chat-area { flex:1; display:flex; flex-direction:column; max-width:800px; margin:0 auto; width:100%; }
+.chat-msgs { flex:1; overflow-y:auto; padding:20px 32px; scroll-behavior:smooth; }
+.msg { display:flex; gap:16px; padding:16px 0; animation:fadeIn .25s ease; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+.msg.user { flex-direction:row-reverse; }
+.msg .avatar { width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px;font-weight:700; }
+.msg.user .avatar { background:var(--primary); color:#fff; }
+.msg.assistant .avatar { background:var(--bg-hover); color:var(--text-secondary); }
+.msg .content { min-width:0; max-width:85%; }
+.msg.user .content { display:flex; flex-direction:column; align-items:flex-end; }
+.msg.user .bubble { background:var(--user-bubble); color:var(--text); padding:10px 16px; border-radius:var(--radius-lg); font-size:14px; line-height:1.65; }
+.msg.assistant .bubble { color:var(--text); font-size:14px; line-height:1.75; }
+.msg.assistant .bubble p { margin-bottom:.6em; }
+.msg.assistant .bubble p:last-child { margin-bottom:0; }
+.msg.assistant .bubble code { background:var(--bg-hover); padding:2px 6px; border-radius:4px; font-size:.88em; }
+.msg.assistant .bubble pre { background:var(--bg-sidebar); padding:12px 16px; border-radius:var(--radius-sm); overflow-x:auto; margin:8px 0; font-size:13px; line-height:1.5; border:1px solid var(--border); }
+.msg.assistant .bubble pre code { background:none; padding:0; }
+.msg .citations { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
+.msg.user .citations { justify-content:flex-end; }
+.msg .citation { font-size:11px; background:var(--bg-hover); color:var(--text-tertiary); padding:3px 10px; border-radius:99px; border:1px solid var(--border); }
+.msg .typing { display:inline-block; width:6px; height:14px; background:var(--text-tertiary); margin-left:2px; animation:blink .8s infinite; vertical-align:text-bottom; border-radius:1px; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+
+/* === Input === */
+.chat-input-wrap { padding:0 32px 24px; }
+.chat-input-inner { display:flex; align-items:flex-end; gap:8px; border:1px solid var(--border); border-radius:var(--radius-xl); padding:6px 8px 6px 18px; background:var(--card); box-shadow:var(--shadow-sm); transition:all .2s; }
+.chat-input-inner:focus-within { border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-ring); }
+.chat-input-inner textarea { flex:1; border:none; outline:none; resize:none; font:14px/1.5 'Inter',sans-serif; color:var(--text); max-height:160px; padding:6px 0; background:transparent; }
+.chat-input-inner textarea::placeholder { color:var(--text-tertiary); }
+.chat-input-inner button { width:34px;height:34px;border:none;border-radius:50%;background:var(--text);color:var(--bg);cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .15s;opacity:.15; }
+.chat-input-inner button:not(:disabled) { opacity:1; background:var(--primary); color:#fff; }
+.chat-input-inner button:not(:disabled):hover { background:var(--primary-hover); }
+.chat-input-inner button:disabled { cursor:default; }
+.chat-hint { text-align:center; padding:8px 0 0; font-size:11px; color:var(--text-tertiary); }
+
+/* === Page (docs/settings) === */
+.page { flex:1; overflow-y:auto; padding:32px 40px; max-width:760px; }
+.page-back { font-size:13px; color:var(--text-secondary); cursor:pointer; background:none; border:none; display:inline-flex; align-items:center; gap:4px; margin-bottom:20px; padding:6px 10px; border-radius:var(--radius-sm); transition:all .15s; }
+.page-back:hover { background:var(--bg-hover); color:var(--text); }
+.page h2 { font-size:20px; font-weight:700; letter-spacing:-0.02em; margin-bottom:16px; }
+.page-card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:24px; margin-bottom:16px; box-shadow:var(--shadow-sm); }
+.page-card h3 { font-size:16px; font-weight:600; margin-bottom:2px; }
+.page-card .desc { font-size:13px; color:var(--text-tertiary); margin-bottom:16px; }
+
+/* === Upload === */
+.upload-zone { border:2px dashed var(--border); border-radius:var(--radius); padding:40px; text-align:center; color:var(--text-tertiary); cursor:pointer; transition:all .2s; margin-bottom:12px; }
+.upload-zone:hover { border-color:var(--primary); background:var(--primary-light); }
+.upload-zone p { font-size:14px; }
+.upload-zone span { font-size:12px; }
+
+/* === Doc item === */
+.doc-item { padding:14px 16px; border:1px solid var(--border); border-radius:var(--radius-sm); display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; transition:all .15s; }
+.doc-item:hover { border-color:var(--text-tertiary); }
+.doc-info { min-width:0; }
+.doc-title { font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.doc-meta { font-size:12px; color:var(--text-tertiary); margin-top:3px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.doc-del { color:var(--danger); font-size:12px; cursor:pointer; background:none; border:none; padding:6px 10px; border-radius:var(--radius-sm); flex-shrink:0; transition:all .15s; font-family:inherit; }
+.doc-del:hover { background:var(--danger-bg); }
+
+/* === Form === */
+.field { margin-bottom:14px; }
+.field label { font-size:13px; font-weight:500; color:var(--text-secondary); display:block; margin-bottom:5px; }
+.field input, .field select { width:100%; padding:9px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font:13px/1.5 'Inter',sans-serif; color:var(--text); background:var(--bg); outline:none; transition:all .15s; }
+.field input:focus, .field select:focus { border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-ring); }
+.field input::placeholder { color:var(--text-tertiary); }
+
+/* === Buttons === */
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:9px 16px; border:none; border-radius:var(--radius-sm); font:13px/1 'Inter',sans-serif; font-weight:500; cursor:pointer; transition:all .15s; }
+.btn-primary { background:var(--primary); color:#fff; width:100%; }
 .btn-primary:hover { background:var(--primary-hover); }
-.btn-secondary { background:#f3f4f6; color:var(--text2); width:100%; padding:10px; }
-.btn-secondary:hover { background:var(--bg2); }
-.hint { padding:10px 14px; background:#f9fafb; border-radius:8px; font-size:12px; color:var(--text3); margin-top:8px; }
-.success-msg { color:var(--primary); font-size:12px; text-align:center; margin-top:8px; }
-.error-msg { color:var(--danger); font-size:12px; margin-top:4px; }
-.checkbox-label { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text2); cursor:pointer; }
+.btn-ghost { background:var(--bg-hover); color:var(--text-secondary); width:100%; margin-top:12px; }
+.btn-ghost:hover { background:var(--bg-active); color:var(--text); }
+.hint { padding:10px 14px; background:var(--bg-sidebar); border-radius:var(--radius-sm); font-size:12px; color:var(--text-tertiary); line-height:1.5; margin-top:8px; }
+.result-ok { color:var(--success); font-size:12px; margin-top:6px; }
+.result-err { color:var(--danger); font-size:12px; margin-top:6px; }
+
+/* === Scrollbar === */
+::-webkit-scrollbar { width:5px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:99px; }
+::-webkit-scrollbar-thumb:hover { background:var(--text-tertiary); }
+
+/* === Checkbox === */
+.check-lbl { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-secondary); cursor:pointer; }
+.check-lbl input { width:16px;height:16px;accent-color:var(--primary); }
 </style>
 </head>
 <body>
 <div id="app">
-  <!-- Sidebar -->
   <aside class="sidebar">
-    <div class="sidebar-header"><span class="dot"></span>知识库</div>
-    <button class="sidebar-btn" @click="newTask"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14m-7-7h14"/></svg>新建任务</button>
-    <div class="task-list" ref="taskList">
-      <div v-if="conversations.length===0" class="task-empty">暂无任务</div>
-      <div v-for="c in conversations" :key="c.id" @click="openTask(c.id)" @dblclick="renameStart(c)" :class="['task-item', {active: currentConv===c.id}]">
+    <div class="sidebar-head"><span class="sidebar-logo">知识库</span></div>
+    <button class="sidebar-new" @click="newTask">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      新对话
+    </button>
+    <hr class="sidebar-divider">
+    <div class="task-list">
+      <div v-if="conversations.length===0" class="task-empty">暂无对话</div>
+      <div v-for="c in conversations" :key="c.id" @click="openTask(c.id)" @dblclick="renameStart(c)" :class="['task-item',{active:currentConv===c.id}]">
         <template v-if="editingId!==c.id">{{ c.title }}</template>
-        <input v-else v-model="editTitle" @blur="renameDone(c.id)" @keydown.enter="renameDone(c.id)" @keydown.escape="editingId=null" ref="editInput">
+        <input v-else v-model="editTitle" @blur="renameDone(c.id)" @keydown.enter="renameDone(c.id)" @keydown.escape="editingId=null">
       </div>
     </div>
     <div class="sidebar-footer">
-      <button @click="page='docs'" :class="{'nav-active':page==='docs'}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></svg>文档管理</button>
-      <button @click="page='settings'" :class="{'nav-active':page==='settings'}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>设置</button>
+      <button @click="page='docs'" :class="{'nav-active':page==='docs'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8"/></svg>文档管理</button>
+      <button @click="page='settings'" :class="{'nav-active':page==='settings'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>设置</button>
     </div>
   </aside>
 
-  <!-- Main -->
   <div class="main">
     <!-- Chat -->
     <div v-if="page==='chat'" class="chat-area">
       <div v-if="!currentConv" class="welcome">
-        <div class="welcome-icon">&#128172;</div>
-        <div style="font-size:18px;font-weight:600;color:var(--text2)">知识库助手</div>
-        <div style="font-size:13px">上传文档后即可开始提问</div>
+        <h2>知识库助手</h2>
+        <p>上传文档后即可开始提问</p>
       </div>
       <template v-if="currentConv">
         <div class="chat-msgs" ref="msgBox">
-          <div v-for="m in messages" :key="m.id" :class="['msg', m.role]">
-            <div v-if="m.role==='user'" class="bubble">{{ m.content }}</div>
-            <template v-if="m.role==='assistant'">
-              <div class="avatar">AI</div>
-              <div>
-                <div class="bubble" v-html="md(m.content)"></div>
-                <div class="citations" v-if="m.citations&&m.citations.length">
-                  <span v-for="(c,i) in m.citations" :key="i">{{ c.document_title||c.file_name }}</span>
-                </div>
+          <div v-for="m in messages" :key="m.id" :class="['msg',m.role]">
+            <div class="avatar">{{ m.role==='user' ? 'U' : 'AI' }}</div>
+            <div class="content">
+              <div v-if="m.role==='user'" class="bubble">{{ m.content }}</div>
+              <div v-if="m.role==='assistant'" class="bubble" v-html="md(m.content)"></div>
+              <div class="citations" v-if="m.citations&&m.citations.length">
+                <span class="citation" v-for="(c,i) in m.citations" :key="i">{{ c.document_title||c.file_name }}</span>
               </div>
-            </template>
+            </div>
           </div>
           <div v-if="streaming" class="msg assistant">
             <div class="avatar">AI</div>
-            <div class="bubble" v-html="md(streamText)"></div>
+            <div class="content">
+              <div class="bubble" v-html="md(streamText)"><span class="typing"></span></div>
+            </div>
           </div>
         </div>
         <div class="chat-input-wrap">
           <div class="chat-input-inner">
-            <textarea v-model="input" @keydown.enter.exact.prevent="send" placeholder="基于知识库提问..." :disabled="streaming" rows="1" ref="inputEl"></textarea>
-            <button @click="send" :disabled="!input.trim()||streaming"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
+            <textarea v-model="input" @keydown.enter.exact.prevent="send" placeholder="向知识库提问..." :disabled="streaming" rows="1" ref="inputEl"></textarea>
+            <button @click="send" :disabled="!input.trim()||streaming"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
           </div>
+          <div class="chat-hint">AI 回答可能存在错误，请核实重要信息</div>
         </div>
       </template>
     </div>
 
     <!-- Docs -->
     <div v-if="page==='docs'" class="page">
-      <button class="back-link" @click="page='chat'">← 返回对话</button>
+      <button class="page-back" @click="page='chat'">← 返回对话</button>
       <h2>文档管理</h2>
       <div class="upload-zone" @click="$refs.fileInput.click()" @dragover.prevent @drop.prevent="uploadDrop">
         <input type="file" ref="fileInput" @change="uploadFile" accept=".pdf,.docx,.md,.txt,.markdown" style="display:none">
-        {{ uploading ? '上传中...' : '拖拽文件到此处 或 点击上传' }}<br><span style="font-size:12px">支持 PDF / Word / Markdown / TXT</span>
+        <p>{{ uploading ? '上传中...' : '拖拽文件到此处，或点击上传' }}</p>
+        <span>支持 PDF / Word / Markdown / TXT</span>
       </div>
-      <div v-for="d in documents" :key="d.id" class="doc-card">
-        <div class="info">
-          <div class="title">{{ d.title }}</div>
-          <div class="meta">{{ d.file_type }} · {{ fmtSize(d.file_size) }} · <span :style="{color:statusColor(d.status)}">{{ statusText(d.status) }}</span> · {{ d.chunk_count }} 块<span v-if="d.elapsed_ms"> · {{ fmtTime(d.elapsed_ms) }}</span></div>
+      <div v-for="d in documents" :key="d.id" class="doc-item">
+        <div class="doc-info">
+          <div class="doc-title">{{ d.title }}</div>
+          <div class="doc-meta">
+            <span>{{ d.file_type }}</span>
+            <span>{{ fmtSize(d.file_size) }}</span>
+            <span :style="{color:statusColor(d.status)}">{{ statusText(d.status) }}</span>
+            <span>{{ d.chunk_count }} 块</span>
+            <span v-if="d.elapsed_ms">{{ fmtTime(d.elapsed_ms) }}</span>
+          </div>
         </div>
-        <button class="del-btn" @click="delDoc(d.id)">删除</button>
+        <button class="doc-del" @click="delDoc(d.id)">删除</button>
       </div>
-      <div v-if="documents.length===0&&!uploading" style="text-align:center;color:var(--text3);padding:40px">还没有文档</div>
     </div>
 
     <!-- Settings -->
     <div v-if="page==='settings'" class="page">
-      <button class="back-link" @click="page='chat'">← 返回对话</button>
+      <button class="page-back" @click="page='chat'">← 返回对话</button>
+      <h2>设置</h2>
 
-      <div class="settings-card">
+      <div class="page-card">
         <h3>对话模型</h3>
         <div class="desc">用于知识问答和对话生成</div>
-        <div class="field">
-          <label>LLM 提供商</label>
-          <select v-model="config.llm_provider">
-            <option value="mlx">MLX (本地)</option>
-            <option value="openai">OpenAI</option>
-            <option value="claude">Claude</option>
-            <option value="custom">自定义 (第三方)</option>
-          </select>
-        </div>
+        <div class="field"><label>提供商</label><select v-model="config.llm_provider"><option value="mlx">MLX</option><option value="openai">OpenAI</option><option value="claude">Claude</option><option value="custom">自定义</option></select></div>
         <template v-if="config.llm_provider==='mlx'">
-          <div class="field"><label>Chat 模型</label><input v-model="config.mlx_chat_model" placeholder="mlx-community/Qwen2.5-7B-Instruct-4bit"></div>
-          <div class="field"><label>Embedding 模型</label><input v-model="config.mlx_embedding_model" placeholder="mlx-community/bge-small-en-mlx"></div>
+          <div class="field"><label>模型</label><input v-model="config.mlx_chat_model" placeholder="mlx-community/Qwen2.5-7B-Instruct-4bit"></div>
+          <div class="field"><label>Embedding</label><input v-model="config.mlx_embedding_model" placeholder="mlx-community/bge-small-en-mlx"></div>
           <div class="field"><label>API 地址</label><input v-model="config.mlx_api_base"></div>
         </template>
         <template v-if="config.llm_provider==='openai'">
@@ -235,45 +288,39 @@ body { font: 14px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; co
           <div class="field"><label>API Key</label><input v-model="config.claude_api_key" type="password" placeholder="sk-ant-..."></div>
         </template>
         <template v-if="config.llm_provider==='custom'">
-          <div class="field"><label>API 格式</label><select v-model="config.custom_api_type"><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic 兼容</option></select></div>
+          <div class="field"><label>格式</label><select v-model="config.custom_api_type"><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic 兼容</option></select></div>
           <div class="field"><label>Base URL</label><input v-model="config.custom_api_base" placeholder="https://api.deepseek.com/anthropic"></div>
           <div class="field"><label>API Key</label><input v-model="config.custom_api_key" type="password"></div>
-          <div class="field"><label>Chat 模型</label><input v-model="config.custom_chat_model" placeholder="deepseek-v4-pro"></div>
-          <div class="field"><label>Embedding 模型（可选）</label><input v-model="config.custom_embedding_model" placeholder="留空使用内置 embedding"></div>
+          <div class="field"><label>模型</label><input v-model="config.custom_chat_model" placeholder="deepseek-v4-pro"></div>
+          <div class="field"><label>Embedding（可选）</label><input v-model="config.custom_embedding_model" placeholder="留空使用内置"></div>
         </template>
-        <button class="btn btn-secondary" @click="testChat">测试对话连接</button>
-        <div v-if="chatResult" :class="chatResult.ok?'success-msg':'error-msg'">{{ chatResult.msg }}</div>
+        <button class="btn btn-ghost" @click="testChat">{{ testingChat ? '测试中...' : '测试连接' }}</button>
+        <div v-if="chatResult" :class="chatResult.ok?'result-ok':'result-err'">{{ chatResult.msg }}</div>
       </div>
 
-      <div class="settings-card">
-        <h3>文档解析 OCR 模型</h3>
-        <div class="desc">用于扫描件 PDF 文字识别，独立于对话模型</div>
-        <div class="field">
-          <label>OCR 引擎</label>
-          <select v-model="config.ocr_engine">
-            <option value="tesseract">Tesseract (CPU 离线)</option>
-            <option value="ollama">本地多模态 API (Ollama/MLX/自定义)</option>
-          </select>
-        </div>
+      <div class="page-card">
+        <h3>文档解析 OCR</h3>
+        <div class="desc">扫描件 PDF 文字识别，独立于对话模型</div>
+        <div class="field"><label>引擎</label><select v-model="config.ocr_engine"><option value="tesseract">Tesseract (CPU)</option><option value="ollama">本地 API (Ollama/MLX)</option></select></div>
         <template v-if="config.ocr_engine==='ollama'">
           <div class="field"><label>Base URL</label><input v-model="config.ocr_ollama_base_url" placeholder="http://localhost:11434/v1"></div>
-          <div class="field"><label>模型 ID</label><input v-model="config.ocr_ollama_model" placeholder="glm-4v-9b 或 minicpm-v:8b"></div>
-          <div class="field"><label>并行页数</label><input v-model="config.ocr_max_workers" type="number" min="1" max="8"></div>
+          <div class="field"><label>模型 ID</label><input v-model="config.ocr_ollama_model" placeholder="glm-4v-9b"></div>
+          <div class="field"><label>并行数</label><input v-model="config.ocr_max_workers" type="number" min="1" max="8"></div>
         </template>
-        <div v-if="config.ocr_engine==='tesseract'" class="hint">需安装 brew install tesseract tesseract-lang，自动识别中英文。</div>
-        <label class="checkbox-label"><input type="checkbox" v-model="ocrOn"> 启用文档 OCR 解析</label>
-        <button class="btn btn-secondary" style="margin-top:12px" @click="testOcr">测试 OCR 连接</button>
-        <div v-if="ocrResult" :class="ocrResult.ok?'success-msg':'error-msg'">{{ ocrResult.msg }}</div>
+        <div v-if="config.ocr_engine==='tesseract'" class="hint">需安装 Tesseract：<code>brew install tesseract tesseract-lang</code></div>
+        <label class="check-lbl"><input type="checkbox" v-model="ocrOn"> 启用 OCR</label>
+        <button class="btn btn-ghost" @click="testOcr">{{ testingOcr ? '测试中...' : '测试连接' }}</button>
+        <div v-if="ocrResult" :class="ocrResult.ok?'result-ok':'result-err'">{{ ocrResult.msg }}</div>
       </div>
 
-      <button class="btn btn-primary" @click="saveConfig">保存配置</button>
-      <div v-if="saved" class="success-msg">✓ 已保存</div>
+      <button class="btn btn-primary" @click="saveConfig" style="padding:12px">保存配置</button>
+      <div v-if="saved" class="result-ok" style="text-align:center;margin-top:8px">✓ 已保存</div>
     </div>
   </div>
 </div>
 
 <script>
-const { createApp, ref, reactive, nextTick, watch, onMounted, computed } = Vue;
+const { createApp, ref, reactive, nextTick, onMounted } = Vue;
 
 createApp({
   setup() {
@@ -287,7 +334,7 @@ createApp({
     const streamErr = ref('');
     const documents = ref([]);
     const uploading = ref(false);
-    const config = ref({llm_provider:'mlx'});
+    const config = ref({llm_provider:'custom'});
     const ocrOn = ref(true);
     const saved = ref(false);
     const chatResult = ref(null);
@@ -299,10 +346,8 @@ createApp({
     const msgBox = ref(null);
     const inputEl = ref(null);
 
-    // === API helpers ===
     const api = (url, opts={}) => fetch(url, opts).then(r => r.ok ? r.json() : r.json().then(e => {throw new Error(e.detail||r.statusText)}));
 
-    // === Conversations ===
     async function loadConversations() {
       try { const d = await api('/api/v1/conversations'); conversations.value = d.data||[]; } catch(e) { console.error(e); }
     }
@@ -312,173 +357,58 @@ createApp({
       await openTask(d.data.id);
     }
     async function openTask(id) {
-      page.value = 'chat';
-      currentConv.value = id;
-      try {
-        const d = await api('/api/v1/conversations/'+id);
-        messages.value = d.data.messages||[];
-        await nextTick();
-        scrollBottom();
-      } catch(e) { console.error(e); }
+      page.value = 'chat'; currentConv.value = id;
+      try { const d = await api('/api/v1/conversations/'+id); messages.value = d.data.messages||[]; await nextTick(); scrollBottom(); }
+      catch(e) { console.error(e); }
     }
-    function renameStart(c) { editingId.value = c.id; editTitle.value = c.title; nextTick(() => { const inp = document.querySelector('.task-item input'); if(inp) { inp.focus(); inp.select(); }}); }
+    function renameStart(c) { editingId.value = c.id; editTitle.value = c.title; nextTick(()=>{const i=document.querySelector('.task-item input');if(i){i.focus();i.select();}}); }
     async function renameDone(id) {
-      const t = editTitle.value.trim();
-      editingId.value = null;
+      const t = editTitle.value.trim(); editingId.value = null;
       if (!t) return;
       await api('/api/v1/conversations/'+id, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t})});
       await loadConversations();
     }
-    function scrollBottom() {
-      const el = msgBox.value;
-      if (el) el.scrollTop = el.scrollHeight;
-    }
+    function scrollBottom() { const el=msgBox.value; if(el) el.scrollTop=el.scrollHeight; }
 
-    // === Chat ===
     async function send() {
       if (!input.value.trim() || streaming.value) return;
-      const q = input.value.trim();
-      input.value = '';
+      const q = input.value.trim(); input.value = '';
       messages.value = [...messages.value, {id:Date.now().toString(),role:'user',content:q}];
-      streaming.value = true;
-      streamText.value = '';
-      streamErr.value = '';
+      streaming.value = true; streamText.value = ''; streamErr.value = '';
       nextTick(scrollBottom);
-
       try {
-        const res = await fetch('/api/v1/chat/stream', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({conversation_id:currentConv.value,question:q}),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(()=>({detail:res.statusText}));
-          messages.value = [...messages.value, {id:Date.now().toString(),role:'assistant',content:'❌ '+err.detail}];
-          streaming.value = false;
-          return;
-        }
-        const reader = res.body.getReader();
-        const dec = new TextDecoder();
-        let buf = '', evt = '', full='';
-        while (true) {
-          const {done,value} = await reader.read();
-          if (done) break;
-          buf += dec.decode(value,{stream:true});
-          const lines = buf.split('\n');
-          buf = lines.pop()||'';
-          for (const line of lines) {
-            if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
-            if (!line.startsWith('data: ')) continue;
-            try {
-              const p = JSON.parse(line.slice(6));
-              if (evt==='error') { streamErr.value = p.message||'未知错误'; }
-              else if (p.type==='token') { full+=p.content; streamText.value = full; nextTick(scrollBottom); }
-            } catch(e) {}
-          }
-        }
+        const res = await fetch('/api/v1/chat/stream', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:currentConv.value,question:q})});
+        if (!res.ok) { const e=await res.json().catch(()=>({detail:res.statusText})); messages.value=[...messages.value,{id:Date.now().toString(),role:'assistant',content:'❌ '+e.detail}]; streaming.value=false; return; }
+        const reader=res.body.getReader(),dec=new TextDecoder(); let buf='',evt='',full='';
+        while(true){const{value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});const lines=buf.split('\n');buf=lines.pop()||'';for(const l of lines){if(l.startsWith('event: ')){evt=l.slice(7).trim()}else if(l.startsWith('data: ')){try{const p=JSON.parse(l.slice(6));if(evt==='error')streamErr.value=p.message||'未知错误';else if(p.type==='token'){full+=p.content;streamText.value=full;nextTick(scrollBottom)}}catch(e){}}}}
       } catch(e) { streamErr.value = '网络错误: '+e.message; }
       streaming.value = false;
-      const final = streamText.value + (streamErr.value ? '\n\n---\n❌ '+streamErr.value : '');
-      if (final) messages.value = [...messages.value, {id:Date.now().toString(),role:'assistant',content:final}];
-      streamText.value = '';
-      streamErr.value = '';
+      const f = streamText.value + (streamErr.value ? '\n\n---\n❌ '+streamErr.value : '');
+      if (f) messages.value = [...messages.value, {id:Date.now().toString(),role:'assistant',content:f}];
+      streamText.value = ''; streamErr.value = '';
       await loadConversations();
       await openTask(currentConv.value);
     }
 
-    // === Documents ===
-    async function loadDocuments() {
-      try { const d = await api('/api/v1/documents'); documents.value = d.data||[]; } catch(e) { console.error(e); }
-    }
-    async function uploadFile(e) {
-      const f = e.target.files[0];
-      if (!f) return;
-      uploading.value = true;
-      const fd = new FormData(); fd.append('file',f);
-      await fetch('/api/v1/documents/upload',{method:'POST',body:fd});
-      uploading.value = false;
-      await loadDocuments();
-    }
-    function uploadDrop(e) {
-      const f = e.dataTransfer.files[0];
-      if (!f) return;
-      uploading.value = true;
-      const fd = new FormData(); fd.append('file',f);
-      fetch('/api/v1/documents/upload',{method:'POST',body:fd}).then(()=>{uploading.value=false;loadDocuments()});
-    }
-    async function delDoc(id) {
-      if (!confirm('确定删除？')) return;
-      await fetch('/api/v1/documents/'+id,{method:'DELETE'});
-      await loadDocuments();
-    }
+    async function loadDocuments() { try { const d=await api('/api/v1/documents'); documents.value=d.data||[]; } catch(e){console.error(e);} }
+    async function uploadFile(e) { const f=e.target.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);await fetch('/api/v1/documents/upload',{method:'POST',body:fd});uploading.value=false;await loadDocuments(); }
+    function uploadDrop(e) { const f=e.dataTransfer.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);fetch('/api/v1/documents/upload',{method:'POST',body:fd}).then(()=>{uploading.value=false;loadDocuments()}); }
+    async function delDoc(id) { if(!confirm('确定删除？'))return;await fetch('/api/v1/documents/'+id,{method:'DELETE'});await loadDocuments(); }
 
-    // === Config ===
-    async function loadConfig() {
-      try { const d = await api('/api/v1/config'); config.value = d.data||{}; ocrOn.value = config.value.ocr_enabled!=='false'; } catch(e) {}
-    }
-    async function saveConfig() {
-      config.value.ocr_enabled = ocrOn.value ? 'true' : 'false';
-      await api('/api/v1/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config.value)});
-      saved.value = true;
-      setTimeout(()=>saved.value=false,2000);
-    }
-    async function testChat() {
-      testingChat.value = true;
-      chatResult.value = null;
-      try {
-        const cr = await api('/api/v1/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-        const res = await fetch('/api/v1/chat/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:cr.data.id,question:'你好，请用一句话介绍自己'})});
-        const d = await res.json();
-        if (d.data&&d.data.answer) chatResult.value = {ok:true,msg:'✓ 连接成功: '+d.data.answer.slice(0,60)+'...'};
-        else chatResult.value = {ok:false,msg:'✗ '+ (d.detail||res.statusText)};
-      } catch(e) { chatResult.value = {ok:false,msg:'✗ '+e.message}; }
-      testingChat.value = false;
-    }
-    async function testOcr() {
-      testingOcr.value = true;
-      ocrResult.value = null;
-      if (config.value.ocr_engine!=='ollama') { ocrResult.value = {ok:true,msg:'✓ Tesseract 本地 OCR 就绪'}; testingOcr.value=false; return; }
-      try {
-        const base = (config.value.ocr_ollama_base_url||'http://localhost:11434/v1').replace(/\/+$/,'');
-        const res = await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:config.value.ocr_ollama_model||'minicpm-v:8b',messages:[{role:'user',content:'回复OK'}],max_tokens:10})});
-        if (res.ok) ocrResult.value = {ok:true,msg:'✓ OCR API 正常'};
-        else { const e = await res.text(); ocrResult.value = {ok:false,msg:'✗ '+res.status+': '+e.slice(0,100)}; }
-      } catch(e) { ocrResult.value = {ok:false,msg:'✗ '+e.message}; }
-      testingOcr.value = false;
-    }
+    async function loadConfig() { try { const d=await api('/api/v1/config'); config.value=d.data||{}; ocrOn.value=config.value.ocr_enabled!=='false'; } catch(e) {} }
+    async function saveConfig() { config.value.ocr_enabled=ocrOn.value?'true':'false';await api('/api/v1/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config.value)});saved.value=true;setTimeout(()=>saved.value=false,2000); }
+    async function testChat() { testingChat.value=true;chatResult.value=null;try{const cr=await api('/api/v1/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const res=await fetch('/api/v1/chat/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:cr.data.id,question:'你好'})});const d=await res.json();chatResult.value=d.data&&d.data.answer?{ok:true,msg:'✓ '+d.data.answer.slice(0,60)+'...'}:{ok:false,msg:'✗ '+(d.detail||res.statusText)}}catch(e){chatResult.value={ok:false,msg:'✗ '+e.message}}testingChat.value=false; }
+    async function testOcr() { testingOcr.value=true;ocrResult.value=null;if(config.value.ocr_engine!=='ollama'){ocrResult.value={ok:true,msg:'✓ Tesseract 就绪'};testingOcr.value=false;return}try{const b=(config.value.ocr_ollama_base_url||'http://localhost:11434/v1').replace(/\/+$/,'');const res=await fetch(b+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:config.value.ocr_ollama_model||'minicpm-v:8b',messages:[{role:'user',content:'OK'}],max_tokens:10})});if(res.ok)ocrResult.value={ok:true,msg:'✓ API 正常'};else{const e=await res.text();ocrResult.value={ok:false,msg:'✗ '+res.status+': '+e.slice(0,100)}}}catch(e){ocrResult.value={ok:false,msg:'✗ '+e.message}}testingOcr.value=false; }
 
-    // === Utils ===
-    function md(t) {
-      if (!t) return '';
-      return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/^/,'<p>').replace(/$/,'</p>');
-    }
-    function fmtSize(b) {
-      if (!b) return '0 B';
-      const u = ['B','KB','MB','GB']; let i=0, s=b;
-      while(s>=1024&&i<u.length-1){s/=1024;i++;}
-      return s.toFixed(1)+' '+u[i];
-    }
-    function fmtTime(ms) {
-      if (!ms) return ''; if (ms<1000) return ms+'ms'; if (ms<60000) return (ms/1000).toFixed(1)+'s';
-      const m=Math.floor(ms/60000),s=Math.round((ms%60000)/1000); return m+'m'+s+'s';
-    }
-    function statusText(s) {
-      const m={pending:'待处理',parsing:'解析中',chunking:'切块中',indexing:'索引中',done:'已完成',failed:'失败'};
-      return m[s]||s;
-    }
-    function statusColor(s) { if(s==='done')return'var(--primary)'; if(s==='failed')return'var(--danger)'; if(s==='pending')return'var(--text3)'; return'var(--info)'; }
+    function md(t) { if(!t)return'';return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/```(\w*)\n([\s\S]*?)```/g,'<pre><code>$2</code></pre>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>').replace(/^/,'<p>').replace(/$/,'</p>'); }
+    function fmtSize(b) { if(!b)return'0 B';const u=['B','KB','MB','GB'];let i=0,s=b;while(s>=1024&&i<u.length-1){s/=1024;i++}return s.toFixed(1)+' '+u[i]; }
+    function fmtTime(ms) { if(!ms)return'';if(ms<1000)return ms+'ms';if(ms<60000)return(ms/1000).toFixed(1)+'s';const m=Math.floor(ms/60000),s=Math.round((ms%60000)/1000);return m+'m'+s+'s'; }
+    function statusText(s) { const m={pending:'待处理',parsing:'解析中',chunking:'切块中',indexing:'索引中',done:'已完成',failed:'失败'};return m[s]||s; }
+    function statusColor(s) { if(s==='done')return'var(--success)';if(s==='failed')return'var(--danger)';if(s==='pending')return'var(--text-tertiary)';return'var(--info)'; }
 
-    // === Init ===
-    onMounted(() => {
-      loadConversations();
-      loadDocuments();
-      loadConfig();
-    });
+    onMounted(() => { loadConversations(); loadConfig(); if(page.value==='docs') loadDocuments(); });
 
-    return {
-      page,conversations,currentConv,messages,input,streaming,streamText,documents,uploading,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,
-      newTask,openTask,renameStart,renameDone,send,loadDocuments,uploadFile,uploadDrop,delDoc,loadConfig,saveConfig,testChat,testOcr,
-      md,fmtSize,fmtTime,statusText,statusColor,
-    };
+    return { page,conversations,currentConv,messages,input,streaming,streamText,documents,uploading,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl, newTask,openTask,renameStart,renameDone,send,loadDocuments,uploadFile,uploadDrop,delDoc,loadConfig,saveConfig,testChat,testOcr, md,fmtSize,fmtTime,statusText,statusColor };
   }
 }).mount('#app');
 </script>
