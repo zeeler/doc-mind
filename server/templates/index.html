@@ -319,7 +319,7 @@ PetiteVue.createApp({
             this.ocrEnabled = this.config.ocr_enabled !== 'false';
         }
         this.loadConfig();
-        if (window.__setTaskListVM) window.__setTaskListVM(this);
+        window.__openConversation = (id) => this.openConversation(id);
     },
 
     async loadConversations() {
@@ -599,16 +599,6 @@ PetiteVue.createApp({
     const nav = document.getElementById('task-list');
     if (!nav) return;
 
-    let vm = null;
-    window.__setTaskListVM = function(v) { vm = v; };
-
-    nav.addEventListener('click', function(e) {
-        const item = e.target.closest('.task-item');
-        if (!item) return;
-        const convId = item.getAttribute('data-conv-id');
-        if (convId && vm) vm.openConversation(convId);
-    });
-
     async function load() {
         try {
             const res = await fetch('/api/v1/conversations');
@@ -625,7 +615,9 @@ PetiteVue.createApp({
                 const div = document.createElement('div');
                 div.className = 'task-item px-3 py-2.5 rounded-lg cursor-pointer text-sm transition truncate text-gray-600 hover:bg-gray-100';
                 div.textContent = conv.title;
-                div.setAttribute('data-conv-id', conv.id);
+                div.addEventListener('click', function() {
+                    if (window.__openConversation) window.__openConversation(conv.id);
+                });
                 nav.appendChild(div);
             });
         } catch(e) {
@@ -633,7 +625,15 @@ PetiteVue.createApp({
         }
     }
 
-    setTimeout(load, 300);
+    // 等待 PetiteVue mounted 后再加载，确保 __openConversation 已设置
+    function waitAndLoad() {
+        if (window.__openConversation) {
+            load();
+        } else {
+            setTimeout(waitAndLoad, 100);
+        }
+    }
+    setTimeout(waitAndLoad, 100);
 })();
 </script>
 </body>
