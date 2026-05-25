@@ -97,3 +97,32 @@ class TestTaskListIntegration:
         client.put(f"/api/v1/conversations/{conv_id}", json={"title": "   "})
         detail = client.get(f"/api/v1/conversations/{conv_id}")
         assert detail.json()["data"]["title"] == "新会话"
+
+
+class TestClickTaskFlow:
+    """模拟点击任务 → 查看历史聊天记录的完整链路。"""
+
+    def test_conversation_detail_returns_messages_array(self, client):
+        """GET /conversations/{id} 返回 messages 数组（即使是空的）。"""
+        resp = client.post("/api/v1/conversations", json={})
+        conv_id = resp.json()["data"]["id"]
+        detail = client.get(f"/api/v1/conversations/{conv_id}")
+        data = detail.json()
+        assert data["code"] == "OK"
+        assert isinstance(data["data"]["messages"], list)
+
+    def test_click_task_shows_correct_title(self, client):
+        """点击不同任务返回对应的标题和数据。"""
+        r1 = client.post("/api/v1/conversations", json={"title": "差旅报销"})
+        r2 = client.post("/api/v1/conversations", json={"title": "销售分析"})
+
+        d1 = client.get(f"/api/v1/conversations/{r1.json()['data']['id']}").json()
+        d2 = client.get(f"/api/v1/conversations/{r2.json()['data']['id']}").json()
+
+        assert d1["data"]["title"] == "差旅报销"
+        assert d2["data"]["title"] == "销售分析"
+
+    def test_nonexistent_task_returns_404(self, client):
+        """点击不存在的任务返回 404。"""
+        response = client.get("/api/v1/conversations/nonexistent")
+        assert response.status_code == 404
