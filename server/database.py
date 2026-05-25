@@ -29,7 +29,7 @@ def get_engine() -> Engine:
 def get_session():
     global _SessionLocal
     if _SessionLocal is None:
-        _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
+        _SessionLocal = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=get_engine())
     db = _SessionLocal()
     try:
         yield db
@@ -45,6 +45,21 @@ def reset_engine():
 
 
 def init_db():
-    """创建所有表。在模型导入后调用。"""
+    """创建所有表，并执行迁移。在模型导入后调用。"""
     from server.models.base import Base
     Base.metadata.create_all(bind=get_engine())
+    _migrate(get_engine())
+
+
+def _migrate(engine):
+    """增量迁移：为旧数据库补齐缺失的列。"""
+    import sqlite3
+    db_path = str(engine.url).replace("sqlite:///", "")
+    conn = sqlite3.connect(db_path)
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(documents)")}
+        if "elapsed_ms" not in cols:
+            conn.execute("ALTER TABLE documents ADD COLUMN elapsed_ms INTEGER DEFAULT 0")
+            conn.commit()
+    finally:
+        conn.close()
