@@ -1,632 +1,451 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>知识库</title>
-    <script src="https://cdn.jsdelivr.net/npm/petite-vue@0.4.1/dist/petite-vue.iife.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        [v-cloak] { display: none; }
-        .markdown-content p { margin-bottom: 0.5rem; line-height: 1.7; }
-        .markdown-content p:last-child { margin-bottom: 0; }
-        .markdown-content code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
-        .markdown-content strong { font-weight: 600; }
-        .typing::after { content: '▊'; animation: blink 1s infinite; }
-        @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
-        .scrollbar-thin::-webkit-scrollbar { width: 6px; }
-        .scrollbar-thin::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
-        .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识库</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+:root {
+  --bg: #f8f9fa;
+  --sidebar-bg: #f0f2f5;
+  --card: #fff;
+  --border: #e5e7eb;
+  --text: #1f2937;
+  --text2: #6b7280;
+  --text3: #9ca3af;
+  --primary: #10b981;
+  --primary-hover: #059669;
+  --primary-light: #ecfdf5;
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font: 14px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color:var(--text); background:var(--bg); height:100vh; overflow:hidden; }
+#app { display:flex; height:100vh; }
+
+/* Sidebar */
+.sidebar { width:260px; flex-shrink:0; background:var(--sidebar-bg); display:flex; flex-direction:column; border-right:1px solid var(--border); }
+.sidebar-header { padding:16px; font-weight:700; font-size:16px; color:var(--text); display:flex; align-items:center; gap:8px; }
+.sidebar-header .dot { width:8px; height:8px; border-radius:50%; background:var(--primary); }
+.sidebar-btn { margin:0 12px 12px; padding:10px 14px; border:none; border-radius:var(--radius); background:var(--primary); color:#fff; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; transition:background .15s; }
+.sidebar-btn:hover { background:var(--primary-hover); }
+.sidebar-btn svg { width:16px; height:16px; }
+.task-list { flex:1; overflow-y:auto; padding:0 8px; }
+.task-item { padding:10px 14px; border-radius:var(--radius); cursor:pointer; font-size:13px; color:var(--text2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:2px; transition:all .1s; }
+.task-item:hover { background:rgba(0,0,0,.05); color:var(--text); }
+.task-item.active { background:rgba(0,0,0,.08); color:var(--text); font-weight:500; }
+.task-item input { width:100%; padding:4px 8px; border:1.5px solid var(--primary); border-radius:6px; font-size:13px; outline:none; }
+.task-empty { text-align:center; padding:30px 12px; color:var(--text3); font-size:12px; }
+.sidebar-footer { border-top:1px solid var(--border); padding:8px; display:flex; flex-direction:column; gap:2px; }
+.sidebar-footer button { padding:8px 12px; border:none; border-radius:8px; background:none; cursor:pointer; font-size:13px; color:var(--text2); display:flex; align-items:center; gap:8px; transition:background .1s; }
+.sidebar-footer button:hover { background:rgba(0,0,0,.05); }
+.sidebar-footer button.nav-active { background:rgba(0,0,0,.06); color:var(--text); }
+
+/* Main */
+.main { flex:1; display:flex; flex-direction:column; min-width:0; }
+.welcome { flex:1; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:12px; color:var(--text3); }
+.welcome-icon { font-size:48px; opacity:.6; }
+
+/* Chat */
+.chat-area { flex:1; display:flex; flex-direction:column; }
+.chat-msgs { flex:1; overflow-y:auto; padding:20px; }
+.msg { margin-bottom:20px; animation:fadeIn .2s; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+.msg.user { display:flex; justify-content:flex-end; }
+.msg.user .bubble { background:var(--primary-light); color:var(--text); max-width:70%; padding:10px 16px; border-radius:16px 16px 4px 16px; font-size:14px; line-height:1.6; }
+.msg.assistant { display:flex; gap:10px; }
+.msg.assistant .avatar { width:30px; height:30px; border-radius:50%; background:var(--primary); color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.msg.assistant .bubble { color:var(--text); font-size:14px; line-height:1.7; }
+.msg .citations { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+.msg .citations span { font-size:11px; background:#f3f4f6; color:var(--text3); padding:2px 10px; border-radius:99px; }
+.chat-input-wrap { padding:12px 20px 20px; }
+.chat-input-inner { display:flex; align-items:flex-end; gap:8px; border:1px solid var(--border); border-radius:16px; padding:8px 14px; background:var(--card); box-shadow:var(--shadow); transition:border-color .2s; }
+.chat-input-inner:focus-within { border-color:var(--primary); box-shadow:0 0 0 3px rgba(16,185,129,.1); }
+.chat-input-inner textarea { flex:1; border:none; outline:none; resize:none; font-size:14px; font-family:inherit; line-height:1.5; max-height:120px; background:transparent; }
+.chat-input-inner button { width:34px; height:34px; border:none; border-radius:50%; background:var(--primary); color:#fff; cursor:pointer; flex-shrink:0; display:flex; align-items:center; justify-content:center; transition:background .15s; }
+.chat-input-inner button:hover { background:var(--primary-hover); }
+.chat-input-inner button:disabled { opacity:.3; cursor:default; }
+
+/* Docs & Settings */
+.page { flex:1; overflow-y:auto; padding:30px 40px; max-width:720px; }
+.page h2 { font-size:18px; font-weight:700; margin-bottom:16px; }
+.back-link { font-size:13px; color:var(--text3); cursor:pointer; background:none; border:none; margin-bottom:16px; display:block; }
+.back-link:hover { color:var(--text2); }
+.upload-zone { border:2px dashed var(--border); border-radius:var(--radius); padding:32px; text-align:center; color:var(--text3); cursor:pointer; transition:border-color .2s; margin-bottom:16px; }
+.upload-zone:hover { border-color:var(--primary); }
+.doc-card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+.doc-card .info { min-width:0; }
+.doc-card .title { font-weight:500; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.doc-card .meta { font-size:12px; color:var(--text3); margin-top:2px; }
+.doc-card .del-btn { color:#ef4444; font-size:12px; cursor:pointer; background:none; border:none; padding:4px 8px; border-radius:6px; }
+.doc-card .del-btn:hover { background:#fef2f2; }
+.settings-card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px; }
+.settings-card h3 { font-size:15px; font-weight:600; margin-bottom:4px; }
+.settings-card .desc { font-size:12px; color:var(--text3); margin-bottom:14px; }
+.field { margin-bottom:12px; }
+.field label { font-size:13px; color:var(--text2); display:block; margin-bottom:4px; }
+.field input, .field select { width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:13px; outline:none; transition:border-color .2s; }
+.field input:focus, .field select:focus { border-color:var(--primary); }
+.btn { padding:8px 16px; border:none; border-radius:8px; font-size:13px; font-weight:500; cursor:pointer; transition:all .15s; }
+.btn-primary { background:var(--primary); color:#fff; width:100%; padding:10px; }
+.btn-primary:hover { background:var(--primary-hover); }
+.btn-secondary { background:#f3f4f6; color:var(--text2); width:100%; padding:10px; }
+.btn-secondary:hover { background:#e5e7eb; }
+.hint { padding:10px 14px; background:#f9fafb; border-radius:8px; font-size:12px; color:var(--text3); margin-top:8px; }
+.success-msg { color:var(--primary); font-size:12px; text-align:center; margin-top:8px; }
+.error-msg { color:#ef4444; font-size:12px; margin-top:4px; }
+.checkbox-label { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text2); cursor:pointer; }
+</style>
 </head>
-<body class="bg-white h-screen overflow-hidden">
-<div id="app" v-cloak class="h-full flex">
-
-    <!-- ====== 左侧边栏 ====== -->
-    <aside class="w-64 bg-gray-50 flex flex-col border-r border-gray-200 flex-shrink-0">
-        <!-- Logo / 标题 -->
-        <div class="px-4 py-4 flex items-center justify-between">
-            <span class="font-semibold text-gray-800 text-base">知识库</span>
-            <button @click="sidebarCollapsed = !sidebarCollapsed" class="md:hidden text-gray-400 hover:text-gray-600">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
-            </button>
-        </div>
-
-        <!-- 新建任务 -->
-        <div class="px-3 pb-2">
-            <button @click="createConversation"
-                class="w-full flex items-center gap-2 px-3 py-2.5 bg-gray-200/70 hover:bg-gray-200 text-gray-700 rounded-lg text-sm transition">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                新建任务
-            </button>
-        </div>
-
-        <!-- 分割线 -->
-        <div class="mx-3 border-t border-gray-200"></div>
-
-        <!-- 任务列表 -->
-        <nav id="task-list" class="flex-1 overflow-y-auto scrollbar-thin px-2 py-2 space-y-0.5">
-            <div id="task-empty" class="text-gray-400 text-xs text-center py-8">暂无任务</div>
-        </nav>
-
-        <!-- 底部菜单 -->
-        <div class="px-3 py-3 border-t border-gray-200 space-y-0.5">
-            <button @click="view = 'docs'; loadDocuments()" :class="['w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition', view === 'docs' ? 'bg-gray-200 text-gray-900' : 'text-gray-500 hover:bg-gray-100']">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                文档管理
-            </button>
-            <button @click="view = 'settings'; loadConfig()" :class="['w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition', view === 'settings' ? 'bg-gray-200 text-gray-900' : 'text-gray-500 hover:bg-gray-100']">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                设置
-            </button>
-        </div>
-    </aside>
-
-    <!-- ====== 右侧主区域 ====== -->
-    <div class="flex-1 flex flex-col min-w-0">
-
-        <!-- 文档管理视图 -->
-        <div v-if="view === 'docs'" class="flex-1 overflow-y-auto scrollbar-thin">
-            <div class="max-w-3xl mx-auto p-6 space-y-4">
-                <button @click="view = 'chat'" class="text-sm text-gray-400 hover:text-gray-600 transition">← 返回对话</button>
-                <h2 class="text-lg font-semibold text-gray-800">文档管理</h2>
-                <label class="block bg-white rounded-xl shadow-sm border-2 border-dashed border-gray-200 p-8 text-center cursor-pointer hover:border-green-400 transition">
-                    <input type="file" @change="uploadFile" accept=".pdf,.docx,.md,.txt,.markdown" class="hidden" :disabled="uploading">
-                    <div v-if="uploading" class="text-gray-400">上传中...</div>
-                    <div v-else class="text-gray-400">拖拽文件到此处 或 点击上传<br><span class="text-xs">支持 PDF / Word / Markdown / TXT</span></div>
-                </label>
-                <div v-for="doc in documents" :key="doc.id" class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
-                    <div class="flex-1 min-w-0">
-                        <div class="font-medium text-gray-800 truncate">{{ doc.title }}</div>
-                        <div class="text-xs text-gray-400 mt-1">{{ doc.file_type }} · {{ formatSize(doc.file_size) }} · <span :class="statusColor(doc.status)">{{ statusLabel(doc.status) }}</span> · {{ doc.chunk_count }} 块<span v-if="doc.elapsed_ms"> · {{ formatElapsed(doc.elapsed_ms) }}</span></div>
-                    </div>
-                    <button @click="deleteDocument(doc.id)" class="text-red-400 hover:text-red-600 text-sm ml-4 transition">删除</button>
-                </div>
-                <div v-if="documents.length === 0 && !uploading" class="text-center text-gray-400 py-12">
-                    还没有文档，上传你的第一个文档吧
-                </div>
-            </div>
-        </div>
-
-        <!-- 设置视图 -->
-        <div v-if="view === 'settings'" class="flex-1 overflow-y-auto scrollbar-thin">
-            <div class="max-w-2xl mx-auto p-6 space-y-6">
-                <button @click="view = 'chat'" class="text-sm text-gray-400 hover:text-gray-600 transition mb-4">← 返回对话</button>
-
-                <!-- ===== 对话模型配置 ===== -->
-                <div>
-                    <h2 class="text-lg font-semibold text-gray-800 mb-1">对话模型</h2>
-                    <p class="text-xs text-gray-400 mb-4">用于知识问答和对话生成</p>
-                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-3">
-                        <div>
-                            <label class="text-sm text-gray-500">LLM 提供商</label>
-                            <select v-model="config.llm_provider" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                                <option value="mlx">MLX (本地)</option>
-                                <option value="openai">OpenAI</option>
-                                <option value="claude">Claude</option>
-                                <option value="custom">自定义 (第三方)</option>
-                            </select>
-                        </div>
-                        <div v-if="config.llm_provider === 'mlx'">
-                            <label class="text-sm text-gray-500">Chat 模型名称</label>
-                            <input v-model="config.mlx_chat_model" placeholder="mlx-community/Qwen2.5-7B-Instruct-4bit" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                            <label class="text-sm text-gray-500 mt-2 block">Embedding 模型名称</label>
-                            <input v-model="config.mlx_embedding_model" placeholder="mlx-community/bge-small-en-mlx" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                            <label class="text-sm text-gray-500 mt-2 block">API 地址</label>
-                            <input v-model="config.mlx_api_base" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                        </div>
-                        <div v-if="config.llm_provider === 'openai'">
-                            <label class="text-sm text-gray-500">API Key</label>
-                            <input v-model="config.openai_api_key" type="password" placeholder="sk-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                        </div>
-                        <div v-if="config.llm_provider === 'claude'">
-                            <label class="text-sm text-gray-500">API Key</label>
-                            <input v-model="config.claude_api_key" type="password" placeholder="sk-ant-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                        </div>
-                        <div v-if="config.llm_provider === 'custom'" class="space-y-3">
-                            <div class="text-xs text-gray-400 bg-blue-50 p-2 rounded-lg">
-                                支持 OpenAI 兼容和 Anthropic 兼容两种格式。DeepSeek 请选择 Anthropic 格式，Base URL 填写 <code class="bg-blue-100 px-1 rounded">https://api.deepseek.com/anthropic</code>
-                            </div>
-                            <div>
-                                <label class="text-sm text-gray-500">API 格式</label>
-                                <select v-model="config.custom_api_type" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                                    <option value="openai">OpenAI 兼容 (通义千问 / 智谱 / 硅基流动等)</option>
-                                    <option value="anthropic">Anthropic 兼容 (DeepSeek 等)</option>
-                                </select>
-                            </div>
-                            <div><label class="text-sm text-gray-500">Base URL</label><input v-model="config.custom_api_base" placeholder="https://api.deepseek.com/anthropic" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
-                            <div><label class="text-sm text-gray-500">API Key</label><input v-model="config.custom_api_key" type="password" placeholder="sk-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
-                            <div><label class="text-sm text-gray-500">Chat 模型名称</label><input v-model="config.custom_chat_model" placeholder="deepseek-v4-pro" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
-                            <div><label class="text-sm text-gray-500">Embedding 模型名称（可选）</label><input v-model="config.custom_embedding_model" placeholder="不填则使用内置 embedding" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
-                        </div>
-                        <button @click="testChatConnection" class="w-full py-2 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200 transition mt-3">
-                            {{ testingChat ? '测试中...' : '测试对话连接' }}
-                        </button>
-                        <div v-if="chatTestResult" :class="chatTestResult.ok ? 'text-green-600' : 'text-red-500'" class="text-xs">{{ chatTestResult.msg }}</div>
-                    </div>
-                </div>
-
-                <!-- ===== 文档解析 OCR 模型 ===== -->
-                <div>
-                    <h2 class="text-lg font-semibold text-gray-800 mb-1">文档解析 OCR 模型</h2>
-                    <p class="text-xs text-gray-400 mb-4">用于扫描件 PDF 的文字识别，独立于对话模型</p>
-                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-3">
-                        <div>
-                            <label class="text-sm text-gray-500">OCR 引擎</label>
-                            <select v-model="config.ocr_engine" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                                <option value="tesseract">Tesseract (CPU 离线，免费)</option>
-                                <option value="ollama">本地多模态 API (Ollama / MLX / 自定义)</option>
-                            </select>
-                        </div>
-                        <div v-if="config.ocr_engine === 'ollama'" class="space-y-3">
-                            <div>
-                                <label class="text-sm text-gray-500">Base URL (OpenAI 兼容接口)</label>
-                                <input v-model="config.ocr_ollama_base_url" placeholder="http://localhost:11434/v1" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                            </div>
-                            <div>
-                                <label class="text-sm text-gray-500">模型 ID</label>
-                                <input v-model="config.ocr_ollama_model" placeholder="glm-4v-9b 或 minicpm-v:8b" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                            </div>
-                            <div>
-                                <label class="text-sm text-gray-500">并行处理页数 (越大越快，但吃内存)</label>
-                                <input v-model="config.ocr_max_workers" type="number" min="1" max="8" placeholder="4" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                            </div>
-                        </div>
-                        <div v-if="config.ocr_engine === 'tesseract'" class="text-xs text-gray-400 bg-gray-50 p-3 rounded-lg">
-                            Tesseract 离线 OCR 引擎，无需 GPU。<br>
-                            需安装：<code class="bg-gray-100 px-1 rounded">brew install tesseract tesseract-lang</code><br>
-                            自动识别中英文，处理速度较慢但免费。
-                        </div>
-                        <div>
-                            <label class="flex items-center gap-2 cursor-pointer">
-                                <input type="checkbox" v-model="ocrEnabled" @change="config.ocr_enabled = ocrEnabled ? 'true' : 'false'" class="rounded">
-                                <span class="text-sm text-gray-600">启用文档 OCR 解析</span>
-                            </label>
-                        </div>
-                        <button @click="testOcrConnection" class="w-full py-2 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200 transition mt-3">
-                            {{ testingOcr ? '测试中...' : '测试 OCR 连接' }}
-                        </button>
-                        <div v-if="ocrTestResult" :class="ocrTestResult.ok ? 'text-green-600' : 'text-red-500'" class="text-xs">{{ ocrTestResult.msg }}</div>
-                    </div>
-                </div>
-
-                <!-- 保存按钮 -->
-                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                    <button @click="saveConfig" class="w-full py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">保存配置</button>
-                    <div v-if="saved" class="text-green-600 text-xs text-center mt-2">✓ 已保存</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ====== 对话视图（默认） ====== -->
-        <div v-if="view === 'chat'" class="flex-1 flex flex-col">
-            <!-- 无任务时：居中引导 -->
-            <div v-if="!currentConversation" class="flex-1 flex items-center justify-center">
-                <div class="text-center">
-                    <div class="text-5xl mb-4">💬</div>
-                    <div class="text-gray-500 text-lg mb-2">知识库助手</div>
-                    <div class="text-gray-400 text-sm">上传文档后即可开始提问</div>
-                </div>
-            </div>
-
-            <!-- 有任务时：聊天区域 -->
-            <div v-if="currentConversation" class="flex-1 flex flex-col min-h-0">
-                <!-- 消息列表 -->
-                <div class="flex-1 overflow-y-auto scrollbar-thin px-4 py-4" ref="chatContainer">
-                    <div class="max-w-3xl mx-auto space-y-6">
-                        <div v-for="msg in messages" :key="msg.id">
-                            <!-- 用户消息 -->
-                            <div v-if="msg.role === 'user'" class="flex justify-end">
-                                <div class="bg-gray-100 text-gray-800 px-4 py-2.5 rounded-2xl rounded-br-md max-w-[75%] text-sm leading-relaxed">{{ msg.content }}</div>
-                            </div>
-                            <!-- 助手消息 -->
-                            <div v-if="msg.role === 'assistant'" class="flex gap-3">
-                                <div class="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                    <span class="text-green-600 text-xs font-semibold">AI</span>
-                                </div>
-                                <div class="min-w-0 space-y-2">
-                                    <div class="text-gray-800 text-sm markdown-content" v-html="renderMarkdown(msg.content)"></div>
-                                    <div v-if="msg.citations && msg.citations.length" class="flex flex-wrap gap-1.5">
-                                        <span v-for="(cit, i) in msg.citations" :key="i"
-                                              class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-                                            {{ cit.document_title || cit.file_name }}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <!-- 流式输出 -->
-                        <div v-if="streaming" class="flex gap-3">
-                            <div class="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                <span class="text-green-600 text-xs font-semibold">AI</span>
-                            </div>
-                            <div class="text-gray-800 text-sm markdown-content" v-html="renderMarkdown(streamContent) + '<span class=typing></span>'"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 输入区域 -->
-                <div class="border-t border-gray-100 px-4 py-3">
-                    <form @submit.prevent="sendMessage" class="max-w-3xl mx-auto">
-                        <div class="flex items-end gap-2 bg-white border border-gray-200 rounded-2xl px-4 py-2 shadow-sm focus-within:ring-2 focus-within:ring-green-500 focus-within:border-transparent transition">
-                            <textarea v-model="input" @keydown.enter.exact.prevent="sendMessage" placeholder="基于知识库提问..." :disabled="streaming"
-                                rows="1" class="flex-1 resize-none text-sm py-1.5 outline-none bg-transparent disabled:opacity-40"
-                                style="max-height:120px" ref="inputEl"></textarea>
-                            <button type="submit" :disabled="!input.trim() || streaming"
-                                class="w-8 h-8 flex items-center justify-center rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-30 transition flex-shrink-0">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14m-4-4l4 4-4 4"/></svg>
-                            </button>
-                        </div>
-                    </form>
-                    <div class="text-center text-xs text-gray-400 mt-2">AI 回答可能存在错误，请核实重要信息</div>
-                </div>
-            </div>
-        </div>
-
+<body>
+<div id="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header"><span class="dot"></span>知识库</div>
+    <button class="sidebar-btn" @click="newTask"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14m-7-7h14"/></svg>新建任务</button>
+    <div class="task-list" ref="taskList">
+      <div v-if="conversations.length===0" class="task-empty">暂无任务</div>
+      <div v-for="c in conversations" :key="c.id" @click="openTask(c.id)" @dblclick="renameStart(c)" :class="['task-item', {active: currentConv===c.id}]">
+        <template v-if="editingId!==c.id">{{ c.title }}</template>
+        <input v-else v-model="editTitle" @blur="renameDone(c.id)" @keydown.enter="renameDone(c.id)" @keydown.escape="editingId=null" ref="editInput">
+      </div>
     </div>
+    <div class="sidebar-footer">
+      <button @click="page='docs'" :class="{'nav-active':page==='docs'}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>文档管理</button>
+      <button @click="page='settings'" :class="{'nav-active':page==='settings'}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>设置</button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <!-- Chat -->
+    <div v-if="page==='chat'" class="chat-area">
+      <div v-if="!currentConv" class="welcome">
+        <div class="welcome-icon">&#128172;</div>
+        <div style="font-size:18px;font-weight:600;color:var(--text2)">知识库助手</div>
+        <div style="font-size:13px">上传文档后即可开始提问</div>
+      </div>
+      <template v-if="currentConv">
+        <div class="chat-msgs" ref="msgBox">
+          <div v-for="m in messages" :key="m.id" :class="['msg', m.role]">
+            <div v-if="m.role==='user'" class="bubble">{{ m.content }}</div>
+            <template v-if="m.role==='assistant'">
+              <div class="avatar">AI</div>
+              <div>
+                <div class="bubble" v-html="md(m.content)"></div>
+                <div class="citations" v-if="m.citations&&m.citations.length">
+                  <span v-for="(c,i) in m.citations" :key="i">{{ c.document_title||c.file_name }}</span>
+                </div>
+              </div>
+            </template>
+          </div>
+          <div v-if="streaming" class="msg assistant">
+            <div class="avatar">AI</div>
+            <div class="bubble" v-html="md(streamText)"></div>
+          </div>
+        </div>
+        <div class="chat-input-wrap">
+          <div class="chat-input-inner">
+            <textarea v-model="input" @keydown.enter.exact.prevent="send" placeholder="基于知识库提问..." :disabled="streaming" rows="1" ref="inputEl"></textarea>
+            <button @click="send" :disabled="!input.trim()||streaming"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- Docs -->
+    <div v-if="page==='docs'" class="page">
+      <button class="back-link" @click="page='chat'">← 返回对话</button>
+      <h2>文档管理</h2>
+      <div class="upload-zone" @click="$refs.fileInput.click()" @dragover.prevent @drop.prevent="uploadDrop">
+        <input type="file" ref="fileInput" @change="uploadFile" accept=".pdf,.docx,.md,.txt,.markdown" style="display:none">
+        {{ uploading ? '上传中...' : '拖拽文件到此处 或 点击上传' }}<br><span style="font-size:12px">支持 PDF / Word / Markdown / TXT</span>
+      </div>
+      <div v-for="d in documents" :key="d.id" class="doc-card">
+        <div class="info">
+          <div class="title">{{ d.title }}</div>
+          <div class="meta">{{ d.file_type }} · {{ fmtSize(d.file_size) }} · <span :style="{color:statusColor(d.status)}">{{ statusText(d.status) }}</span> · {{ d.chunk_count }} 块<span v-if="d.elapsed_ms"> · {{ fmtTime(d.elapsed_ms) }}</span></div>
+        </div>
+        <button class="del-btn" @click="delDoc(d.id)">删除</button>
+      </div>
+      <div v-if="documents.length===0&&!uploading" style="text-align:center;color:var(--text3);padding:40px">还没有文档</div>
+    </div>
+
+    <!-- Settings -->
+    <div v-if="page==='settings'" class="page">
+      <button class="back-link" @click="page='chat'">← 返回对话</button>
+
+      <div class="settings-card">
+        <h3>对话模型</h3>
+        <div class="desc">用于知识问答和对话生成</div>
+        <div class="field">
+          <label>LLM 提供商</label>
+          <select v-model="config.llm_provider">
+            <option value="mlx">MLX (本地)</option>
+            <option value="openai">OpenAI</option>
+            <option value="claude">Claude</option>
+            <option value="custom">自定义 (第三方)</option>
+          </select>
+        </div>
+        <template v-if="config.llm_provider==='mlx'">
+          <div class="field"><label>Chat 模型</label><input v-model="config.mlx_chat_model" placeholder="mlx-community/Qwen2.5-7B-Instruct-4bit"></div>
+          <div class="field"><label>Embedding 模型</label><input v-model="config.mlx_embedding_model" placeholder="mlx-community/bge-small-en-mlx"></div>
+          <div class="field"><label>API 地址</label><input v-model="config.mlx_api_base"></div>
+        </template>
+        <template v-if="config.llm_provider==='openai'">
+          <div class="field"><label>API Key</label><input v-model="config.openai_api_key" type="password" placeholder="sk-..."></div>
+        </template>
+        <template v-if="config.llm_provider==='claude'">
+          <div class="field"><label>API Key</label><input v-model="config.claude_api_key" type="password" placeholder="sk-ant-..."></div>
+        </template>
+        <template v-if="config.llm_provider==='custom'">
+          <div class="field"><label>API 格式</label><select v-model="config.custom_api_type"><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic 兼容</option></select></div>
+          <div class="field"><label>Base URL</label><input v-model="config.custom_api_base" placeholder="https://api.deepseek.com/anthropic"></div>
+          <div class="field"><label>API Key</label><input v-model="config.custom_api_key" type="password"></div>
+          <div class="field"><label>Chat 模型</label><input v-model="config.custom_chat_model" placeholder="deepseek-v4-pro"></div>
+          <div class="field"><label>Embedding 模型（可选）</label><input v-model="config.custom_embedding_model" placeholder="留空使用内置 embedding"></div>
+        </template>
+        <button class="btn btn-secondary" @click="testChat">测试对话连接</button>
+        <div v-if="chatResult" :class="chatResult.ok?'success-msg':'error-msg'">{{ chatResult.msg }}</div>
+      </div>
+
+      <div class="settings-card">
+        <h3>文档解析 OCR 模型</h3>
+        <div class="desc">用于扫描件 PDF 文字识别，独立于对话模型</div>
+        <div class="field">
+          <label>OCR 引擎</label>
+          <select v-model="config.ocr_engine">
+            <option value="tesseract">Tesseract (CPU 离线)</option>
+            <option value="ollama">本地多模态 API (Ollama/MLX/自定义)</option>
+          </select>
+        </div>
+        <template v-if="config.ocr_engine==='ollama'">
+          <div class="field"><label>Base URL</label><input v-model="config.ocr_ollama_base_url" placeholder="http://localhost:11434/v1"></div>
+          <div class="field"><label>模型 ID</label><input v-model="config.ocr_ollama_model" placeholder="glm-4v-9b 或 minicpm-v:8b"></div>
+          <div class="field"><label>并行页数</label><input v-model="config.ocr_max_workers" type="number" min="1" max="8"></div>
+        </template>
+        <div v-if="config.ocr_engine==='tesseract'" class="hint">需安装 brew install tesseract tesseract-lang，自动识别中英文。</div>
+        <label class="checkbox-label"><input type="checkbox" v-model="ocrOn"> 启用文档 OCR 解析</label>
+        <button class="btn btn-secondary" style="margin-top:12px" @click="testOcr">测试 OCR 连接</button>
+        <div v-if="ocrResult" :class="ocrResult.ok?'success-msg':'error-msg'">{{ ocrResult.msg }}</div>
+      </div>
+
+      <button class="btn btn-primary" @click="saveConfig">保存配置</button>
+      <div v-if="saved" class="success-msg">✓ 已保存</div>
+    </div>
+  </div>
 </div>
 
 <script>
-function renderTaskList(conversations, currentConversation, openFn, renameFn) {
-    const nav = document.getElementById('task-list');
-    const empty = document.getElementById('task-empty');
-    if (!nav) return;
+const { createApp, ref, reactive, nextTick, watch, onMounted, computed } = Vue;
 
-    // 清空（保留 empty 元素）
-    nav.querySelectorAll('.task-item, .task-edit').forEach(el => el.remove());
+createApp({
+  setup() {
+    const page = ref('chat');
+    const conversations = ref([]);
+    const currentConv = ref(null);
+    const messages = ref([]);
+    const input = ref('');
+    const streaming = ref(false);
+    const streamText = ref('');
+    const streamErr = ref('');
+    const documents = ref([]);
+    const uploading = ref(false);
+    const config = ref({llm_provider:'mlx'});
+    const ocrOn = ref(true);
+    const saved = ref(false);
+    const chatResult = ref(null);
+    const ocrResult = ref(null);
+    const editingId = ref(null);
+    const editTitle = ref('');
+    const testingChat = ref(false);
+    const testingOcr = ref(false);
+    const msgBox = ref(null);
+    const inputEl = ref(null);
 
-    if (!conversations || conversations.length === 0) {
-        if (empty) empty.style.display = '';
-        return;
+    // === API helpers ===
+    const api = (url, opts={}) => fetch(url, opts).then(r => r.ok ? r.json() : r.json().then(e => {throw new Error(e.detail||r.statusText)}));
+
+    // === Conversations ===
+    async function loadConversations() {
+      try { const d = await api('/api/v1/conversations'); conversations.value = d.data||[]; } catch(e) { console.error(e); }
     }
-    if (empty) empty.style.display = 'none';
+    async function newTask() {
+      const d = await api('/api/v1/conversations', {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+      page.value = 'chat';
+      await openTask(d.data.id);
+    }
+    async function openTask(id) {
+      page.value = 'chat';
+      currentConv.value = id;
+      try {
+        const d = await api('/api/v1/conversations/'+id);
+        messages.value = d.data.messages||[];
+        await nextTick();
+        scrollBottom();
+      } catch(e) { console.error(e); }
+    }
+    function renameStart(c) { editingId.value = c.id; editTitle.value = c.title; nextTick(() => { const inp = document.querySelector('.task-item input'); if(inp) { inp.focus(); inp.select(); }}); }
+    async function renameDone(id) {
+      const t = editTitle.value.trim();
+      editingId.value = null;
+      if (!t) return;
+      await api('/api/v1/conversations/'+id, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t})});
+      await loadConversations();
+    }
+    function scrollBottom() {
+      const el = msgBox.value;
+      if (el) el.scrollTop = el.scrollHeight;
+    }
 
-    conversations.forEach(conv => {
-        const div = document.createElement('div');
-        div.className = 'task-item px-3 py-2.5 rounded-lg cursor-pointer text-sm transition truncate ' +
-            (currentConversation === conv.id ? 'bg-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100');
-        div.textContent = conv.title;
-        if (openFn) div.addEventListener('click', () => openFn(conv.id));
-        if (renameFn) div.addEventListener('dblclick', () => renameFn(conv));
-        nav.appendChild(div);
+    // === Chat ===
+    async function send() {
+      if (!input.value.trim() || streaming.value) return;
+      const q = input.value.trim();
+      input.value = '';
+      messages.value = [...messages.value, {id:Date.now().toString(),role:'user',content:q}];
+      streaming.value = true;
+      streamText.value = '';
+      streamErr.value = '';
+      nextTick(scrollBottom);
+
+      try {
+        const res = await fetch('/api/v1/chat/stream', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({conversation_id:currentConv.value,question:q}),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(()=>({detail:res.statusText}));
+          messages.value = [...messages.value, {id:Date.now().toString(),role:'assistant',content:'❌ '+err.detail}];
+          streaming.value = false;
+          return;
+        }
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '', evt = '', full='';
+        while (true) {
+          const {done,value} = await reader.read();
+          if (done) break;
+          buf += dec.decode(value,{stream:true});
+          const lines = buf.split('\n');
+          buf = lines.pop()||'';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) { evt = line.slice(7).trim(); continue; }
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const p = JSON.parse(line.slice(6));
+              if (evt==='error') { streamErr.value = p.message||'未知错误'; }
+              else if (p.type==='token') { full+=p.content; streamText.value = full; nextTick(scrollBottom); }
+            } catch(e) {}
+          }
+        }
+      } catch(e) { streamErr.value = '网络错误: '+e.message; }
+      streaming.value = false;
+      const final = streamText.value + (streamErr.value ? '\n\n---\n❌ '+streamErr.value : '');
+      if (final) messages.value = [...messages.value, {id:Date.now().toString(),role:'assistant',content:final}];
+      streamText.value = '';
+      streamErr.value = '';
+      await loadConversations();
+      await openTask(currentConv.value);
+    }
+
+    // === Documents ===
+    async function loadDocuments() {
+      try { const d = await api('/api/v1/documents'); documents.value = d.data||[]; } catch(e) { console.error(e); }
+    }
+    async function uploadFile(e) {
+      const f = e.target.files[0];
+      if (!f) return;
+      uploading.value = true;
+      const fd = new FormData(); fd.append('file',f);
+      await fetch('/api/v1/documents/upload',{method:'POST',body:fd});
+      uploading.value = false;
+      await loadDocuments();
+    }
+    function uploadDrop(e) {
+      const f = e.dataTransfer.files[0];
+      if (!f) return;
+      uploading.value = true;
+      const fd = new FormData(); fd.append('file',f);
+      fetch('/api/v1/documents/upload',{method:'POST',body:fd}).then(()=>{uploading.value=false;loadDocuments()});
+    }
+    async function delDoc(id) {
+      if (!confirm('确定删除？')) return;
+      await fetch('/api/v1/documents/'+id,{method:'DELETE'});
+      await loadDocuments();
+    }
+
+    // === Config ===
+    async function loadConfig() {
+      try { const d = await api('/api/v1/config'); config.value = d.data||{}; ocrOn.value = config.value.ocr_enabled!=='false'; } catch(e) {}
+    }
+    async function saveConfig() {
+      config.value.ocr_enabled = ocrOn.value ? 'true' : 'false';
+      await api('/api/v1/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config.value)});
+      saved.value = true;
+      setTimeout(()=>saved.value=false,2000);
+    }
+    async function testChat() {
+      testingChat.value = true;
+      chatResult.value = null;
+      try {
+        const cr = await api('/api/v1/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+        const res = await fetch('/api/v1/chat/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:cr.data.id,question:'你好，请用一句话介绍自己'})});
+        const d = await res.json();
+        if (d.data&&d.data.answer) chatResult.value = {ok:true,msg:'✓ 连接成功: '+d.data.answer.slice(0,60)+'...'};
+        else chatResult.value = {ok:false,msg:'✗ '+ (d.detail||res.statusText)};
+      } catch(e) { chatResult.value = {ok:false,msg:'✗ '+e.message}; }
+      testingChat.value = false;
+    }
+    async function testOcr() {
+      testingOcr.value = true;
+      ocrResult.value = null;
+      if (config.value.ocr_engine!=='ollama') { ocrResult.value = {ok:true,msg:'✓ Tesseract 本地 OCR 就绪'}; testingOcr.value=false; return; }
+      try {
+        const base = (config.value.ocr_ollama_base_url||'http://localhost:11434/v1').replace(/\/+$/,'');
+        const res = await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:config.value.ocr_ollama_model||'minicpm-v:8b',messages:[{role:'user',content:'回复OK'}],max_tokens:10})});
+        if (res.ok) ocrResult.value = {ok:true,msg:'✓ OCR API 正常'};
+        else { const e = await res.text(); ocrResult.value = {ok:false,msg:'✗ '+res.status+': '+e.slice(0,100)}; }
+      } catch(e) { ocrResult.value = {ok:false,msg:'✗ '+e.message}; }
+      testingOcr.value = false;
+    }
+
+    // === Utils ===
+    function md(t) {
+      if (!t) return '';
+      return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/^/,'<p>').replace(/$/,'</p>');
+    }
+    function fmtSize(b) {
+      if (!b) return '0 B';
+      const u = ['B','KB','MB','GB']; let i=0, s=b;
+      while(s>=1024&&i<u.length-1){s/=1024;i++;}
+      return s.toFixed(1)+' '+u[i];
+    }
+    function fmtTime(ms) {
+      if (!ms) return ''; if (ms<1000) return ms+'ms'; if (ms<60000) return (ms/1000).toFixed(1)+'s';
+      const m=Math.floor(ms/60000),s=Math.round((ms%60000)/1000); return m+'m'+s+'s';
+    }
+    function statusText(s) {
+      const m={pending:'待处理',parsing:'解析中',chunking:'切块中',indexing:'索引中',done:'已完成',failed:'失败'};
+      return m[s]||s;
+    }
+    function statusColor(s) { if(s==='done')return'#10b981'; if(s==='failed')return'#ef4444'; if(s==='pending')return'#9ca3af'; return'#3b82f6'; }
+
+    // === Init ===
+    onMounted(() => {
+      loadConversations();
+      loadDocuments();
+      loadConfig();
     });
-}
-PetiteVue.createApp({
-    view: 'chat',
-    conversations: [],
-    currentConversation: null,
-    messages: [],
-    input: '',
-    streaming: false,
-    streamContent: '',
-    streamError: '',
-    documents: [],
-    uploading: false,
-    testingChat: false,
-    chatTestResult: null,
-    testingOcr: false,
-    ocrTestResult: null,
-    saved: false,
-    ocrEnabled: true,
-    config: {},
-    sidebarCollapsed: false,
-    editingConvId: null,
-    editingConvTitle: '',
 
-    mounted() {
-        if (window.__INIT__ && window.__INIT__.config) {
-            this.config = window.__INIT__.config;
-            this.ocrEnabled = this.config.ocr_enabled !== 'false';
-        }
-        this.loadConfig();
-        window.__vm = this;
-    },
-
-    async loadConversations() {
-        try {
-            const res = await fetch('/api/v1/conversations');
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            const data = await res.json();
-            this.conversations = data.data || [];
-            renderTaskList(this.conversations, this.currentConversation, (cid) => this.openConversation(cid), (conv) => this.startRename(conv));
-        } catch(e) {
-            console.error('加载任务列表失败:', e);
-        }
-    },
-
-    async createConversation() {
-        const res = await fetch('/api/v1/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-        const data = await res.json();
-        this.view = 'chat';
-        this.openConversation(data.data.id);
-    },
-
-    async openConversation(id) {
-        this.view = 'chat';
-        this.currentConversation = id;
-        const res = await fetch(`/api/v1/conversations/${id}`);
-        const data = await res.json();
-        this.messages = data.data.messages || [];
-        renderTaskList(this.conversations, id, (cid) => this.openConversation(cid), (c) => this.startRename(c));
-        this.$nextTick(() => { this.scrollBottom(); });
-    },
-
-    startRename(conv) {
-        const nav = document.getElementById('task-list');
-        const items = nav.querySelectorAll('.task-item');
-        items.forEach(el => {
-            if (el.textContent === conv.title || el._convId === conv.id) {
-                el._convId = conv.id;
-                const input = document.createElement('input');
-                input.className = 'task-edit w-full px-2 py-1.5 text-sm border border-green-400 rounded-lg outline-none focus:ring-1 focus:ring-green-500';
-                input.value = conv.title;
-                const finish = async () => {
-                    const title = input.value.trim();
-                    el.replaceWith(el); // 先移除 input
-                    if (title && title !== conv.title) {
-                        await fetch(`/api/v1/conversations/${conv.id}`, {
-                            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
-                        });
-                        await this.loadConversations();
-                    } else {
-                        // 恢复原样
-                        renderTaskList(this.conversations, this.currentConversation, (cid) => this.openConversation(cid), (c) => this.startRename(c));
-                    }
-                };
-                input.addEventListener('blur', finish);
-                input.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-                    if (e.key === 'Escape') { input.value = conv.title; input.blur(); }
-                });
-                el.replaceWith(input);
-                setTimeout(() => { input.focus(); input.select(); }, 0);
-            }
-        });
-    },
-
-    scrollBottom() {
-        const el = this.$refs.chatContainer;
-        if (el) el.scrollTop = el.scrollHeight;
-    },
-
-    async sendMessage() {
-        if (!this.input.trim() || this.streaming) return;
-        const question = this.input.trim();
-        this.input = '';
-        this.messages.push({ id: Date.now().toString(), role: 'user', content: question });
-        this.streaming = true;
-        this.streamContent = '';
-        this.streamError = '';
-        this.$nextTick(() => { this.scrollBottom(); });
-
-        try {
-            const res = await fetch('/api/v1/chat/stream', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ conversation_id: this.currentConversation, question }),
-            });
-            if (!res.ok) {
-                let detail = res.statusText;
-                try { const err = await res.json(); detail = err.detail || detail; } catch(e) {}
-                this.messages.push({ id: Date.now().toString(), role: 'assistant', content: '❌ 请求失败: ' + detail, citations: [] });
-                this.streaming = false;
-                return;
-            }
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            let currentEvent = '';
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-                for (const line of lines) {
-                    if (line.startsWith('event: ')) {
-                        currentEvent = line.slice(7).trim();
-                    } else if (line.startsWith('data: ')) {
-                        try {
-                            const payload = JSON.parse(line.slice(6));
-                            if (currentEvent === 'error') {
-                                this.streamError = payload.message || '未知错误';
-                            } else if (payload.type === 'token') {
-                                this.streamContent += payload.content;
-                                this.$nextTick(() => { this.scrollBottom(); });
-                            }
-                        } catch(e) {}
-                    }
-                }
-            }
-        } catch(e) {
-            this.streamError = '网络连接失败: ' + e.message;
-        }
-        this.streaming = false;
-        let finalContent = this.streamContent;
-        if (this.streamError) {
-            finalContent = this.streamContent + '\n\n---\n❌ **错误**: ' + this.streamError;
-        }
-        if (finalContent) {
-            this.messages.push({ id: Date.now().toString(), role: 'assistant', content: finalContent, citations: [] });
-        }
-        this.streamContent = '';
-        this.streamError = '';
-        await this.openConversation(this.currentConversation);
-        await this.loadConversations();
-    },
-
-    async loadDocuments() {
-        const res = await fetch('/api/v1/documents');
-        const data = await res.json();
-        this.documents = data.data || [];
-    },
-
-    async uploadFile(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        this.uploading = true;
-        const form = new FormData();
-        form.append('file', file);
-        await fetch('/api/v1/documents/upload', { method: 'POST', body: form });
-        this.uploading = false;
-        await this.loadDocuments();
-    },
-
-    async deleteDocument(id) {
-        if (!confirm('确定删除此文档？')) return;
-        await fetch(`/api/v1/documents/${id}`, { method: 'DELETE' });
-        await this.loadDocuments();
-    },
-
-    async loadConfig() {
-        const res = await fetch('/api/v1/config');
-        const data = await res.json();
-        this.config = data.data || {};
-        this.ocrEnabled = this.config.ocr_enabled !== 'false';
-    },
-
-    async saveConfig() {
-        await fetch('/api/v1/config', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(this.config),
-        });
-        this.saved = true;
-        setTimeout(() => { this.saved = false; }, 2000);
-    },
-
-    async testChatConnection() {
-        this.testingChat = true;
-        this.chatTestResult = null;
-        try {
-            const convRes = await fetch('/api/v1/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-            const convData = await convRes.json();
-            const convId = convData.data.id;
-
-            const res = await fetch('/api/v1/chat/ask', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ conversation_id: convId, question: '你好，请用一句话介绍自己' }),
-            });
-            const data = await res.json();
-            if (res.ok && data.data && data.data.answer) {
-                this.chatTestResult = { ok: true, msg: '✓ 对话模型正常: ' + data.data.answer.slice(0, 80) + '...' };
-            } else {
-                this.chatTestResult = { ok: false, msg: '✗ 失败: ' + (data.detail || data.message || res.statusText) };
-            }
-        } catch(e) {
-            this.chatTestResult = { ok: false, msg: '✗ 网络错误: ' + e.message };
-        }
-        this.testingChat = false;
-    },
-
-    async testOcrConnection() {
-        this.testingOcr = true;
-        this.ocrTestResult = null;
-        if (this.config.ocr_engine !== 'ollama') {
-            this.ocrTestResult = { ok: true, msg: '✓ Tesseract 本地 OCR 就绪' };
-            this.testingOcr = false;
-            return;
-        }
-        try {
-            const baseUrl = (this.config.ocr_ollama_base_url || 'http://localhost:11434/v1').replace(/\/+$/, '');
-            const model = this.config.ocr_ollama_model || 'minicpm-v:8b';
-            const res = await fetch(`${baseUrl}/chat/completions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: model,
-                    messages: [{ role: 'user', content: '回复"OK"' }],
-                    max_tokens: 10,
-                }),
-            });
-            if (res.ok) {
-                this.ocrTestResult = { ok: true, msg: `✓ OCR API 正常 (${model} @ ${baseUrl})` };
-            } else {
-                const err = await res.text();
-                this.ocrTestResult = { ok: false, msg: `✗ API 返回 ${res.status}: ${err.slice(0, 100)}` };
-            }
-        } catch(e) {
-            this.ocrTestResult = { ok: false, msg: '✗ 连接失败: ' + e.message };
-        }
-        this.testingOcr = false;
-    },
-
-    renderMarkdown(text) {
-        if (!text) return '';
-        return text
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\n\n/g, '</p><p>')
-            .replace(/\n/g, '<br>')
-            .replace(/`([^`]+)`/g, '<code>$1</code>')
-            .replace(/^/, '<p>').replace(/$/, '</p>');
-    },
-
-    formatElapsed(ms) {
-        if (!ms || ms === 0) return '';
-        if (ms < 1000) return ms + 'ms';
-        if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
-        const min = Math.floor(ms / 60000);
-        const sec = Math.round((ms % 60000) / 1000);
-        return min + 'm' + sec + 's';
-    },
-
-    formatSize(bytes) {
-        if (!bytes) return '0 B';
-        const units = ['B', 'KB', 'MB', 'GB'];
-        let i = 0;
-        let size = bytes;
-        while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
-        return size.toFixed(1) + ' ' + units[i];
-    },
-
-    statusLabel(s) {
-        const map = { pending: '待处理', parsing: '解析中', chunking: '切块中', indexing: '索引中', done: '已完成', failed: '失败' };
-        return map[s] || s;
-    },
-
-    statusColor(s) {
-        if (s === 'done') return 'text-green-500';
-        if (s === 'failed') return 'text-red-500';
-        if (s === 'pending') return 'text-gray-400';
-        return 'text-blue-500';
-    },
+    return {
+      page,conversations,currentConv,messages,input,streaming,streamText,documents,uploading,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,
+      newTask,openTask,renameStart,renameDone,send,loadDocuments,uploadFile,uploadDrop,delDoc,loadConfig,saveConfig,testChat,testOcr,
+      md,fmtSize,fmtTime,statusText,statusColor,
+    };
+  }
 }).mount('#app');
-
-// ===== 自动加载任务列表 =====
-(function setupTaskList() {
-    const nav = document.getElementById('task-list');
-    if (!nav) return;
-
-    async function load() {
-        try {
-            const res = await fetch('/api/v1/conversations');
-            const data = await res.json();
-            const list = data.data || [];
-            const empty = document.getElementById('task-empty');
-            nav.querySelectorAll('.task-item').forEach(el => el.remove());
-            if (list.length === 0) {
-                if (empty) empty.style.display = '';
-                return;
-            }
-            if (empty) empty.style.display = 'none';
-            list.forEach(conv => {
-                const div = document.createElement('div');
-                div.className = 'task-item px-3 py-2.5 rounded-lg cursor-pointer text-sm transition truncate text-gray-600 hover:bg-gray-100';
-                div.textContent = conv.title;
-                div.addEventListener('click', function() {
-                    if (window.__vm) window.__vm.openConversation(conv.id);
-                });
-                nav.appendChild(div);
-            });
-        } catch(e) {
-            console.error('任务列表加载失败:', e);
-        }
-    }
-
-    setTimeout(load, 300);
-})();
 </script>
 </body>
 </html>

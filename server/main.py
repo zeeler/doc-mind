@@ -8,8 +8,8 @@ from pathlib import Path
 _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
-import json
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from server.database import init_db, get_engine
 from server.models.base import Base
@@ -54,32 +54,10 @@ def health_check():
     }
 
 
-# 前端入口：注入初始数据到 HTML
+# 挂载前端
 _templates_dir = Path(__file__).parent / "templates"
-_INDEX_HTML = (_templates_dir / "index.html").read_text(encoding="utf-8") if (_templates_dir / "index.html").exists() else ""
-
-
-@app.get("/", response_class=HTMLResponse)
-def serve_index():
-    if not _INDEX_HTML:
-        return "<h1>index.html not found</h1>"
-    try:
-        from server.database import get_session
-        from server.models.conversation import Conversation
-        from server.config import AppConfig
-        with next(get_session()) as session:
-            convs = session.query(Conversation).order_by(Conversation.created_at.desc()).all()
-            convs_data = [
-                {"id": c.id, "title": c.title, "status": c.status, "created_at": c.created_at.isoformat(), "message_count": len(c.messages)}
-                for c in convs
-            ]
-        config_data = AppConfig().get_all()
-        init_json = json.dumps({"conversations": convs_data, "config": config_data}, ensure_ascii=False)
-    except Exception:
-        init_json = '{"conversations": [], "config": {}}'
-
-    html = _INDEX_HTML.replace("</body>", f"<script>window.__INIT__ = {init_json};</script>\n</body>")
-    return HTMLResponse(content=html)
+if _templates_dir.exists():
+    app.mount("/", StaticFiles(directory=str(_templates_dir), html=True), name="static")
 
 
 def startup():
