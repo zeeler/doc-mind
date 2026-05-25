@@ -37,10 +37,10 @@ body { font: 14px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; co
 .task-item.active { background:rgba(0,0,0,.08); color:var(--text); font-weight:500; }
 .task-item input { width:100%; padding:4px 8px; border:1.5px solid var(--primary); border-radius:6px; font-size:13px; outline:none; }
 .task-empty { text-align:center; padding:30px 12px; color:var(--text3); font-size:12px; }
-.sidebar-footer { border-top:1px solid var(--border); padding:8px; display:flex; flex-direction:column; gap:2px; }
-.sidebar-footer button { padding:8px 12px; border:none; border-radius:8px; background:none; cursor:pointer; font-size:13px; color:var(--text2); display:flex; align-items:center; gap:8px; transition:background .1s; }
-.sidebar-footer button:hover { background:rgba(0,0,0,.05); }
-.sidebar-footer button.nav-active { background:rgba(0,0,0,.06); color:var(--text); }
+.sidebar-footer { border-top:1px solid var(--border); padding:10px 8px; display:flex; flex-direction:column; gap:4px; margin-top:4px; }
+.sidebar-footer button { padding:10px 14px; border:none; border-radius:8px; background:none; cursor:pointer; font-size:14px; font-weight:500; color:var(--text2); display:flex; align-items:center; gap:10px; transition:all .15s; }
+.sidebar-footer button:hover { background:rgba(0,0,0,.06); color:var(--text); }
+.sidebar-footer button.nav-active { background:var(--primary); color:#fff; }
 
 /* Main */
 .main { flex:1; display:flex; flex-direction:column; min-width:0; }
@@ -112,8 +112,8 @@ body { font: 14px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; co
       </div>
     </div>
     <div class="sidebar-footer">
-      <button @click="page='docs'" :class="{'nav-active':page==='docs'}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>文档管理</button>
-      <button @click="page='settings'" :class="{'nav-active':page==='settings'}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>设置</button>
+      <button @click="page='docs'" :class="{'nav-active':page==='docs'}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></svg>文档管理</button>
+      <button @click="page='settings'" :class="{'nav-active':page==='settings'}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>设置</button>
     </div>
   </aside>
 
