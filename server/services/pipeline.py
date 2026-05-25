@@ -6,7 +6,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from server.database import DATA_DIR, get_session
 from server.models.document import Document, DocumentChunk
-from server.services.parser import parse_file, _ocr_tesseract, _ocr_ollama
+from server.services.parser import parse_file
 from server.services.chunker import chunk_text, estimate_tokens
 from server.services.embedder import Embedder
 from server.vector.store import VectorStore
