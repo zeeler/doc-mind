@@ -105,11 +105,14 @@
 
         <!-- 设置视图 -->
         <div v-if="view === 'settings'" class="flex-1 overflow-y-auto scrollbar-thin">
-            <div class="max-w-2xl mx-auto p-6">
+            <div class="max-w-2xl mx-auto p-6 space-y-6">
                 <button @click="view = 'chat'" class="text-sm text-gray-400 hover:text-gray-600 transition mb-4">← 返回对话</button>
-                <h2 class="text-lg font-semibold text-gray-800 mb-4">AI 模型配置</h2>
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
-                    <div class="space-y-3">
+
+                <!-- ===== 对话模型配置 ===== -->
+                <div>
+                    <h2 class="text-lg font-semibold text-gray-800 mb-1">对话模型</h2>
+                    <p class="text-xs text-gray-400 mb-4">用于知识问答和对话生成</p>
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-3">
                         <div>
                             <label class="text-sm text-gray-500">LLM 提供商</label>
                             <select v-model="config.llm_provider" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
@@ -146,24 +149,61 @@
                                     <option value="anthropic">Anthropic 兼容 (DeepSeek 等)</option>
                                 </select>
                             </div>
-                            <div>
-                                <label class="text-sm text-gray-500">Base URL</label>
-                                <input v-model="config.custom_api_base" placeholder="https://api.deepseek.com/anthropic" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                            </div>
-                            <div>
-                                <label class="text-sm text-gray-500">API Key</label>
-                                <input v-model="config.custom_api_key" type="password" placeholder="sk-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                            </div>
-                            <div>
-                                <label class="text-sm text-gray-500">Chat 模型名称</label>
-                                <input v-model="config.custom_chat_model" placeholder="deepseek-v4-pro" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                            </div>
-                            <div>
-                                <label class="text-sm text-gray-500">Embedding 模型名称（可选）</label>
-                                <input v-model="config.custom_embedding_model" placeholder="不填则使用内置 embedding" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                            </div>
+                            <div><label class="text-sm text-gray-500">Base URL</label><input v-model="config.custom_api_base" placeholder="https://api.deepseek.com/anthropic" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
+                            <div><label class="text-sm text-gray-500">API Key</label><input v-model="config.custom_api_key" type="password" placeholder="sk-..." class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
+                            <div><label class="text-sm text-gray-500">Chat 模型名称</label><input v-model="config.custom_chat_model" placeholder="deepseek-v4-pro" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
+                            <div><label class="text-sm text-gray-500">Embedding 模型名称（可选）</label><input v-model="config.custom_embedding_model" placeholder="不填则使用内置 embedding" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
                         </div>
                     </div>
+                </div>
+
+                <!-- ===== 文档解析 OCR 模型 ===== -->
+                <div>
+                    <h2 class="text-lg font-semibold text-gray-800 mb-1">文档解析 OCR 模型</h2>
+                    <p class="text-xs text-gray-400 mb-4">用于扫描件 PDF 的文字识别，独立于对话模型</p>
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-3">
+                        <div>
+                            <label class="text-sm text-gray-500">OCR 引擎</label>
+                            <select v-model="config.ocr_engine" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                <option value="tesseract">Tesseract (CPU 离线，免费)</option>
+                                <option value="ollama">Ollama 多模态模型 (GPU 加速，更快)</option>
+                            </select>
+                        </div>
+                        <div v-if="config.ocr_engine === 'ollama'" class="space-y-3">
+                            <div>
+                                <label class="text-sm text-gray-500">多模态模型</label>
+                                <select v-model="config.ocr_ollama_model" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                    <option value="minicpm-v:8b">minicpm-v:8b (推荐，小模型快速)</option>
+                                    <option value="llama3.2-vision:11b">llama3.2-vision:11b (中等，效果好)</option>
+                                    <option value="qwen2.5-vl:7b">qwen2.5-vl:7b (轻量，中文好)</option>
+                                    <option value="granite3.2-vision:2b">granite3.2-vision:2b (极速，2B)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-500">Base URL</label>
+                                <input v-model="config.ocr_ollama_base_url" placeholder="http://localhost:11434/v1" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-500">并行处理页数 (越大越快，但吃内存)</label>
+                                <input v-model="config.ocr_max_workers" type="number" min="1" max="8" placeholder="4" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                            </div>
+                        </div>
+                        <div v-if="config.ocr_engine === 'tesseract'" class="text-xs text-gray-400 bg-gray-50 p-3 rounded-lg">
+                            Tesseract 离线 OCR 引擎，无需 GPU。<br>
+                            需安装：<code class="bg-gray-100 px-1 rounded">brew install tesseract tesseract-lang</code><br>
+                            自动识别中英文，处理速度较慢但免费。
+                        </div>
+                        <div>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" v-model="ocrEnabled" @change="config.ocr_enabled = ocrEnabled ? 'true' : 'false'" class="rounded">
+                                <span class="text-sm text-gray-600">启用文档 OCR 解析</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 保存按钮 -->
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 space-y-2">
                     <div class="flex gap-2">
                         <button @click="saveConfig" class="flex-1 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">保存配置</button>
                         <button @click="testConnection" class="flex-1 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200 transition">{{ testing ? '测试中...' : '测试连接' }}</button>
@@ -257,6 +297,7 @@ PetiteVue.createApp({
     testing: false,
     testResult: null,
     saved: false,
+    ocrEnabled: true,
     config: {},
     sidebarCollapsed: false,
     editingConvId: null,
@@ -413,6 +454,7 @@ PetiteVue.createApp({
         const res = await fetch('/api/v1/config');
         const data = await res.json();
         this.config = data.data || {};
+        this.ocrEnabled = this.config.ocr_enabled !== 'false';
     },
 
     async saveConfig() {
