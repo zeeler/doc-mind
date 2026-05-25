@@ -60,11 +60,12 @@ if templates_dir.exists():
 
 
 def startup():
-    """在 uvicorn 启动前调用，初始化数据库。"""
+    """在 uvicorn 启动前调用，初始化数据库并执行迁移。"""
     from server.models.document import Document, DocumentChunk  # noqa: F811
     from server.models.conversation import Conversation, Message  # noqa: F811
     from server.config import AppConfigModel  # noqa: F811
-    Base.metadata.create_all(bind=get_engine())
+    from server.database import init_db
+    init_db()
 
 
 if __name__ == "__main__":
