@@ -305,17 +305,24 @@ PetiteVue.createApp({
     editingConvTitle: '',
 
     mounted() {
-        this.loadConversations();
-        this.loadConfig();
+        setTimeout(() => {
+            this.loadConversations();
+            this.loadConfig();
+        }, 0);
     },
 
     async loadConversations() {
         try {
             const res = await fetch('/api/v1/conversations');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
-            this.conversations = data.data || [];
+            const list = data.data || [];
+            this.conversations = list;
+            console.log('任务列表已加载: ' + list.length + ' 条');
         } catch(e) {
             console.error('加载任务列表失败:', e);
+            // 失败后 2 秒重试一次
+            setTimeout(() => this.loadConversations(), 2000);
         }
     },
 
