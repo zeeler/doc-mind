@@ -319,6 +319,7 @@ PetiteVue.createApp({
             this.ocrEnabled = this.config.ocr_enabled !== 'false';
         }
         this.loadConfig();
+        if (window.__setTaskListVM) window.__setTaskListVM(this);
     },
 
     async loadConversations() {
@@ -593,23 +594,22 @@ PetiteVue.createApp({
     },
 }).mount('#app');
 
-// ===== 自动加载任务列表（完全独立于 PetiteVue） =====
+// ===== 自动加载任务列表 =====
 (function setupTaskList() {
     const nav = document.getElementById('task-list');
     if (!nav) return;
 
-    // 事件委托：点击和双击
+    let vm = null;
+    window.__setTaskListVM = function(v) { vm = v; };
+
     nav.addEventListener('click', function(e) {
         const item = e.target.closest('.task-item');
         if (!item) return;
         const convId = item.getAttribute('data-conv-id');
-        if (convId && typeof openConversation !== 'undefined') {
-            openConversation(convId);
-        }
+        if (convId && vm) vm.openConversation(convId);
     });
 
-    // 加载数据
-    setTimeout(async function() {
+    async function load() {
         try {
             const res = await fetch('/api/v1/conversations');
             const data = await res.json();
@@ -631,7 +631,9 @@ PetiteVue.createApp({
         } catch(e) {
             console.error('任务列表加载失败:', e);
         }
-    }, 300);
+    }
+
+    setTimeout(load, 300);
 })();
 </script>
 </body>
