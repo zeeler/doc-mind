@@ -616,7 +616,9 @@ PetiteVue.createApp({
                 div.className = 'task-item px-3 py-2.5 rounded-lg cursor-pointer text-sm transition truncate text-gray-600 hover:bg-gray-100';
                 div.textContent = conv.title;
                 div.addEventListener('click', function() {
-                    if (window.__openConversation) window.__openConversation(conv.id);
+                    if (window.__openConversation) {
+                        window.__openConversation(conv.id);
+                    }
                 });
                 nav.appendChild(div);
             });
@@ -625,15 +627,7 @@ PetiteVue.createApp({
         }
     }
 
-    // 等待 PetiteVue mounted 后再加载，确保 __openConversation 已设置
-    function waitAndLoad() {
-        if (window.__openConversation) {
-            load();
-        } else {
-            setTimeout(waitAndLoad, 100);
-        }
-    }
-    setTimeout(waitAndLoad, 100);
+    setTimeout(load, 300);
 })();
 </script>
 </body>
