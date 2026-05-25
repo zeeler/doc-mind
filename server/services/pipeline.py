@@ -27,7 +27,8 @@ def process_document(doc_id: str, config: dict) -> None:
 
         try:
             text = parse_file(doc.file_path, config)
-        except Exception:
+        except Exception as e:
+            logger.error(f"文档解析失败 {doc.title}: {e}", exc_info=True)
             doc.status = "failed"
             session.commit()
             raise
@@ -37,8 +38,8 @@ def process_document(doc_id: str, config: dict) -> None:
             md_path = Path(doc.file_path).with_suffix(".md")
             try:
                 md_path.write_text(f"# {doc.title}\n\n{text}", encoding="utf-8")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Markdown 备份写入失败 {doc.title}: {e}")
 
         doc.status = "chunking"
         session.commit()
@@ -58,7 +59,8 @@ def process_document(doc_id: str, config: dict) -> None:
                 embedder = Embedder(config)
                 _ = embedder.embed(["test"])
                 use_external_embedding = True
-            except Exception:
+            except Exception as e:
+                logger.warning(f"外部 embedding 不可用，降级为内置: {e}")
                 use_external_embedding = False
 
         for i, chunk_content in enumerate(chunks_text):
@@ -86,8 +88,8 @@ def process_document(doc_id: str, config: dict) -> None:
                         }],
                     )
                     continue
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"外部 embedding 失败 chunk {i+1}，降级为内置: {e}")
 
             store.add(
                 ids=[chunk.id],

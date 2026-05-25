@@ -2,6 +2,7 @@
 
 import uuid
 import shutil
+import logging
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from sqlalchemy.orm import Session
@@ -10,6 +11,8 @@ from server.models.document import Document, DocumentChunk
 from server.services.parser import parse_file, SUPPORTED_TYPES
 from server.services.chunker import chunk_text, estimate_tokens
 from server.config import AppConfig
+
+logger = logging.getLogger("knowledge-base")
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
@@ -53,6 +56,7 @@ async def upload_document(file: UploadFile = File(...)):
             process_document(doc_id, AppConfig().get_all())
             session.refresh(doc)
         except Exception as e:
+            logger.error(f"文档处理失败 {doc.title} ({doc_id}): {e}", exc_info=True)
             doc.status = "failed"
             session.commit()
 

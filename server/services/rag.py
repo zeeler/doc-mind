@@ -1,5 +1,6 @@
 """RAG 编排 — 组装 prompt、调用 LLM、流式输出。"""
 
+import asyncio
 from typing import AsyncIterator
 from server.services.llm import LLMAdapter
 
@@ -60,7 +61,8 @@ class RAGService:
         return {"answer": result["content"], "citations": citations}
 
     async def ask_stream(self, question: str) -> AsyncIterator[dict]:
-        chunks = self.retriever.retrieve(question)
+        loop = asyncio.get_running_loop()
+        chunks = await loop.run_in_executor(None, self.retriever.retrieve, question)
         prompt = build_qa_prompt(question, chunks)
         async for chunk in self.llm.chat_stream(
             messages=[{"role": "user", "content": prompt}],
