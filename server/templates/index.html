@@ -229,7 +229,8 @@ body { font: 14px/1.6 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sa
           <div v-if="streaming" class="msg assistant">
             <div class="avatar">AI</div>
             <div class="content">
-              <div class="bubble" v-html="md(streamText)"><span class="typing"></span></div>
+              <div class="bubble" v-html="md(streamText)"></div>
+              <span class="typing"></span>
             </div>
           </div>
         </div>
