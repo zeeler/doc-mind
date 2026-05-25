@@ -45,23 +45,8 @@
         <div class="mx-3 border-t border-gray-200"></div>
 
         <!-- 任务列表 -->
-        <nav class="flex-1 overflow-y-auto scrollbar-thin px-2 py-2 space-y-0.5">
-            <div v-for="conv in conversations" :key="conv.id">
-                <div v-if="editingConvId !== conv.id"
-                     @click="openConversation(conv.id)"
-                     @dblclick="startRename(conv)"
-                     :class="['px-3 py-2.5 rounded-lg cursor-pointer text-sm transition truncate',
-                              currentConversation === conv.id ? 'bg-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100']">
-                    {{ conv.title }}
-                </div>
-                <form v-else @submit.prevent="finishRename(conv.id)" class="px-2">
-                    <input v-model="editingConvTitle" @blur="finishRename(conv.id)" @keydown.escape="editingConvId = null"
-                           class="w-full px-2 py-1.5 text-sm border border-green-400 rounded-lg outline-none focus:ring-1 focus:ring-green-500">
-                </form>
-            </div>
-            <div v-if="conversations.length === 0" class="text-gray-400 text-xs text-center py-8">
-                暂无任务
-            </div>
+        <nav id="task-list" class="flex-1 overflow-y-auto scrollbar-thin px-2 py-2 space-y-0.5">
+            <div id="task-empty" class="text-gray-400 text-xs text-center py-8">暂无任务</div>
         </nav>
 
         <!-- 底部菜单 -->
@@ -282,6 +267,30 @@
 </div>
 
 <script>
+function renderTaskList(conversations, currentConversation, openFn, renameFn) {
+    const nav = document.getElementById('task-list');
+    const empty = document.getElementById('task-empty');
+    if (!nav) return;
+
+    // 清空（保留 empty 元素）
+    nav.querySelectorAll('.task-item, .task-edit').forEach(el => el.remove());
+
+    if (!conversations || conversations.length === 0) {
+        if (empty) empty.style.display = '';
+        return;
+    }
+    if (empty) empty.style.display = 'none';
+
+    conversations.forEach(conv => {
+        const div = document.createElement('div');
+        div.className = 'task-item px-3 py-2.5 rounded-lg cursor-pointer text-sm transition truncate ' +
+            (currentConversation === conv.id ? 'bg-gray-200 text-gray-900' : 'text-gray-600 hover:bg-gray-100');
+        div.textContent = conv.title;
+        div.addEventListener('click', () => openFn(conv.id));
+        div.addEventListener('dblclick', () => renameFn(conv));
+        nav.appendChild(div);
+    });
+}
 PetiteVue.createApp({
     view: 'chat',
     conversations: [],
@@ -305,18 +314,18 @@ PetiteVue.createApp({
     editingConvTitle: '',
 
     mounted() {
-        // 从服务端注入的初始数据加载
+        // 服务端注入的初始数据
         if (window.__INIT__) {
             const init = window.__INIT__;
-            if (init.conversations) {
-                this.conversations.splice(0, this.conversations.length, ...init.conversations);
+            if (init.conversations && init.conversations.length > 0) {
+                this.conversations = init.conversations;
+                renderTaskList(this.conversations, this.currentConversation, (cid) => this.openConversation(cid), (conv) => this.startRename(conv));
             }
             if (init.config) {
                 this.config = init.config;
                 this.ocrEnabled = init.config.ocr_enabled !== 'false';
             }
         }
-        // 异步刷新确保最新
         this.loadConversations();
         this.loadConfig();
     },
@@ -326,12 +335,10 @@ PetiteVue.createApp({
             const res = await fetch('/api/v1/conversations');
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
-            const list = data.data || [];
-            const arr = this.conversations;
-            arr.splice(0, arr.length, ...list);
+            this.conversations = data.data || [];
+            renderTaskList(this.conversations, this.currentConversation, (cid) => this.openConversation(cid), (conv) => this.startRename(conv));
         } catch(e) {
             console.error('加载任务列表失败:', e);
-            // 失败后 2 秒重试一次
             setTimeout(() => this.loadConversations(), 2000);
         }
     },
@@ -344,34 +351,46 @@ PetiteVue.createApp({
     },
 
     async openConversation(id) {
-        const res = await fetch(`/api/v1/conversations/${id}`);
-        const data = await res.json();
         this.view = 'chat';
         this.currentConversation = id;
+        const res = await fetch(`/api/v1/conversations/${id}`);
+        const data = await res.json();
         this.messages = data.data.messages || [];
+        renderTaskList(this.conversations, id, (cid) => this.openConversation(cid), (c) => this.startRename(c));
         this.$nextTick(() => { this.scrollBottom(); });
     },
 
     startRename(conv) {
-        this.editingConvId = conv.id;
-        this.editingConvTitle = conv.title;
-        this.$nextTick(() => {
-            const inp = document.querySelector('nav input');
-            if (inp) { inp.focus(); inp.select(); }
+        const nav = document.getElementById('task-list');
+        const items = nav.querySelectorAll('.task-item');
+        items.forEach(el => {
+            if (el.textContent === conv.title || el._convId === conv.id) {
+                el._convId = conv.id;
+                const input = document.createElement('input');
+                input.className = 'task-edit w-full px-2 py-1.5 text-sm border border-green-400 rounded-lg outline-none focus:ring-1 focus:ring-green-500';
+                input.value = conv.title;
+                const finish = async () => {
+                    const title = input.value.trim();
+                    el.replaceWith(el); // 先移除 input
+                    if (title && title !== conv.title) {
+                        await fetch(`/api/v1/conversations/${conv.id}`, {
+                            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
+                        });
+                        await this.loadConversations();
+                    } else {
+                        // 恢复原样
+                        renderTaskList(this.conversations, this.currentConversation, (cid) => this.openConversation(cid), (c) => this.startRename(c));
+                    }
+                };
+                input.addEventListener('blur', finish);
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+                    if (e.key === 'Escape') { input.value = conv.title; input.blur(); }
+                });
+                el.replaceWith(input);
+                setTimeout(() => { input.focus(); input.select(); }, 0);
+            }
         });
-    },
-
-    async finishRename(convId) {
-        const title = (this.editingConvTitle || '').trim();
-        this.editingConvId = null;
-        this.editingConvTitle = '';
-        if (!title) return;
-        await fetch(`/api/v1/conversations/${convId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title }),
-        });
-        await this.loadConversations();
     },
 
     scrollBottom() {
