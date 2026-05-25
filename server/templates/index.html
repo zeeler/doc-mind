@@ -166,22 +166,17 @@
                             <label class="text-sm text-gray-500">OCR 引擎</label>
                             <select v-model="config.ocr_engine" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
                                 <option value="tesseract">Tesseract (CPU 离线，免费)</option>
-                                <option value="ollama">Ollama 多模态模型 (GPU 加速，更快)</option>
+                                <option value="ollama">本地多模态 API (Ollama / MLX / 自定义)</option>
                             </select>
                         </div>
                         <div v-if="config.ocr_engine === 'ollama'" class="space-y-3">
                             <div>
-                                <label class="text-sm text-gray-500">多模态模型</label>
-                                <select v-model="config.ocr_ollama_model" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                                    <option value="minicpm-v:8b">minicpm-v:8b (推荐，小模型快速)</option>
-                                    <option value="llama3.2-vision:11b">llama3.2-vision:11b (中等，效果好)</option>
-                                    <option value="qwen2.5-vl:7b">qwen2.5-vl:7b (轻量，中文好)</option>
-                                    <option value="granite3.2-vision:2b">granite3.2-vision:2b (极速，2B)</option>
-                                </select>
+                                <label class="text-sm text-gray-500">Base URL (OpenAI 兼容接口)</label>
+                                <input v-model="config.ocr_ollama_base_url" placeholder="http://localhost:11434/v1" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
                             </div>
                             <div>
-                                <label class="text-sm text-gray-500">Base URL</label>
-                                <input v-model="config.ocr_ollama_base_url" placeholder="http://localhost:11434/v1" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                <label class="text-sm text-gray-500">模型 ID</label>
+                                <input v-model="config.ocr_ollama_model" placeholder="glm-4v-9b 或 minicpm-v:8b" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
                             </div>
                             <div>
                                 <label class="text-sm text-gray-500">并行处理页数 (越大越快，但吃内存)</label>
