@@ -10,8 +10,9 @@ router = APIRouter(prefix="/api/v1/conversations", tags=["conversations"])
 
 
 @router.post("")
-def create_conversation(session: Session = Depends(get_session)):
-    conv = Conversation(id=str(uuid.uuid4()), title="新会话")
+def create_conversation(body: dict = {}, session: Session = Depends(get_session)):
+    title = body.get("title", "").strip() if body else ""
+    conv = Conversation(id=str(uuid.uuid4()), title=title or "新会话")
     session.add(conv)
     session.commit()
     return {
