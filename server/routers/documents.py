@@ -84,6 +84,7 @@ def list_documents(skip: int = 0, limit: int = 50, session: Session = Depends(ge
                 "file_size": d.file_size,
                 "status": d.status,
                 "chunk_count": d.chunk_count,
+                "elapsed_ms": d.elapsed_ms,
                 "created_at": d.created_at.isoformat(),
             }
             for d in docs

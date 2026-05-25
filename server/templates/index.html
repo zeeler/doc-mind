@@ -93,7 +93,7 @@
                 <div v-for="doc in documents" :key="doc.id" class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
                     <div class="flex-1 min-w-0">
                         <div class="font-medium text-gray-800 truncate">{{ doc.title }}</div>
-                        <div class="text-xs text-gray-400 mt-1">{{ doc.file_type }} · {{ formatSize(doc.file_size) }} · <span :class="statusColor(doc.status)">{{ statusLabel(doc.status) }}</span> · {{ doc.chunk_count }} 块</div>
+                        <div class="text-xs text-gray-400 mt-1">{{ doc.file_type }} · {{ formatSize(doc.file_size) }} · <span :class="statusColor(doc.status)">{{ statusLabel(doc.status) }}</span> · {{ doc.chunk_count }} 块<span v-if="doc.elapsed_ms"> · {{ formatElapsed(doc.elapsed_ms) }}</span></div>
                     </div>
                     <button @click="deleteDocument(doc.id)" class="text-red-400 hover:text-red-600 text-sm ml-4 transition">删除</button>
                 </div>
@@ -534,6 +534,15 @@ PetiteVue.createApp({
             .replace(/\n/g, '<br>')
             .replace(/`([^`]+)`/g, '<code>$1</code>')
             .replace(/^/, '<p>').replace(/$/, '</p>');
+    },
+
+    formatElapsed(ms) {
+        if (!ms || ms === 0) return '';
+        if (ms < 1000) return ms + 'ms';
+        if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+        const min = Math.floor(ms / 60000);
+        const sec = Math.round((ms % 60000) / 1000);
+        return min + 'm' + sec + 's';
     },
 
     formatSize(bytes) {
