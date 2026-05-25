@@ -325,7 +325,7 @@ body { font: 14px/1.6 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sa
 </div>
 
 <script>
-const { createApp, ref, reactive, nextTick, onMounted } = Vue;
+const { createApp, ref, reactive, nextTick, onMounted, watch } = Vue;
 
 createApp({
   setup() {
@@ -453,7 +453,8 @@ createApp({
     function statusText(s) { const m={pending:'待处理',parsing:'解析中',chunking:'切块中',indexing:'索引中',done:'已完成',failed:'失败'};return m[s]||s; }
     function statusColor(s) { if(s==='done')return'var(--success)';if(s==='failed')return'var(--danger)';if(s==='pending')return'var(--text-tertiary)';return'var(--info)'; }
 
-    onMounted(() => { loadConversations(); loadConfig(); if(page.value==='docs') loadDocuments(); });
+    onMounted(() => { loadConversations(); loadConfig(); });
+    watch(page, (v) => { if (v==='docs') loadDocuments(); });
 
     return { page,conversations,currentConv,messages,input,streaming,streamText,documents,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl, newTask,openTask,renameStart,renameDone,send,loadDocuments,uploadFile,uploadDrop,scanDirectory,delDoc,loadConfig,saveConfig,testChat,testOcr, md,fmtSize,fmtTime,statusText,statusColor };
   }
