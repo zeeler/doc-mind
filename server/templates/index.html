@@ -317,8 +317,8 @@ PetiteVue.createApp({
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
             const list = data.data || [];
-            this.conversations = list;
-            console.log('任务列表已加载: ' + list.length + ' 条');
+            const arr = this.conversations;
+            arr.splice(0, arr.length, ...list);
         } catch(e) {
             console.error('加载任务列表失败:', e);
             // 失败后 2 秒重试一次
