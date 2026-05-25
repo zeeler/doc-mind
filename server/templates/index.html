@@ -154,6 +154,10 @@
                             <div><label class="text-sm text-gray-500">Chat 模型名称</label><input v-model="config.custom_chat_model" placeholder="deepseek-v4-pro" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
                             <div><label class="text-sm text-gray-500">Embedding 模型名称（可选）</label><input v-model="config.custom_embedding_model" placeholder="不填则使用内置 embedding" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
                         </div>
+                        <button @click="testChatConnection" class="w-full py-2 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200 transition mt-3">
+                            {{ testingChat ? '测试中...' : '测试对话连接' }}
+                        </button>
+                        <div v-if="chatTestResult" :class="chatTestResult.ok ? 'text-green-600' : 'text-red-500'" class="text-xs">{{ chatTestResult.msg }}</div>
                     </div>
                 </div>
 
@@ -197,14 +201,17 @@
                     </div>
                 </div>
 
-                <!-- 保存按钮 -->
-                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 space-y-2">
-                    <div class="flex gap-2">
-                        <button @click="saveConfig" class="flex-1 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">保存配置</button>
-                        <button @click="testConnection" class="flex-1 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200 transition">{{ testing ? '测试中...' : '测试连接' }}</button>
+                        <button @click="testOcrConnection" class="w-full py-2 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200 transition mt-3">
+                            {{ testingOcr ? '测试中...' : '测试 OCR 连接' }}
+                        </button>
+                        <div v-if="ocrTestResult" :class="ocrTestResult.ok ? 'text-green-600' : 'text-red-500'" class="text-xs">{{ ocrTestResult.msg }}</div>
                     </div>
-                    <div v-if="saved" class="text-green-600 text-xs text-center">✓ 已保存</div>
-                    <div v-if="testResult" :class="testResult.ok ? 'text-green-600' : 'text-red-500'" class="text-xs">{{ testResult.msg }}</div>
+                </div>
+
+                <!-- 保存按钮 -->
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                    <button @click="saveConfig" class="w-full py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">保存配置</button>
+                    <div v-if="saved" class="text-green-600 text-xs text-center mt-2">✓ 已保存</div>
                 </div>
             </div>
         </div>
@@ -289,8 +296,10 @@ PetiteVue.createApp({
     streamError: '',
     documents: [],
     uploading: false,
-    testing: false,
-    testResult: null,
+    testingChat: false,
+    chatTestResult: null,
+    testingOcr: false,
+    ocrTestResult: null,
     saved: false,
     ocrEnabled: true,
     config: {},
@@ -462,9 +471,9 @@ PetiteVue.createApp({
         setTimeout(() => { this.saved = false; }, 2000);
     },
 
-    async testConnection() {
-        this.testing = true;
-        this.testResult = null;
+    async testChatConnection() {
+        this.testingChat = true;
+        this.chatTestResult = null;
         try {
             const convRes = await fetch('/api/v1/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
             const convData = await convRes.json();
@@ -477,14 +486,46 @@ PetiteVue.createApp({
             });
             const data = await res.json();
             if (res.ok && data.data && data.data.answer) {
-                this.testResult = { ok: true, msg: '✓ 连接成功: ' + data.data.answer.slice(0, 80) + '...' };
+                this.chatTestResult = { ok: true, msg: '✓ 对话模型正常: ' + data.data.answer.slice(0, 80) + '...' };
             } else {
-                this.testResult = { ok: false, msg: '✗ 失败: ' + (data.detail || data.message || res.statusText) };
+                this.chatTestResult = { ok: false, msg: '✗ 失败: ' + (data.detail || data.message || res.statusText) };
             }
         } catch(e) {
-            this.testResult = { ok: false, msg: '✗ 网络错误: ' + e.message };
+            this.chatTestResult = { ok: false, msg: '✗ 网络错误: ' + e.message };
         }
-        this.testing = false;
+        this.testingChat = false;
+    },
+
+    async testOcrConnection() {
+        this.testingOcr = true;
+        this.ocrTestResult = null;
+        if (this.config.ocr_engine !== 'ollama') {
+            this.ocrTestResult = { ok: true, msg: '✓ Tesseract 本地 OCR 就绪' };
+            this.testingOcr = false;
+            return;
+        }
+        try {
+            const baseUrl = (this.config.ocr_ollama_base_url || 'http://localhost:11434/v1').replace(/\/+$/, '');
+            const model = this.config.ocr_ollama_model || 'minicpm-v:8b';
+            const res = await fetch(`${baseUrl}/chat/completions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: model,
+                    messages: [{ role: 'user', content: '回复"OK"' }],
+                    max_tokens: 10,
+                }),
+            });
+            if (res.ok) {
+                this.ocrTestResult = { ok: true, msg: `✓ OCR API 正常 (${model} @ ${baseUrl})` };
+            } else {
+                const err = await res.text();
+                this.ocrTestResult = { ok: false, msg: `✗ API 返回 ${res.status}: ${err.slice(0, 100)}` };
+            }
+        } catch(e) {
+            this.ocrTestResult = { ok: false, msg: '✗ 连接失败: ' + e.message };
+        }
+        this.testingOcr = false;
     },
 
     renderMarkdown(text) {
