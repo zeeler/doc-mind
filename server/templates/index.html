@@ -305,10 +305,20 @@ PetiteVue.createApp({
     editingConvTitle: '',
 
     mounted() {
-        setTimeout(() => {
-            this.loadConversations();
-            this.loadConfig();
-        }, 0);
+        // 从服务端注入的初始数据加载
+        if (window.__INIT__) {
+            const init = window.__INIT__;
+            if (init.conversations) {
+                this.conversations.splice(0, this.conversations.length, ...init.conversations);
+            }
+            if (init.config) {
+                this.config = init.config;
+                this.ocrEnabled = init.config.ocr_enabled !== 'false';
+            }
+        }
+        // 异步刷新确保最新
+        this.loadConversations();
+        this.loadConfig();
     },
 
     async loadConversations() {
