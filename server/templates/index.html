@@ -253,6 +253,10 @@ body { font: 14px/1.6 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sa
         <p>{{ uploading ? '上传中...' : '拖拽文件到此处，或点击上传' }}</p>
         <span>支持 PDF / Word / Markdown / TXT</span>
       </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <button class="btn btn-ghost" @click="scanDirectory" style="flex:1;margin-top:0" :disabled="dirProcessing">{{ dirProcessing ? '扫描中 ('+dirProgress+')' : '选择本地目录' }}</button>
+      </div>
+      <div v-if="!dirProcessing && dirResult" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">{{ dirResult }}</div>
       <div v-for="d in documents" :key="d.id" class="doc-item">
         <div class="doc-info">
           <div class="doc-title">{{ d.title }}</div>
@@ -335,6 +339,9 @@ createApp({
     const streamErr = ref('');
     const documents = ref([]);
     const uploading = ref(false);
+    const dirProcessing = ref(false);
+    const dirProgress = ref('');
+    const dirResult = ref(null);
     const config = ref({llm_provider:'custom'});
     const ocrOn = ref(true);
     const saved = ref(false);
@@ -396,6 +403,45 @@ createApp({
     function uploadDrop(e) { const f=e.dataTransfer.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);fetch('/api/v1/documents/upload',{method:'POST',body:fd}).then(()=>{uploading.value=false;loadDocuments()}); }
     async function delDoc(id) { if(!confirm('确定删除？'))return;await fetch('/api/v1/documents/'+id,{method:'DELETE'});await loadDocuments(); }
 
+    async function scanDirectory() {
+      if (!window.showDirectoryPicker) { alert('浏览器不支持目录选择，请使用 Chrome/Edge'); return; }
+      const SUFFIXES = ['pdf','docx','md','txt','markdown'];
+      try {
+        const handle = await window.showDirectoryPicker();
+        const files = [];
+        async function walk(dir, prefix) {
+          for await (const [name, entry] of dir.entries()) {
+            if (entry.kind === 'file') {
+              const s = name.split('.').pop().toLowerCase();
+              if (SUFFIXES.includes(s)) files.push({name, entry, prefix});
+            } else if (entry.kind === 'directory') {
+              await walk(entry, prefix + name + '/');
+            }
+          }
+        }
+        dirProcessing.value = true; dirProgress.value = '扫描中...'; dirResult.value = null;
+        await walk(handle, '');
+        dirProgress.value = `找到 ${files.length} 个文件，上传中...`;
+        let ok = 0, fail = 0;
+        for (let i = 0; i < files.length; i++) {
+          const {name, entry} = files[i];
+          dirProgress.value = `上传 ${i+1}/${files.length}: ${name}`;
+          try {
+            const f = await entry.getFile();
+            const fd = new FormData(); fd.append('file', f, name);
+            const res = await fetch('/api/v1/documents/upload', {method:'POST', body:fd});
+            if (res.ok) ok++; else fail++;
+          } catch(e) { fail++; }
+        }
+        dirProcessing.value = false;
+        dirResult.value = `完成：${ok} 成功，${fail} 失败`;
+        if (ok > 0) setTimeout(() => loadDocuments(), 500);
+      } catch(e) {
+        dirProcessing.value = false;
+        if (e.name !== 'AbortError') dirResult.value = '目录选择失败: ' + e.message;
+      }
+    }
+
     async function loadConfig() { try { const d=await api('/api/v1/config'); config.value=d.data||{}; ocrOn.value=config.value.ocr_enabled!=='false'; } catch(e) {} }
     async function saveConfig() { config.value.ocr_enabled=ocrOn.value?'true':'false';await api('/api/v1/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config.value)});saved.value=true;setTimeout(()=>saved.value=false,2000); }
     async function testChat() { testingChat.value=true;chatResult.value=null;try{const cr=await api('/api/v1/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const res=await fetch('/api/v1/chat/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:cr.data.id,question:'你好'})});const d=await res.json();chatResult.value=d.data&&d.data.answer?{ok:true,msg:'✓ '+d.data.answer.slice(0,60)+'...'}:{ok:false,msg:'✗ '+(d.detail||res.statusText)}}catch(e){chatResult.value={ok:false,msg:'✗ '+e.message}}testingChat.value=false; }
@@ -409,7 +455,7 @@ createApp({
 
     onMounted(() => { loadConversations(); loadConfig(); if(page.value==='docs') loadDocuments(); });
 
-    return { page,conversations,currentConv,messages,input,streaming,streamText,documents,uploading,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl, newTask,openTask,renameStart,renameDone,send,loadDocuments,uploadFile,uploadDrop,delDoc,loadConfig,saveConfig,testChat,testOcr, md,fmtSize,fmtTime,statusText,statusColor };
+    return { page,conversations,currentConv,messages,input,streaming,streamText,documents,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl, newTask,openTask,renameStart,renameDone,send,loadDocuments,uploadFile,uploadDrop,scanDirectory,delDoc,loadConfig,saveConfig,testChat,testOcr, md,fmtSize,fmtTime,statusText,statusColor };
   }
 }).mount('#app');
 </script>
