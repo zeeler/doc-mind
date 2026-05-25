@@ -314,18 +314,11 @@ PetiteVue.createApp({
     editingConvTitle: '',
 
     mounted() {
-        if (window.__INIT__) {
-            const init = window.__INIT__;
-            if (init.config) {
-                this.config = init.config;
-                this.ocrEnabled = init.config.ocr_enabled !== 'false';
-            }
+        if (window.__INIT__ && window.__INIT__.config) {
+            this.config = window.__INIT__.config;
+            this.ocrEnabled = this.config.ocr_enabled !== 'false';
         }
         this.loadConfig();
-        // 绑定任务列表回调
-        if (window.__bindTaskListCallbacks) {
-            window.__bindTaskListCallbacks(this);
-        }
     },
 
     async loadConversations() {
@@ -337,7 +330,6 @@ PetiteVue.createApp({
             renderTaskList(this.conversations, this.currentConversation, (cid) => this.openConversation(cid), (conv) => this.startRename(conv));
         } catch(e) {
             console.error('加载任务列表失败:', e);
-            setTimeout(() => this.loadConversations(), 2000);
         }
     },
 
@@ -601,48 +593,45 @@ PetiteVue.createApp({
     },
 }).mount('#app');
 
-// ===== 兜底：不依赖 PetiteVue 生命周期，直接异步加载任务列表 =====
-(function initTaskList() {
-    let callbacksReady = false;
-    let callbacks = {
-        open: null,
-        rename: null,
-        ctx: null,
-    };
+// ===== 自动加载任务列表（完全独立于 PetiteVue） =====
+(function setupTaskList() {
+    const nav = document.getElementById('task-list');
+    if (!nav) return;
 
-    // 暴露绑定方法，供 PetiteVue mounted 后调用
-    window.__bindTaskListCallbacks = function(ctx) {
-        callbacks.ctx = ctx;
-        callbacks.open = (cid) => ctx.openConversation(cid);
-        callbacks.rename = (c) => ctx.startRename(c);
-        callbacksReady = true;
-        // 绑定完成后立即渲染
-        loadAndRender();
-    };
+    // 事件委托：点击和双击
+    nav.addEventListener('click', function(e) {
+        const item = e.target.closest('.task-item');
+        if (!item) return;
+        const convId = item.getAttribute('data-conv-id');
+        if (convId && typeof openConversation !== 'undefined') {
+            openConversation(convId);
+        }
+    });
 
-    async function loadAndRender() {
-        if (!callbacksReady) return;
+    // 加载数据
+    setTimeout(async function() {
         try {
             const res = await fetch('/api/v1/conversations');
-            if (!res.ok) return;
             const data = await res.json();
             const list = data.data || [];
-            if (list.length > 0) {
-                renderTaskList(list, callbacks.ctx.currentConversation, callbacks.open, callbacks.rename);
+            const empty = document.getElementById('task-empty');
+            nav.querySelectorAll('.task-item').forEach(el => el.remove());
+            if (list.length === 0) {
+                if (empty) empty.style.display = '';
+                return;
             }
+            if (empty) empty.style.display = 'none';
+            list.forEach(conv => {
+                const div = document.createElement('div');
+                div.className = 'task-item px-3 py-2.5 rounded-lg cursor-pointer text-sm transition truncate text-gray-600 hover:bg-gray-100';
+                div.textContent = conv.title;
+                div.setAttribute('data-conv-id', conv.id);
+                nav.appendChild(div);
+            });
         } catch(e) {
-            console.error('initTaskList 加载失败:', e);
-            setTimeout(loadAndRender, 1000);
+            console.error('任务列表加载失败:', e);
         }
-    }
-
-    // 服务端注入数据立即渲染（不需要回调）
-    if (window.__INIT__ && window.__INIT__.conversations) {
-        renderTaskList(window.__INIT__.conversations, null, null, null);
-    }
-
-    // 延迟加载 API 数据
-    setTimeout(loadAndRender, 200);
+    }, 300);
 })();
 </script>
 </body>
