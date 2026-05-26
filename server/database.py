@@ -52,7 +52,7 @@ def init_db():
 
 
 def _migrate(engine):
-    """增量迁移：为旧数据库补齐缺失的列。"""
+    """增量迁移：为旧数据库补齐缺失的列，并创建新表。"""
     import sqlite3
     db_path = str(engine.url).replace("sqlite:///", "")
     conn = sqlite3.connect(db_path)
@@ -61,5 +61,22 @@ def _migrate(engine):
         if "elapsed_ms" not in cols:
             conn.execute("ALTER TABLE documents ADD COLUMN elapsed_ms INTEGER DEFAULT 0")
             conn.commit()
+
+        # 确保 jobs 表存在（新表或旧数据库迁移）
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                id VARCHAR(36) PRIMARY KEY,
+                document_id VARCHAR(36) NOT NULL,
+                job_type VARCHAR(20) NOT NULL,
+                priority INTEGER DEFAULT 5,
+                status VARCHAR(20) DEFAULT 'pending',
+                progress INTEGER DEFAULT 0,
+                error_message TEXT,
+                started_at TIMESTAMP,
+                finished_at TIMESTAMP,
+                created_at TIMESTAMP NOT NULL
+            )
+        """)
+        conn.commit()
     finally:
         conn.close()

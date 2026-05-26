@@ -15,6 +15,7 @@ from server.database import init_db, get_engine
 from server.models.base import Base
 from server.models.document import Document, DocumentChunk  # noqa: F401
 from server.models.conversation import Conversation, Message  # noqa: F401
+from server.models.job import Job  # noqa: F401
 from server.config import AppConfigModel  # noqa: F401
 from server.routers.documents import router as documents_router
 from server.routers.conversations import router as conversations_router
