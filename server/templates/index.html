@@ -257,6 +257,15 @@ body { font: 14px/1.6 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sa
         <button class="btn btn-ghost" @click="scanDirectory" style="flex:1;margin-top:0" :disabled="dirProcessing">{{ dirProcessing ? '扫描中 ('+dirProgress+')' : '选择本地目录' }}</button>
       </div>
       <div v-if="!dirProcessing && dirResult" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">{{ dirResult }}</div>
+      <div v-if="jobStats" style="display:flex;gap:12px;margin-bottom:12px;font-size:12px;align-items:center">
+        <span v-if="jobStats.pending" style="color:var(--text-tertiary)">{{ jobStats.pending }} 等待</span>
+        <span v-if="jobStats.running" style="color:var(--info)">{{ jobStats.running }} 处理中</span>
+        <span style="color:var(--text-secondary)">{{ jobStats.completed || 0 }} 完成</span>
+        <span v-if="jobStats.failed" style="color:var(--danger)">{{ jobStats.failed }} 失败</span>
+      </div>
+      <div v-if="jobStats&&(jobStats.pending||jobStats.running)" style="margin-bottom:12px;height:3px;background:var(--bg-hover);border-radius:2px;overflow:hidden">
+        <div :style="{width:jobPercent+'%',height:'100%',background:'var(--primary)',transition:'width .5s ease'}"></div>
+      </div>
       <div v-for="d in documents" :key="d.id" class="doc-item">
         <div class="doc-info">
           <div class="doc-title">{{ d.title }}</div>
@@ -338,6 +347,9 @@ createApp({
     const streamText = ref('');
     const streamErr = ref('');
     const documents = ref([]);
+    const jobStats = ref(null);
+    const jobPercent = ref(0);
+    let jobInterval = null;
     const uploading = ref(false);
     const dirProcessing = ref(false);
     const dirProgress = ref('');
@@ -399,6 +411,14 @@ createApp({
     }
 
     async function loadDocuments() { try { const d=await api('/api/v1/documents'); documents.value=d.data||[]; } catch(e){console.error(e);} }
+    async function loadJobStats() {
+      try {
+        const d = await api('/api/v1/jobs/stats');
+        jobStats.value = d.data;
+        const total = (d.data.pending||0)+(d.data.running||0)+(d.data.completed||0)+(d.data.failed||0);
+        jobPercent.value = total > 0 ? Math.round((d.data.completed||0)/total*100) : 0;
+      } catch(e) { console.error(e); }
+    }
     async function uploadFile(e) { const f=e.target.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);await fetch('/api/v1/documents/upload',{method:'POST',body:fd});uploading.value=false;await loadDocuments(); }
     function uploadDrop(e) { const f=e.dataTransfer.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);fetch('/api/v1/documents/upload',{method:'POST',body:fd}).then(()=>{uploading.value=false;loadDocuments()}); }
     async function delDoc(id) { if(!confirm('确定删除？'))return;await fetch('/api/v1/documents/'+id,{method:'DELETE'});await loadDocuments(); }
@@ -454,9 +474,17 @@ createApp({
     function statusColor(s) { if(s==='done')return'var(--success)';if(s==='failed')return'var(--danger)';if(s==='pending')return'var(--text-tertiary)';return'var(--info)'; }
 
     onMounted(() => { loadConversations(); loadConfig(); });
-    watch(page, (v) => { if (v==='docs') loadDocuments(); });
+    watch(page, (v) => {
+      if (v === 'docs') {
+        loadDocuments();
+        loadJobStats();
+        if (!jobInterval) jobInterval = setInterval(() => { loadJobStats(); }, 3000);
+      } else {
+        if (jobInterval) { clearInterval(jobInterval); jobInterval = null; }
+      }
+    });
 
-    return { page,conversations,currentConv,messages,input,streaming,streamText,documents,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl, newTask,openTask,renameStart,renameDone,send,loadDocuments,uploadFile,uploadDrop,scanDirectory,delDoc,loadConfig,saveConfig,testChat,testOcr, md,fmtSize,fmtTime,statusText,statusColor };
+    return { page,conversations,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl, newTask,openTask,renameStart,renameDone,send,loadDocuments,loadJobStats,uploadFile,uploadDrop,scanDirectory,delDoc,loadConfig,saveConfig,testChat,testOcr, md,fmtSize,fmtTime,statusText,statusColor };
   }
 }).mount('#app');
 </script>
