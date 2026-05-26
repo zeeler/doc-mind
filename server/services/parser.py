@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger("knowledge-base")
 
-SUPPORTED_TYPES = {"pdf", "docx", "md", "txt", "markdown"}
+SUPPORTED_TYPES = {"pdf", "docx", "xlsx", "pptx", "mobi", "md", "txt", "markdown"}
 
 
 def parse_file(file_path: str | Path, config: dict | None = None) -> str:
@@ -26,6 +26,18 @@ def parse_file(file_path: str | Path, config: dict | None = None) -> str:
 
     if suffix == "docx":
         return _parse_docx(path)
+
+    if suffix == "xlsx":
+        from server.services.formats.xlsx import parse_xlsx
+        return parse_xlsx(path)
+
+    if suffix == "pptx":
+        from server.services.formats.pptx import parse_pptx
+        return parse_pptx(path)
+
+    if suffix == "mobi":
+        from server.services.formats.mobi import parse_mobi
+        return parse_mobi(path)
 
     raise ValueError(f"不支持的文件类型: {suffix}")
 
