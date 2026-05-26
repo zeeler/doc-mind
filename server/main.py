@@ -21,6 +21,7 @@ from server.routers.documents import router as documents_router
 from server.routers.conversations import router as conversations_router
 from server.routers.chat import router as chat_router
 from server.routers.config import router as config_router
+from server.routers.jobs import router as jobs_router
 
 # 配置日志
 logging.basicConfig(
@@ -36,6 +37,7 @@ app.include_router(documents_router)
 app.include_router(conversations_router)
 app.include_router(chat_router)
 app.include_router(config_router)
+app.include_router(jobs_router)
 
 
 @app.get("/api/v1/health")
