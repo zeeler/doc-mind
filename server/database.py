@@ -61,6 +61,9 @@ def _migrate(engine):
         if "elapsed_ms" not in cols:
             conn.execute("ALTER TABLE documents ADD COLUMN elapsed_ms INTEGER DEFAULT 0")
             conn.commit()
+        if "checksum" not in cols:
+            conn.execute("ALTER TABLE documents ADD COLUMN checksum VARCHAR(64)")
+            conn.commit()
 
         # 确保 jobs 表存在（新表或旧数据库迁移）
         conn.execute("""
