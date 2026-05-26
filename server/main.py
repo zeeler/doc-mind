@@ -68,6 +68,8 @@ def startup():
     from server.config import AppConfigModel  # noqa: F811
     from server.database import init_db
     init_db()
+    from server.services.worker import start_workers
+    start_workers(num=2)
 
 
 if __name__ == "__main__":

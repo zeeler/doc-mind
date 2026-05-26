@@ -109,3 +109,55 @@ def process_document(doc_id: str, config: dict) -> None:
         session.commit()
 
     logger.info(f"文档处理完成: {title} ({len(chunks_text)} chunks, {doc.elapsed_ms}ms)")
+
+
+def index_document(doc_id: str, text: str, config: dict) -> None:
+    """仅执行切块→embedding→写入 ChromaDB，不包含解析。供 Worker 调用。"""
+    from server.database import DATA_DIR, get_session
+    from server.models.document import Document, DocumentChunk
+    from server.services.chunker import chunk_text, estimate_tokens
+    from server.services.embedder import Embedder
+    from server.vector.store import VectorStore
+
+    with next(get_session()) as session:
+        doc = session.get(Document, doc_id)
+        if not doc:
+            return
+
+        chunk_size = int(config.get("chunk_size", "800"))
+        chunk_overlap = int(config.get("chunk_overlap", "100"))
+        chunks_text = chunk_text(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+
+        if not chunks_text:
+            return
+
+        store = VectorStore(persist_dir=str(DATA_DIR / "chroma"))
+
+        use_external = False
+        if config.get("custom_embedding_model") or config.get("openai_embedding_model") or config.get("mlx_embedding_model"):
+            try:
+                embedder = Embedder(config)
+                _ = embedder.embed(["test"])
+                use_external = True
+            except Exception:
+                pass
+
+        for i, chunk_content in enumerate(chunks_text):
+            chunk = DocumentChunk(
+                document_id=doc_id, chunk_no=i + 1, content=chunk_content,
+                token_count=estimate_tokens(chunk_content), metadata_json={},
+            )
+            session.add(chunk)
+            if use_external:
+                try:
+                    embedding = embedder.embed([chunk_content])[0]
+                    store.add(ids=[chunk.id], texts=[chunk_content], embeddings=[embedding],
+                              metadatas=[{"document_id": doc_id, "title": doc.title, "file_name": doc.file_name, "chunk_no": i + 1}])
+                    continue
+                except Exception:
+                    pass
+            store.add(ids=[chunk.id], texts=[chunk_content],
+                      metadatas=[{"document_id": doc_id, "title": doc.title, "file_name": doc.file_name, "chunk_no": i + 1}])
+
+        doc.chunk_count = len(chunks_text)
+        session.commit()
