@@ -1,4 +1,7 @@
-data/
+data/**
+!data/.gitkeep
+!data/files/.gitkeep
+!data/chroma/.gitkeep
 predocs/
 __pycache__/
 *.pyc
@@ -6,3 +9,4 @@ __pycache__/
 .venv/
 *.egg-info/
 .pytest_cache/
+.DS_Store
