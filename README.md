@@ -26,7 +26,7 @@ MLX / Ollama / DeepSeek / OpenAI / 自定义 API
 ## 主要功能
 
 - **文档管理**：支持 PDF / Word / Excel / PowerPoint / MOBI / Markdown / TXT
-- **SHA256 去重**：上传时自动检测重复文件，避免重复存储
+- **SHA256 去重**：上传时自动检测重复文件，相同内容直接返回已有记录
 - **批量导入**：选择本地目录，递归扫描并自动导入所有文档
 - **扫描件 OCR**：Tesseract 离线 OCR + 多模态模型（Ollama/MLX）并行识别
 - **两阶段处理**：快速扫描（秒级预览）→ 后台全文索引（OCR + 向量化）
