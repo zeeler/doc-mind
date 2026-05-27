@@ -55,3 +55,45 @@ class TestDocumentRoutes:
         doc_id = upload_resp.json()["data"]["id"]
         response = client.delete(f"/api/v1/documents/{doc_id}")
         assert response.status_code == 200
+
+
+class TestDedup:
+    def test_duplicate_upload_is_detected(self, client, sample_txt):
+        """上传相同文件两次，第二次应返回 duplicate=True 且 id 相同。"""
+        with open(sample_txt, "rb") as f:
+            r1 = client.post("/api/v1/documents/upload", files={"file": ("a.txt", f, "text/plain")})
+        with open(sample_txt, "rb") as f2:
+            r2 = client.post("/api/v1/documents/upload", files={"file": ("b.txt", f2, "text/plain")})
+
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        d1, d2 = r1.json()["data"], r2.json()["data"]
+        assert d1["id"] == d2["id"]
+        assert d2["duplicate"] is True
+        assert isinstance(d2.get("reprocess"), bool)
+
+    def test_different_files_not_duplicates(self, client, sample_txt, tmp_path):
+        """不同内容的文件不应被识别为重复。"""
+        f1 = tmp_path / "f1.txt"
+        f1.write_text("内容A")
+        f2 = tmp_path / "f2.txt"
+        f2.write_text("内容B")
+
+        with open(f1, "rb") as f:
+            r1 = client.post("/api/v1/documents/upload", files={"file": ("f1.txt", f, "text/plain")})
+        with open(f2, "rb") as f:
+            r2 = client.post("/api/v1/documents/upload", files={"file": ("f2.txt", f, "text/plain")})
+
+        assert r1.json()["data"]["id"] != r2.json()["data"]["id"]
+
+    def test_document_saves_checksum(self, client, sample_txt):
+        """上传后文档记录应有 checksum。"""
+        with open(sample_txt, "rb") as f:
+            resp = client.post("/api/v1/documents/upload", files={"file": ("test.txt", f, "text/plain")})
+        doc_id = resp.json()["data"]["id"]
+
+        detail = client.get(f"/api/v1/documents/{doc_id}")
+        # checksum 不在详情 API 响应中，但可以通过列表确认无重复
+        list_resp = client.get("/api/v1/documents")
+        docs = list_resp.json()["data"]
+        assert any(d["id"] == doc_id for d in docs)

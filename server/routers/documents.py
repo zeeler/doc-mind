@@ -40,24 +40,9 @@ async def upload_document(file: UploadFile = File(...)):
         existing = session.query(Document).filter(Document.checksum == checksum).first()
     if existing:
         md_path = Path(existing.file_path).parent / "index.md"
-        file_dir = Path(existing.file_path).parent
+        need_reprocess = not md_path.exists() or existing.status in ("failed",)
 
-        if md_path.exists() and existing.status == "done":
-            # 源文件和 markdown 都已存在，无需重复上传
-            return {
-                "code": "OK",
-                "message": "success",
-                "data": {
-                    "id": existing.id,
-                    "title": existing.title,
-                    "file_name": existing.file_name,
-                    "file_type": existing.file_type,
-                    "status": existing.status,
-                    "duplicate": True,
-                },
-            }
-        else:
-            # 源文件相同但缺 markdown，重新触发解析
+        if need_reprocess:
             if existing.status in ("done", "failed"):
                 sid = existing.id
                 with next(get_session()) as s:
@@ -65,21 +50,22 @@ async def upload_document(file: UploadFile = File(...)):
                     if doc:
                         doc.status = "pending"
                         s.commit()
-
             create_jobs_for_document(existing.id)
-            logger.info(f"去重: 源文件已存在 {existing.title}，重新触发解析")
-            return {
-                "code": "OK",
-                "message": "success",
-                "data": {
-                    "id": existing.id,
-                    "title": existing.title,
-                    "file_name": existing.file_name,
-                    "file_type": existing.file_type,
-                    "status": "pending",
-                    "reprocess": True,
-                },
-            }
+            logger.info(f"去重: 已存在 {existing.title}，触发重新解析")
+
+        return {
+            "code": "OK",
+            "message": "success",
+            "data": {
+                "id": existing.id,
+                "title": existing.title,
+                "file_name": existing.file_name,
+                "file_type": existing.file_type,
+                "status": existing.status,
+                "duplicate": True,
+                "reprocess": need_reprocess,
+            },
+        }
 
     # === 新文件 ===
     doc_id = str(uuid.uuid4())
