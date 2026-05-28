@@ -116,9 +116,15 @@ def _execute_job(job: Job):
 
 
 def create_jobs_for_document(doc_id: str):
-    """为一篇文档创建 quick_scan + full_index 两个任务。"""
+    """为一篇文档创建 quick_scan + full_index 两个任务（跳过已有活跃任务）。"""
     with next(get_session()) as s:
         for jt, pri in [("quick_scan", 1), ("full_index", 5)]:
-            job = Job(document_id=doc_id, job_type=jt, priority=pri)
-            s.add(job)
+            existing = s.query(Job).filter(
+                Job.document_id == doc_id,
+                Job.job_type == jt,
+                Job.status.in_(["pending", "running"]),
+            ).first()
+            if not existing:
+                job = Job(document_id=doc_id, job_type=jt, priority=pri)
+                s.add(job)
         s.commit()

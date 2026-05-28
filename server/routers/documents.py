@@ -39,18 +39,21 @@ async def upload_document(file: UploadFile = File(...)):
     with next(get_session()) as session:
         existing = session.query(Document).filter(Document.checksum == checksum).first()
     if existing:
-        md_path = Path(existing.file_path).parent / "index.md"
-        need_reprocess = not md_path.exists() or existing.status in ("failed",)
+        # 判断是否需要重新处理：无 chunk 或状态为 failed
+        need_reprocess = existing.chunk_count == 0 or existing.status == "failed"
+        new_status = existing.status
 
         if need_reprocess:
-            if existing.status in ("done", "failed"):
-                sid = existing.id
-                with next(get_session()) as s:
-                    doc = s.get(Document, sid)
-                    if doc:
-                        doc.status = "pending"
-                        s.commit()
-            create_jobs_for_document(existing.id)
+            sid = existing.id
+            with next(get_session()) as s:
+                doc = s.get(Document, sid)
+                if doc and doc.status in ("done", "failed"):
+                    doc.status = "pending"
+                    s.commit()
+                    new_status = "pending"
+                elif doc:
+                    new_status = doc.status
+            create_jobs_for_document(sid)
             logger.info(f"去重: 已存在 {existing.title}，触发重新解析")
 
         return {
@@ -61,7 +64,7 @@ async def upload_document(file: UploadFile = File(...)):
                 "title": existing.title,
                 "file_name": existing.file_name,
                 "file_type": existing.file_type,
-                "status": existing.status,
+                "status": new_status,
                 "duplicate": True,
                 "reprocess": need_reprocess,
             },
