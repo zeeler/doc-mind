@@ -8,10 +8,14 @@ from server.database import DATA_DIR
 logger = logging.getLogger("knowledge-base")
 
 MEMORY_DEDUP_THRESHOLD = 0.85
+_store: MemoryStore | None = None
 
 
 def _get_store() -> MemoryStore:
-    return MemoryStore(persist_dir=str(DATA_DIR / "chroma"))
+    global _store
+    if _store is None:
+        _store = MemoryStore(persist_dir=str(DATA_DIR / "chroma"))
+    return _store
 
 
 def add_memory(content: str, mem_type: str, metadata: dict | None = None) -> str:
@@ -67,7 +71,16 @@ def list_memories(mem_type: str = None, limit: int = 50) -> list[dict]:
 
 def delete_memory(mem_id: str) -> None:
     store = _get_store()
-    store.delete(mem_id)
+    try:
+        store.delete(mem_id)
+    except Exception as e:
+        logger.warning(f"删除记忆失败 {mem_id}: {e}")
+
+
+def _reset_store() -> None:
+    """重置 store 单例（仅测试用）。"""
+    global _store
+    _store = None
 
 
 def summarize_conversation(conv_id: str) -> int:

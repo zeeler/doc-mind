@@ -75,7 +75,7 @@ class RAGService:
     async def ask_stream(self, question: str) -> AsyncIterator[dict]:
         loop = asyncio.get_running_loop()
         chunks = await loop.run_in_executor(None, self.retriever.retrieve, question)
-        memories = search_memories(question, top_k=3)
+        memories = await loop.run_in_executor(None, search_memories, question, 3)
         prompt = build_qa_prompt(question, chunks, memories)
         async for chunk in self.llm.chat_stream(
             messages=[{"role": "user", "content": prompt}],

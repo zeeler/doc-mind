@@ -11,7 +11,9 @@ def client(tmp_data_dir, monkeypatch):
     monkeypatch.setattr("server.services.memory.DATA_DIR", tmp_data_dir)
     monkeypatch.setattr("server.routers.documents.DATA_DIR", tmp_data_dir)
     from server.database import reset_engine
+    from server.services.memory import _reset_store
     reset_engine()
+    _reset_store()
     from server.models.base import Base
     from server.database import get_engine
     Base.metadata.create_all(bind=get_engine())

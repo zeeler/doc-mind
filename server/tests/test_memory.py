@@ -7,6 +7,8 @@ class TestMemoryService:
     @pytest.fixture(autouse=True)
     def setup(self, tmp_data_dir, monkeypatch):
         monkeypatch.setattr("server.services.memory.DATA_DIR", tmp_data_dir)
+        from server.services.memory import _reset_store
+        _reset_store()
 
     def test_add_and_list(self):
         add_memory("用户喜欢简洁回答", "preference")
