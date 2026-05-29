@@ -42,10 +42,10 @@ app.include_router(chat_router)
 app.include_router(config_router)
 app.include_router(jobs_router)
 app.include_router(memories_router)
+from server.routers.tags import router as tags_router
+app.include_router(tags_router)
 try:
-    from server.routers.tags import router as tags_router
     from server.routers.collections import router as collections_router
-    app.include_router(tags_router)
     app.include_router(collections_router)
 except ImportError:
     pass
