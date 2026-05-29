@@ -3,11 +3,20 @@
 import asyncio
 from typing import AsyncIterator
 from server.services.llm import LLMAdapter
+from server.services.memory import search_memories
 
 
-def build_qa_prompt(question: str, chunks: list[dict]) -> str:
+def build_qa_prompt(question: str, chunks: list[dict], memories: list[dict] | None = None) -> str:
+    memory_section = ""
+    if memories:
+        mem_parts = []
+        for m in memories[:3]:
+            mem_parts.append(f"- {m['content']}")
+        if mem_parts:
+            memory_section = f"\n## 相关记忆\n" + "\n".join(mem_parts) + "\n"
+
     if not chunks:
-        return f"用户问题：{question}\n\n知识库中未找到相关内容，请如实告知用户。"
+        return f"用户问题：{question}\n\n{memory_section}知识库中未找到相关内容，请如实告知用户。"
 
     context_parts = []
     for i, chunk in enumerate(chunks, 1):
@@ -17,12 +26,14 @@ def build_qa_prompt(question: str, chunks: list[dict]) -> str:
 
     return f"""你是一个知识库助手。请根据以下参考资料回答用户问题。
 
+{memory_section}
 ## 参考资料
 {context}
 
 ## 要求
 - 使用参考资料中的信息回答问题
 - 回答中引用来源编号，如 [1]、[2]
+- 如果有相关记忆，参考记忆中的用户偏好调整回答风格
 - 如果参考资料不足以回答问题，如实说明
 - 使用中文回答
 
@@ -52,7 +63,8 @@ class RAGService:
 
     def ask_sync(self, question: str) -> dict:
         chunks = self.retriever.retrieve(question)
-        prompt = build_qa_prompt(question, chunks)
+        memories = search_memories(question, top_k=3)
+        prompt = build_qa_prompt(question, chunks, memories)
         result = self.llm.chat(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
@@ -63,7 +75,8 @@ class RAGService:
     async def ask_stream(self, question: str) -> AsyncIterator[dict]:
         loop = asyncio.get_running_loop()
         chunks = await loop.run_in_executor(None, self.retriever.retrieve, question)
-        prompt = build_qa_prompt(question, chunks)
+        memories = search_memories(question, top_k=3)
+        prompt = build_qa_prompt(question, chunks, memories)
         async for chunk in self.llm.chat_stream(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
