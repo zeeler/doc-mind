@@ -81,5 +81,45 @@ def _migrate(engine):
             )
         """)
         conn.commit()
+
+        # v2 迁移：文档管理增强（标签、集合、文件夹、分类）
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tags (
+                id VARCHAR(36) PRIMARY KEY,
+                name VARCHAR(100) NOT NULL UNIQUE
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS document_tags (
+                doc_id VARCHAR(36) NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                tag_id VARCHAR(36) NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                PRIMARY KEY (doc_id, tag_id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS collections (
+                id VARCHAR(36) PRIMARY KEY,
+                name VARCHAR(200) NOT NULL,
+                description TEXT,
+                created_at TIMESTAMP NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS collection_documents (
+                doc_id VARCHAR(36) NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                collection_id VARCHAR(36) NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+                added_at TIMESTAMP,
+                PRIMARY KEY (doc_id, collection_id)
+            )
+        """)
+        conn.commit()
+
+        cols2 = {r[1] for r in conn.execute("PRAGMA table_info(documents)")}
+        if "folder_path" not in cols2:
+            conn.execute("ALTER TABLE documents ADD COLUMN folder_path TEXT DEFAULT ''")
+            conn.commit()
+        if "category" not in cols2:
+            conn.execute("ALTER TABLE documents ADD COLUMN category VARCHAR(100) DEFAULT ''")
+            conn.commit()
     finally:
         conn.close()
