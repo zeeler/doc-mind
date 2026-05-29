@@ -97,3 +97,73 @@ class TestDedup:
         list_resp = client.get("/api/v1/documents")
         docs = list_resp.json()["data"]
         assert any(d["id"] == doc_id for d in docs)
+
+
+class TestDocumentUpdate:
+    def test_update_category(self, client, sample_txt):
+        with open(sample_txt, "rb") as f:
+            upload_resp = client.post("/api/v1/documents/upload", files={"file": ("test.txt", f, "text/plain")})
+        doc_id = upload_resp.json()["data"]["id"]
+        response = client.put(f"/api/v1/documents/{doc_id}", json={"category": "技术"})
+        assert response.status_code == 200
+
+    def test_add_tags_to_document(self, client, sample_txt):
+        with open(sample_txt, "rb") as f:
+            upload_resp = client.post("/api/v1/documents/upload", files={"file": ("test.txt", f, "text/plain")})
+        doc_id = upload_resp.json()["data"]["id"]
+        response = client.put(f"/api/v1/documents/{doc_id}", json={"add_tags": ["python", "ai"]})
+        assert response.status_code == 200
+
+    def test_add_to_collections(self, client, sample_txt):
+        with open(sample_txt, "rb") as f:
+            upload_resp = client.post("/api/v1/documents/upload", files={"file": ("test.txt", f, "text/plain")})
+        doc_id = upload_resp.json()["data"]["id"]
+        coll_resp = client.post("/api/v1/collections", json={"name": "测试集"})
+        coll_id = coll_resp.json()["data"]["id"]
+        response = client.put(f"/api/v1/documents/{doc_id}", json={"add_collections": [coll_id]})
+        assert response.status_code == 200
+
+    def test_update_nonexistent_document(self, client):
+        response = client.put("/api/v1/documents/nonexistent", json={"category": "x"})
+        assert response.status_code == 404
+
+
+class TestDocumentFilters:
+    def test_list_documents_with_status_filter(self, client, sample_txt):
+        with open(sample_txt, "rb") as f:
+            client.post("/api/v1/documents/upload", files={"file": ("test.txt", f, "text/plain")})
+        response = client.get("/api/v1/documents?status=done")
+        assert response.status_code == 200
+
+    def test_list_documents_with_search(self, client, sample_txt):
+        with open(sample_txt, "rb") as f:
+            client.post("/api/v1/documents/upload", files={"file": ("unique_title_xyz.txt", f, "text/plain")})
+        response = client.get("/api/v1/documents?search=unique_title_xyz")
+        assert response.status_code == 200
+        assert len(response.json()["data"]) >= 1
+
+    def test_list_documents_response_includes_tags(self, client, sample_txt):
+        with open(sample_txt, "rb") as f:
+            upload_resp = client.post("/api/v1/documents/upload", files={"file": ("test.txt", f, "text/plain")})
+        doc_id = upload_resp.json()["data"]["id"]
+        client.put(f"/api/v1/documents/{doc_id}", json={"add_tags": ["t1"]})
+        response = client.get("/api/v1/documents")
+        doc = next(d for d in response.json()["data"] if d["id"] == doc_id)
+        assert "tags" in doc
+        assert len(doc["tags"]) >= 1
+
+    def test_list_documents_by_tag(self, client, sample_txt):
+        with open(sample_txt, "rb") as f:
+            upload_resp = client.post("/api/v1/documents/upload", files={"file": ("test.txt", f, "text/plain")})
+        doc_id = upload_resp.json()["data"]["id"]
+        client.put(f"/api/v1/documents/{doc_id}", json={"add_tags": ["unique-tag-xyz"]})
+        response = client.get("/api/v1/documents?tag=unique-tag-xyz")
+        assert response.status_code == 200
+        assert len(response.json()["data"]) >= 1
+
+
+class TestFolders:
+    def test_list_folders(self, client):
+        response = client.get("/api/v1/documents/folders")
+        assert response.status_code == 200
+        assert isinstance(response.json()["data"], list)
