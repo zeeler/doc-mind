@@ -44,11 +44,8 @@ app.include_router(jobs_router)
 app.include_router(memories_router)
 from server.routers.tags import router as tags_router
 app.include_router(tags_router)
-try:
-    from server.routers.collections import router as collections_router
-    app.include_router(collections_router)
-except ImportError:
-    pass
+from server.routers.collections import router as collections_router
+app.include_router(collections_router)
 
 
 @app.get("/api/v1/health")
