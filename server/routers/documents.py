@@ -259,3 +259,67 @@ def update_document(doc_id: str, payload: dict, session: Session = Depends(get_s
 
     session.commit()
     return {"code": "OK", "message": "success", "data": None}
+
+
+@router.post("/batch")
+def batch_operation(payload: dict, session: Session = Depends(get_session)):
+    ids = payload.get("ids") or []
+    action = payload.get("action", "")
+    params = payload.get("params") or {}
+
+    if not ids:
+        raise HTTPException(status_code=400, detail="ids 不能为空")
+
+    valid_actions = {"delete", "retry", "tag", "untag", "categorize", "collect"}
+    if action not in valid_actions:
+        raise HTTPException(status_code=400, detail=f"不支持的操作类型: {action}")
+
+    results = []
+    for doc_id in ids:
+        try:
+            doc = session.get(Document, doc_id)
+            if not doc:
+                results.append({"id": doc_id, "success": False, "error": "文档不存在"})
+                continue
+
+            if action == "delete":
+                session.delete(doc)
+            elif action == "categorize":
+                doc.category = (params.get("category") or "").strip()
+            elif action == "tag":
+                for tag_name in params.get("tags") or []:
+                    name = tag_name.strip()
+                    if not name:
+                        continue
+                    normalized = name.lower()
+                    tag_obj = session.query(Tag).filter(func.lower(Tag.name) == normalized).first()
+                    if not tag_obj:
+                        tag_obj = Tag(id=str(uuid.uuid4()), name=name)
+                        session.add(tag_obj)
+                        session.flush()
+                    if tag_obj not in doc.tags:
+                        doc.tags.append(tag_obj)
+            elif action == "untag":
+                for tag_name in params.get("tags") or []:
+                    normalized = tag_name.strip().lower()
+                    tag_obj = session.query(Tag).filter(func.lower(Tag.name) == normalized).first()
+                    if tag_obj and tag_obj in doc.tags:
+                        doc.tags.remove(tag_obj)
+            elif action == "collect":
+                coll_id = params.get("collection_id")
+                if coll_id:
+                    coll = session.get(Collection, coll_id)
+                    if coll and coll not in doc.collections:
+                        doc.collections.append(coll)
+            elif action == "retry":
+                if doc.status in ("done", "failed"):
+                    doc.status = "pending"
+                create_jobs_for_document(doc_id)
+
+            results.append({"id": doc_id, "success": True})
+        except Exception as e:
+            logger.error(f"批量操作 {action} 在 {doc_id} 失败: {e}")
+            results.append({"id": doc_id, "success": False, "error": str(e)})
+
+    session.commit()
+    return {"code": "OK", "message": "success", "data": results}
