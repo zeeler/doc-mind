@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from sqlalchemy import String, Integer, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from server.models.base import Base
+from server.models.tag import document_tags
+from server.models.collection import collection_documents
 
 
 class Document(Base):
@@ -20,6 +22,8 @@ class Document(Base):
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     elapsed_ms: Mapped[int] = mapped_column(Integer, default=0)
     checksum: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    folder_path: Mapped[str] = mapped_column(String(1000), default="", index=True)
+    category: Mapped[str] = mapped_column(String(100), default="", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
@@ -28,6 +32,13 @@ class Document(Base):
     )
 
     chunks: Mapped[list["DocumentChunk"]] = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
+
+    tags: Mapped[list["Tag"]] = relationship(
+        "Tag", secondary=document_tags, back_populates="documents", lazy="selectin"
+    )
+    collections: Mapped[list["Collection"]] = relationship(
+        "Collection", secondary=collection_documents, back_populates="documents", lazy="selectin"
+    )
 
 
 class DocumentChunk(Base):
