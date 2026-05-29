@@ -184,6 +184,66 @@ body { font: 14px/1.6 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sa
 /* === Checkbox === */
 .check-lbl { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-secondary); cursor:pointer; }
 .check-lbl input { width:16px;height:16px;accent-color:var(--primary); }
+
+/* === Docs Layout === */
+.docs-layout { display:flex; flex:1; min-height:0; }
+.docs-sidebar { width:220px; flex-shrink:0; overflow-y:auto; border-right:1px solid var(--border); padding:12px; background:var(--bg-sidebar); }
+.docs-sidebar h4 { font-size:11px; font-weight:600; text-transform:uppercase; color:var(--text-tertiary); letter-spacing:.5px; margin:12px 0 6px; cursor:pointer; user-select:none; display:flex; justify-content:space-between; align-items:center; }
+.docs-sidebar h4:first-child { margin-top:0; }
+.docs-sidebar h4:hover { color:var(--text-secondary); }
+.sidebar-section { margin-bottom:4px; }
+.sidebar-section .item { padding:6px 10px; border-radius:6px; cursor:pointer; font-size:12px; color:var(--text-secondary); display:flex; justify-content:space-between; transition:all .1s; }
+.sidebar-section .item:hover { background:var(--bg-hover); color:var(--text); }
+.sidebar-section .item.active { background:var(--primary-light); color:var(--primary); font-weight:500; }
+.sidebar-section .item .count { font-size:10px; color:var(--text-tertiary); background:var(--bg-active); padding:1px 6px; border-radius:99px; }
+.sidebar-section .folder-child { padding-left:16px; }
+.docs-main { flex:1; min-height:0; overflow-y:auto; padding:20px 24px; }
+
+/* === Docs Toolbar === */
+.docs-toolbar { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center; }
+.docs-toolbar input, .docs-toolbar select { padding:6px 10px; border:1px solid var(--border); border-radius:6px; font:12px/1.5 'Inter',sans-serif; color:var(--text); background:var(--bg); outline:none; }
+.docs-toolbar input:focus, .docs-toolbar select:focus { border-color:var(--primary); box-shadow:0 0 0 2px var(--primary-ring); }
+.docs-toolbar input { flex:1; min-width:140px; }
+.docs-toolbar select { max-width:120px; }
+.batch-toggle { padding:6px 12px; border:1px solid var(--border); border-radius:6px; background:var(--bg); cursor:pointer; font:12px 'Inter',sans-serif; color:var(--text-secondary); transition:all .15s; white-space:nowrap; }
+.batch-toggle:hover { background:var(--bg-hover); }
+.batch-toggle.on { background:var(--primary); color:#fff; border-color:var(--primary); }
+
+/* === Doc item enhanced === */
+.doc-item { position:relative; }
+.doc-checkbox { display:none; margin-right:10px; width:16px; height:16px; accent-color:var(--primary); flex-shrink:0; }
+.batch-mode .doc-checkbox { display:block; }
+.batch-mode .doc-item { cursor:pointer; }
+.batch-mode .doc-item.selected { border-color:var(--primary); background:var(--primary-light); }
+.doc-tags { display:flex; gap:4px; flex-wrap:wrap; margin-top:4px; }
+.doc-tag { font-size:10px; padding:1px 8px; border-radius:99px; background:var(--bg-hover); color:var(--text-secondary); cursor:pointer; border:1px solid var(--border); transition:all .1s; }
+.doc-tag:hover { background:var(--primary-light); color:var(--primary); border-color:var(--primary); }
+.doc-actions { display:flex; gap:4px; flex-shrink:0; }
+.doc-actions button { font-size:11px; padding:3px 8px; border:1px solid var(--border); border-radius:4px; background:var(--bg); color:var(--text-secondary); cursor:pointer; transition:all .1s; font-family:inherit; }
+.doc-actions button:hover { background:var(--bg-hover); color:var(--text); }
+.doc-category { font-size:11px; padding:1px 8px; border-radius:99px; background:var(--primary-light); color:var(--primary); }
+
+/* === Batch bar === */
+.batch-bar { position:sticky; bottom:0; background:var(--card); border-top:1px solid var(--border); padding:10px 16px; display:flex; align-items:center; gap:10px; box-shadow:var(--shadow-lg); z-index:10; margin-top:12px; }
+.batch-bar .selected-count { font-size:13px; font-weight:500; color:var(--text); }
+.batch-bar button { padding:6px 14px; border:1px solid var(--border); border-radius:6px; background:var(--bg); cursor:pointer; font:12px 'Inter',sans-serif; color:var(--text-secondary); transition:all .15s; }
+.batch-bar button:hover { background:var(--bg-hover); }
+.batch-bar button.danger { color:var(--danger); border-color:var(--danger); }
+.batch-bar button.danger:hover { background:var(--danger-bg); }
+
+/* === Tag picker popup === */
+.tag-picker { position:absolute; top:100%; right:0; z-index:20; background:var(--card); border:1px solid var(--border); border-radius:var(--radius-sm); box-shadow:var(--shadow-lg); padding:8px; min-width:180px; }
+.tag-picker input { width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:4px; font:12px 'Inter',sans-serif; color:var(--text); background:var(--bg); outline:none; margin-bottom:6px; }
+.tag-picker input:focus { border-color:var(--primary); }
+.tag-picker .tag-option { padding:4px 8px; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:6px; border-radius:4px; color:var(--text-secondary); }
+.tag-picker .tag-option:hover { background:var(--bg-hover); color:var(--text); }
+.tag-picker .tag-option input { width:auto; margin:0; }
+
+/* === Responsive === */
+@media (max-width:768px) {
+  .docs-sidebar { display:none; }
+  .docs-sidebar.open { display:block; position:absolute; top:0; left:0; bottom:0; z-index:30; box-shadow:var(--shadow-lg); }
+}
 </style>
 </head>
 <body>
@@ -248,40 +308,132 @@ body { font: 14px/1.6 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sa
     </div>
 
     <!-- Docs -->
-    <div v-if="page==='docs'" class="page">
-      <button class="page-back" @click="page='chat'">← 返回对话</button>
-      <h2>文档管理</h2>
-      <div class="upload-zone" @click="$refs.fileInput.click()" @dragover.prevent @drop.prevent="uploadDrop">
-        <input type="file" ref="fileInput" @change="uploadFile" accept=".pdf,.docx,.md,.txt,.markdown" style="display:none">
-        <p>{{ uploading ? '上传中...' : '拖拽文件到此处，或点击上传' }}</p>
-        <span>支持 PDF / Word / Markdown / TXT</span>
-      </div>
-      <div style="display:flex;gap:8px;margin-bottom:12px">
-        <button class="btn btn-ghost" @click="scanDirectory" style="flex:1;margin-top:0" :disabled="dirProcessing">{{ dirProcessing ? '扫描中 ('+dirProgress+')' : '选择本地目录' }}</button>
-      </div>
-      <div v-if="!dirProcessing && dirResult" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">{{ dirResult }}</div>
-      <div v-if="jobStats" style="display:flex;gap:12px;margin-bottom:12px;font-size:12px;align-items:center">
-        <span v-if="jobStats.pending" style="color:var(--text-tertiary)">{{ jobStats.pending }} 等待</span>
-        <span v-if="jobStats.running" style="color:var(--info)">{{ jobStats.running }} 处理中</span>
-        <span style="color:var(--text-secondary)">{{ jobStats.completed || 0 }} 完成</span>
-        <span v-if="jobStats.failed" style="color:var(--danger)">{{ jobStats.failed }} 失败</span>
-      </div>
-      <div v-if="jobStats&&(jobStats.pending||jobStats.running)" style="margin-bottom:12px;height:3px;background:var(--bg-hover);border-radius:2px;overflow:hidden">
-        <div :style="{width:jobPercent+'%',height:'100%',background:'var(--primary)',transition:'width .5s ease'}"></div>
-      </div>
-      <div v-for="d in documents" :key="d.id" class="doc-item">
-        <div class="doc-info">
-          <div class="doc-title">{{ d.title }}</div>
-          <div class="doc-meta">
-            <span>{{ d.file_type }}</span>
-            <span>{{ fmtSize(d.file_size) }}</span>
-            <span :style="{color:statusColor(d.status)}">{{ statusText(d.status) }}</span>
-            <span>{{ d.chunk_count }} 块</span>
-            <span v-if="d.elapsed_ms">{{ fmtTime(d.elapsed_ms) }}</span>
+    <div v-if="page==='docs'" class="docs-layout">
+      <aside class="docs-sidebar" :class="{open:sidebarOpen}">
+        <div class="sidebar-section">
+          <h4 @click="toggleSection('folders')">📁 目录浏览 <span>{{ sections.folders ? '▾' : '▸' }}</span></h4>
+          <div v-show="sections.folders">
+            <div class="item" :class="{active:!filters.folder}" @click="filters.folder='';loadDocuments()">全部文档</div>
+            <div v-for="node in folderTree" :key="node.path" class="item folder-child" :class="{active:filters.folder===node.path}" @click="filters.folder=node.path;loadDocuments()">{{ node.name }} <span class="count">{{ node.count }}</span></div>
           </div>
         </div>
-        <button class="doc-del" @click="delDoc(d.id)">删除</button>
-      </div>
+        <div class="sidebar-section">
+          <h4 @click="toggleSection('tags')">🏷 标签 <span>{{ sections.tags ? '▾' : '▸' }}</span></h4>
+          <div v-show="sections.tags">
+            <div v-for="t in allTags" :key="t.id" class="item" :class="{active:filters.tag===t.name}" @click="filters.tag=filters.tag===t.name?'':t.name;loadDocuments()">{{ t.name }} <span class="count">{{ t.doc_count }}</span></div>
+          </div>
+        </div>
+        <div class="sidebar-section">
+          <h4 @click="toggleSection('collections')">📂 集合 <span>{{ sections.collections ? '▾' : '▸' }}</span></h4>
+          <div v-show="sections.collections">
+            <div v-for="c in allCollections" :key="c.id" class="item" :class="{active:filters.collection===c.id}" @click="filters.collection=filters.collection===c.id?'':c.id;loadDocuments()">{{ c.name }} <span class="count">{{ c.doc_count }}</span></div>
+            <div class="item" style="color:var(--primary);font-style:italic" @click="showNewCollection=true">+ 新建集合</div>
+            <div v-if="showNewCollection" style="padding:4px 8px"><input v-model="newCollectionName" @keydown.enter="createCollection" @keydown.escape="showNewCollection=false" placeholder="集合名" style="width:100%;padding:4px 8px;border:1px solid var(--border);border-radius:4px;font:12px 'Inter',sans-serif"></div>
+          </div>
+        </div>
+      </aside>
+      <main class="docs-main">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <button class="page-back" @click="page='chat'" style="margin-bottom:0">← 返回对话</button>
+          <span style="font-size:18px;font-weight:700">文档管理</span>
+          <button class="batch-toggle" :class="{on:batchMode}" @click="toggleBatchMode" style="margin-left:auto">{{ batchMode ? '退出批量' : '批量模式' }}</button>
+        </div>
+        <div class="upload-zone" @click="$refs.fileInput.click()" @dragover.prevent @drop.prevent="uploadDrop">
+          <input type="file" ref="fileInput" @change="uploadFile" accept=".pdf,.docx,.md,.txt,.markdown" style="display:none">
+          <p>{{ uploading ? '上传中...' : '拖拽文件到此处，或点击上传' }}</p>
+          <span>支持 PDF / Word / Markdown / TXT</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <button class="btn btn-ghost" @click="scanDirectory" style="flex:1;margin-top:0" :disabled="dirProcessing">{{ dirProcessing ? '扫描中 ('+dirProgress+')' : '选择本地目录' }}</button>
+        </div>
+        <div v-if="!dirProcessing && dirResult" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">{{ dirResult }}</div>
+        <div v-if="jobStats" style="display:flex;gap:12px;margin-bottom:12px;font-size:12px;align-items:center">
+          <span v-if="jobStats.pending" style="color:var(--text-tertiary)">{{ jobStats.pending }} 等待</span>
+          <span v-if="jobStats.running" style="color:var(--info)">{{ jobStats.running }} 处理中</span>
+          <span style="color:var(--text-secondary)">{{ jobStats.completed || 0 }} 完成</span>
+          <span v-if="jobStats.failed" style="color:var(--danger)">{{ jobStats.failed }} 失败</span>
+        </div>
+        <div v-if="jobStats&&(jobStats.pending||jobStats.running)" style="margin-bottom:12px;height:3px;background:var(--bg-hover);border-radius:2px;overflow:hidden">
+          <div :style="{width:jobPercent+'%',height:'100%',background:'var(--primary)',transition:'width .5s ease'}"></div>
+        </div>
+        <div class="docs-toolbar">
+          <input v-model="filters.search" @input="loadDocuments" placeholder="搜索文档标题...">
+          <select v-model="filters.status" @change="loadDocuments">
+            <option value="">全部状态</option>
+            <option value="pending">待处理</option>
+            <option value="done">已完成</option>
+            <option value="failed">失败</option>
+          </select>
+          <select v-model="filters.category" @change="loadDocuments">
+            <option value="">全部分类</option>
+            <option v-for="cat in allCategories" :key="cat" :value="cat">{{ cat }}</option>
+          </select>
+        </div>
+        <div :class="{'batch-mode':batchMode}">
+          <div v-for="d in documents" :key="d.id" class="doc-item" :class="{selected:selectedIds.has(d.id)}" @click.self="batchMode&&toggleSelect(d.id)">
+            <input v-if="batchMode" type="checkbox" class="doc-checkbox" :checked="selectedIds.has(d.id)" @change="toggleSelect(d.id)" @click.stop style="display:block">
+            <div class="doc-info">
+              <div class="doc-title">{{ d.title }}</div>
+              <div class="doc-meta">
+                <span>{{ d.file_type }}</span>
+                <span>{{ fmtSize(d.file_size) }}</span>
+                <span :style="{color:statusColor(d.status)}">{{ statusText(d.status) }}</span>
+                <span>{{ d.chunk_count }} 块</span>
+                <span v-if="d.category" class="doc-category">{{ d.category }}</span>
+              </div>
+              <div class="doc-tags" v-if="d.tags&&d.tags.length">
+                <span class="doc-tag" v-for="t in d.tags" :key="t.id" @click.stop="filters.tag=t.name;loadDocuments()">{{ t.name }}</span>
+              </div>
+            </div>
+            <div class="doc-actions" v-if="!batchMode">
+              <button @click="openTagPicker(d,$event)" title="打标签">🏷</button>
+              <button @click="openCollectPicker(d,$event)" title="加集合">📂</button>
+              <button @click="openCategoryEdit(d,$event)" title="改分类">📋</button>
+              <button class="doc-del" @click="delDoc(d.id)">删除</button>
+            </div>
+            <div v-if="tagPickerDoc===d" class="tag-picker" @click.stop>
+              <input v-model="tagSearch" @keydown.enter.prevent="addTagToDoc(d,tagSearch)" @keydown.escape="closeTagPicker" placeholder="输入标签名回车...">
+              <div v-for="t in filteredTags" :key="t.id" class="tag-option">
+                <input type="checkbox" :checked="d.tags&&d.tags.some(dt=>dt.id===t.id)" @change="toggleDocTag(d,t)">
+                <span>{{ t.name }}</span>
+              </div>
+            </div>
+            <div v-if="collectPickerDoc===d" class="tag-picker" @click.stop>
+              <div v-for="c in allCollections" :key="c.id" class="tag-option">
+                <input type="checkbox" :checked="d.collections&&d.collections.some(dc=>dc.id===c.id)" @change="toggleDocCollection(d,c)">
+                <span>{{ c.name }}</span>
+              </div>
+            </div>
+            <div v-if="categoryEditDoc===d" class="tag-picker" @click.stop>
+              <input v-model="editCategoryName" @keydown.enter.prevent="saveDocCategory(d)" @keydown.escape="categoryEditDoc=null" placeholder="分类名，留空清除">
+            </div>
+          </div>
+          <div v-if="documents.length===0" style="text-align:center;padding:40px;color:var(--text-tertiary)">暂无文档，上传或选择目录开始导入</div>
+        </div>
+        <div v-if="batchMode&&selectedIds.size>0" class="batch-bar">
+          <span class="selected-count">已选 {{ selectedIds.size }} 项</span>
+          <button @click="batchTag">🏷 打标签</button>
+          <button @click="batchCategorize">📋 改分类</button>
+          <button class="danger" @click="batchDelete">🗑 删除</button>
+        </div>
+        <!-- 批量操作的弹窗 -->
+        <div v-if="batchTagPrompt" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;z-index:50;box-shadow:var(--shadow-lg);min-width:280px">
+          <h3 style="font-size:14px;margin-bottom:12px">批量打标签</h3>
+          <input v-model="batchPromptInput" @keydown.enter.prevent="confirmBatchTag" @keydown.escape="batchTagPrompt=false" placeholder="输入标签名回车确认" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font:13px 'Inter',sans-serif;color:var(--text);background:var(--bg);outline:none">
+          <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+            <button @click="batchTagPrompt=false" style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);cursor:pointer;font:12px 'Inter',sans-serif">取消</button>
+            <button @click="confirmBatchTag" style="padding:6px 12px;border:none;border-radius:6px;background:var(--primary);color:#fff;cursor:pointer;font:12px 'Inter',sans-serif">确认</button>
+          </div>
+        </div>
+        <div v-if="batchCatPrompt" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;z-index:50;box-shadow:var(--shadow-lg);min-width:280px">
+          <h3 style="font-size:14px;margin-bottom:12px">批量改分类</h3>
+          <input v-model="batchPromptInput" @keydown.enter.prevent="confirmBatchCat" @keydown.escape="batchCatPrompt=false" placeholder="输入分类名" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font:13px 'Inter',sans-serif;color:var(--text);background:var(--bg);outline:none">
+          <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+            <button @click="batchCatPrompt=false" style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);cursor:pointer;font:12px 'Inter',sans-serif">取消</button>
+            <button @click="confirmBatchCat" style="padding:6px 12px;border:none;border-radius:6px;background:var(--primary);color:#fff;cursor:pointer;font:12px 'Inter',sans-serif">确认</button>
+          </div>
+        </div>
+      </main>
     </div>
 
     <!-- Settings -->
@@ -351,7 +503,7 @@ body { font: 14px/1.6 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sa
 </div>
 
 <script>
-const { createApp, ref, reactive, nextTick, onMounted, watch } = Vue;
+const { createApp, ref, reactive, computed, nextTick, onMounted, watch } = Vue;
 
 createApp({
   setup() {
@@ -383,6 +535,26 @@ createApp({
     const msgBox = ref(null);
     const inputEl = ref(null);
     const memoriesList = ref([]);
+    // 文档管理增强
+    const batchMode = ref(false);
+    const selectedIds = ref(new Set());
+    const allTags = ref([]);
+    const allCollections = ref([]);
+    const allCategories = ref([]);
+    const folderTree = ref([]);
+    const filters = reactive({folder:'', category:'', tag:'', collection:'', status:'', search:''});
+    const sections = reactive({folders:true, tags:true, collections:true});
+    const sidebarOpen = ref(false);
+    const tagPickerDoc = ref(null);
+    const tagSearch = ref('');
+    const collectPickerDoc = ref(null);
+    const categoryEditDoc = ref(null);
+    const editCategoryName = ref('');
+    const showNewCollection = ref(false);
+    const newCollectionName = ref('');
+    const batchTagPrompt = ref(false);
+    const batchCatPrompt = ref(false);
+    const batchPromptInput = ref('');
 
     const api = (url, opts={}) => fetch(url, opts).then(r => r.ok ? r.json() : r.json().then(e => {throw new Error(e.detail||r.statusText)}));
 
@@ -428,7 +600,20 @@ createApp({
       await openTask(currentConv.value);
     }
 
-    async function loadDocuments() { try { const d=await api('/api/v1/documents'); documents.value=d.data||[]; } catch(e){console.error(e);} }
+    async function loadDocuments() {
+      const params = new URLSearchParams();
+      if (filters.folder) params.set('folder', filters.folder);
+      if (filters.category) params.set('category', filters.category);
+      if (filters.tag) params.set('tag', filters.tag);
+      if (filters.collection) params.set('collection', filters.collection);
+      if (filters.status) params.set('status', filters.status);
+      if (filters.search) params.set('search', filters.search);
+      const qs = params.toString();
+      try {
+        const d = await api('/api/v1/documents' + (qs ? '?' + qs : ''));
+        documents.value = d.data || [];
+      } catch(e) { console.error(e); }
+    }
     async function loadJobStats() {
       try {
         const d = await api('/api/v1/jobs/stats');
@@ -467,6 +652,7 @@ createApp({
           try {
             const f = await entry.getFile();
             const fd = new FormData(); fd.append('file', f, name);
+            if (prefix) fd.append('folder_path', prefix.replace(/\/$/, ''));
             const res = await fetch('/api/v1/documents/upload', {method:'POST', body:fd});
             if (res.ok) ok++; else fail++;
           } catch(e) { fail++; }
@@ -504,12 +690,141 @@ createApp({
       await fetch('/api/v1/memories/' + id, {method: 'DELETE'});
       await loadMemories();
     }
+    async function loadTags() {
+      try { const d = await api('/api/v1/tags'); allTags.value = d.data || []; } catch(e) { console.error(e); }
+    }
+    async function loadCollections() {
+      try { const d = await api('/api/v1/collections'); allCollections.value = d.data || []; } catch(e) { console.error(e); }
+    }
+    async function loadFolders() {
+      try {
+        const d = await api('/api/v1/documents/folders');
+        const paths = d.data || [];
+        const tree = {};
+        for (const p of paths) {
+          if (!p) continue;
+          const parts = p.split('/').filter(Boolean);
+          let node = tree;
+          for (let i = 0; i < parts.length; i++) {
+            if (!node[parts[i]]) node[parts[i]] = {_children: {}, _count: 0};
+            node = node[parts[i]]._children;
+          }
+        }
+        folderTree.value = [];
+        function build(nodes, prefix) {
+          const result = [];
+          for (const [name, data] of Object.entries(nodes)) {
+            const path = prefix ? prefix + '/' + name : name;
+            result.push({name, path, count: Object.keys(data._children).length});
+            const children = build(data._children, path);
+            if (children.length) result.push(...children);
+          }
+          return result;
+        }
+        folderTree.value = build(tree, '');
+      } catch(e) { console.error(e); }
+    }
+    async function loadAllCategories() {
+      try {
+        const d = await api('/api/v1/documents');
+        const cats = new Set();
+        (d.data || []).forEach(doc => { if (doc.category) cats.add(doc.category); });
+        allCategories.value = [...cats].sort();
+      } catch(e) { console.error(e); }
+    }
+    function toggleBatchMode() {
+      batchMode.value = !batchMode.value;
+      if (!batchMode.value) selectedIds.value = new Set();
+    }
+    function toggleSelect(id) {
+      const s = new Set(selectedIds.value);
+      if (s.has(id)) s.delete(id); else s.add(id);
+      selectedIds.value = s;
+    }
+    function openTagPicker(doc, event) { tagPickerDoc.value = doc; tagSearch.value = ''; }
+    function closeTagPicker() { tagPickerDoc.value = null; tagSearch.value = ''; }
+    async function addTagToDoc(doc, tagName) {
+      const name = tagName.trim();
+      if (!name) return;
+      await api('/api/v1/documents/' + doc.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({add_tags: [name]})});
+      tagSearch.value = '';
+      await loadDocuments();
+      await loadTags();
+    }
+    async function toggleDocTag(doc, tag) {
+      const has = doc.tags && doc.tags.some(t => t.id === tag.id);
+      await api('/api/v1/documents/' + doc.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(has ? {remove_tags: [tag.name]} : {add_tags: [tag.name]})});
+      await loadDocuments();
+      await loadTags();
+    }
+    const filteredTags = computed(() => {
+      if (!tagSearch.value) return allTags.value;
+      return allTags.value.filter(t => t.name.toLowerCase().includes(tagSearch.value.toLowerCase()));
+    });
+    function openCollectPicker(doc, event) { collectPickerDoc.value = doc; }
+    async function toggleDocCollection(doc, coll) {
+      const has = doc.collections && doc.collections.some(c => c.id === coll.id);
+      await api('/api/v1/documents/' + doc.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(has ? {remove_collections: [coll.id]} : {add_collections: [coll.id]})});
+      await loadDocuments();
+      await loadCollections();
+    }
+    async function createCollection() {
+      const name = newCollectionName.value.trim();
+      if (!name) return;
+      await api('/api/v1/collections', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})});
+      newCollectionName.value = '';
+      showNewCollection.value = false;
+      await loadCollections();
+    }
+    function openCategoryEdit(doc, event) {
+      categoryEditDoc.value = doc;
+      editCategoryName.value = doc.category || '';
+    }
+    async function saveDocCategory(doc) {
+      const cat = editCategoryName.value.trim();
+      await api('/api/v1/documents/' + doc.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({category: cat})});
+      categoryEditDoc.value = null;
+      await loadDocuments();
+      await loadAllCategories();
+    }
+    function batchTag() { batchTagPrompt.value = true; batchPromptInput.value = ''; }
+    function batchCategorize() { batchCatPrompt.value = true; batchPromptInput.value = ''; }
+    async function confirmBatchTag() {
+      const tagName = batchPromptInput.value.trim();
+      if (!tagName) { batchTagPrompt.value = false; return; }
+      await api('/api/v1/documents/batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: [...selectedIds.value], action: 'tag', params: {tags: [tagName]}})});
+      batchTagPrompt.value = false;
+      selectedIds.value = new Set();
+      await loadDocuments();
+      await loadTags();
+    }
+    async function confirmBatchCat() {
+      const cat = batchPromptInput.value.trim();
+      await api('/api/v1/documents/batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: [...selectedIds.value], action: 'categorize', params: {category: cat}})});
+      batchCatPrompt.value = false;
+      selectedIds.value = new Set();
+      await loadDocuments();
+      await loadAllCategories();
+    }
+    async function batchDelete() {
+      if (!confirm(`确定删除选中的 ${selectedIds.value.size} 个文档？`)) return;
+      await api('/api/v1/documents/batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: [...selectedIds.value], action: 'delete'})});
+      selectedIds.value = new Set();
+      await loadDocuments();
+      await loadTags();
+      await loadFolders();
+    }
+    function toggleSection(name) { sections[name] = !sections[name]; }
 
     onMounted(() => { loadConversations(); loadConfig(); });
     watch(page, (v) => {
       if (v === 'docs') {
         loadDocuments();
         loadJobStats();
+        loadTags();
+        loadCollections();
+        loadFolders();
+        loadAllCategories();
         if (!jobInterval) jobInterval = setInterval(() => { loadJobStats(); }, 3000);
       } else if (v === 'memories') {
         loadMemories();
@@ -519,7 +834,10 @@ createApp({
       }
     });
 
-    return { page,conversations,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,memoriesList, newTask,openTask,renameStart,renameDone,send,loadDocuments,loadJobStats,uploadFile,uploadDrop,scanDirectory,delDoc,loadConfig,saveConfig,testChat,testOcr,loadMemories,rememberMessage,deleteMemory, md,fmtSize,fmtTime,statusText,statusColor };
+    return { page,conversations,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,memoriesList,
+      batchMode, selectedIds, allTags, allCollections, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, collectPickerDoc, categoryEditDoc, editCategoryName, showNewCollection, newCollectionName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags,
+      loadTags, loadCollections, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCollectPicker, toggleDocCollection, createCollection, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
+      newTask,openTask,renameStart,renameDone,send,loadDocuments,loadJobStats,uploadFile,uploadDrop,scanDirectory,delDoc,loadConfig,saveConfig,testChat,testOcr,loadMemories,rememberMessage,deleteMemory, md,fmtSize,fmtTime,statusText,statusColor };
   }
 }).mount('#app');
 </script>
