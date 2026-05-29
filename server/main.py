@@ -16,6 +16,8 @@ from server.models.base import Base
 from server.models.document import Document, DocumentChunk  # noqa: F401
 from server.models.conversation import Conversation, Message  # noqa: F401
 from server.models.job import Job  # noqa: F401
+from server.models.tag import Tag  # noqa: F401
+from server.models.collection import Collection  # noqa: F401
 from server.config import AppConfigModel  # noqa: F401
 from server.routers.documents import router as documents_router
 from server.routers.conversations import router as conversations_router
@@ -40,6 +42,13 @@ app.include_router(chat_router)
 app.include_router(config_router)
 app.include_router(jobs_router)
 app.include_router(memories_router)
+try:
+    from server.routers.tags import router as tags_router
+    from server.routers.collections import router as collections_router
+    app.include_router(tags_router)
+    app.include_router(collections_router)
+except ImportError:
+    pass
 
 
 @app.get("/api/v1/health")
@@ -70,6 +79,8 @@ def startup():
     from server.models.document import Document, DocumentChunk  # noqa: F811
     from server.models.conversation import Conversation, Message  # noqa: F811
     from server.config import AppConfigModel  # noqa: F811
+    from server.models.tag import Tag  # noqa: F811
+    from server.models.collection import Collection  # noqa: F811
     from server.database import init_db
     init_db()
     from server.services.worker import start_workers
