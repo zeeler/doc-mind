@@ -14,6 +14,7 @@ from server.models.tag import Tag, document_tags
 from server.models.collection import Collection, collection_documents
 from server.services.parser import parse_file, SUPPORTED_TYPES
 from server.services.chunker import chunk_text, estimate_tokens
+from server.services.search import SearchService
 from server.services.worker import create_jobs_for_document
 from server.config import AppConfig
 
@@ -142,7 +143,14 @@ def list_documents(
     if status is not None:
         q = q.filter(Document.status == status)
     if search is not None:
-        q = q.filter(Document.title.ilike(f"%{search}%"))
+        search_svc = SearchService(data_dir=DATA_DIR, top_k=50)
+        doc_results = search_svc.document_search(search, top_k=50)
+        match_ids = [d["document_id"] for d in doc_results]
+        if match_ids:
+            q = q.filter(Document.id.in_(match_ids))
+        else:
+            # FTS 无结果时回退到标题模糊匹配
+            q = q.filter(Document.title.ilike(f"%{search}%"))
     if tag is not None:
         q = q.join(Document.tags).filter(Tag.name == tag)
     if collection is not None:
