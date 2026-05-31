@@ -244,6 +244,11 @@ body { font: 14px/1.6 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sa
   .docs-sidebar { display:none; }
   .docs-sidebar.open { display:block; position:absolute; top:0; left:0; bottom:0; z-index:30; box-shadow:var(--shadow-lg); }
 }
+/* === Search === */
+.search-excerpt mark { background:#fde68a; color:#000; padding:1px 2px; border-radius:2px; }
+@media (prefers-color-scheme: dark) {
+  .search-excerpt mark { background:#854d0e; color:#fef9c3; }
+}
 </style>
 </head>
 <body>
@@ -357,7 +362,13 @@ body { font: 14px/1.6 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sa
           <div :style="{width:jobPercent+'%',height:'100%',background:'var(--primary)',transition:'width .5s ease'}"></div>
         </div>
         <div class="docs-toolbar">
-          <input v-model="filters.search" @input="loadDocuments" placeholder="搜索文档标题...">
+          <input v-model="filters.search" @keydown.enter="searchDocs" placeholder="搜索文档内容... (回车搜索)">
+          <select v-model="searchType" style="max-width:100px">
+            <option value="chunks">片段</option>
+            <option value="documents">文档</option>
+          </select>
+          <button @click="searchDocs" style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);cursor:pointer;font:12px 'Inter',sans-serif;color:var(--text-secondary)">搜索</button>
+          <button v-if="searchResults!==null" @click="clearSearch" style="padding:6px 8px;border:none;background:none;cursor:pointer;font-size:14px">✕</button>
           <select v-model="filters.status" @change="loadDocuments">
             <option value="">全部状态</option>
             <option value="pending">待处理</option>
@@ -368,6 +379,27 @@ body { font: 14px/1.6 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sa
             <option value="">全部分类</option>
             <option v-for="cat in allCategories" :key="cat" :value="cat">{{ cat }}</option>
           </select>
+        </div>
+        <div v-if="searchResults!==null" style="margin-bottom:12px">
+          <div v-if="searchType==='chunks'">
+            <div v-for="r in searchResults" :key="r.chunk_id" style="padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px">
+              <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:4px;display:flex;gap:8px">
+                <span>{{ r.document_title }}</span>
+                <span>块 {{ r.chunk_no }}</span>
+                <span>分数: {{ r.score }}</span>
+                <span style="background:var(--bg-hover);padding:0 6px;border-radius:99px;font-size:10px">{{ r.match_type }}</span>
+              </div>
+              <div class="search-excerpt" v-html="r.excerpt" style="font-size:13px;line-height:1.6"></div>
+            </div>
+          </div>
+          <div v-if="searchType==='documents'">
+            <div v-for="r in searchResults" :key="r.document_id" style="padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px;cursor:pointer" @click="filters.search='';searchResults=null">
+              <div style="font-size:14px;font-weight:500">{{ r.title }}</div>
+              <div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">{{ r.match_count }} 处匹配 · 最佳分数 {{ r.best_score }}</div>
+              <div v-for="(ex,i) in r.top_excerpts" :key="i" class="search-excerpt" v-html="ex" style="font-size:12px;margin-top:4px;color:var(--text-secondary)"></div>
+            </div>
+          </div>
+          <div v-if="searchResults.length===0" style="text-align:center;padding:40px;color:var(--text-tertiary)">未找到匹配内容</div>
         </div>
         <div :class="{'batch-mode':batchMode}">
           <div v-for="d in documents" :key="d.id" class="doc-item" :class="{selected:selectedIds.has(d.id)}" @click.self="batchMode&&toggleSelect(d.id)">
@@ -543,6 +575,8 @@ createApp({
     const allCategories = ref([]);
     const folderTree = ref([]);
     const filters = reactive({folder:'', category:'', tag:'', collection:'', status:'', search:''});
+    const searchResults = ref(null);
+    const searchType = ref('chunks');
     const sections = reactive({folders:true, tags:true, collections:true});
     const sidebarOpen = ref(false);
     const tagPickerDoc = ref(null);
@@ -749,6 +783,19 @@ createApp({
         allCategories.value = [...cats].sort();
       } catch(e) { console.error(e); }
     }
+    async function searchDocs() {
+      const q = filters.search.trim();
+      if (!q) { searchResults.value = null; return; }
+      try {
+        const d = await api('/api/v1/search?q=' + encodeURIComponent(q) + '&type=' + searchType.value + '&top_k=10');
+        searchResults.value = d.data || [];
+      } catch(e) { console.error(e); }
+    }
+    function clearSearch() {
+      filters.search = '';
+      searchResults.value = null;
+      loadDocuments();
+    }
     function toggleBatchMode() {
       batchMode.value = !batchMode.value;
       if (!batchMode.value) selectedIds.value = new Set();
@@ -852,7 +899,7 @@ createApp({
     });
 
     return { page,conversations,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,memoriesList,
-      batchMode, selectedIds, allTags, allCollections, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, collectPickerDoc, categoryEditDoc, editCategoryName, showNewCollection, newCollectionName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags,
+      batchMode, selectedIds, allTags, allCollections, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, collectPickerDoc, categoryEditDoc, editCategoryName, showNewCollection, newCollectionName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch,
       loadTags, loadCollections, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCollectPicker, toggleDocCollection, createCollection, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
       newTask,openTask,renameStart,renameDone,send,loadDocuments,loadJobStats,uploadFile,uploadDrop,scanDirectory,delDoc,loadConfig,saveConfig,testChat,testOcr,loadMemories,rememberMessage,deleteMemory, md,fmtSize,fmtTime,statusText,statusColor };
   }
