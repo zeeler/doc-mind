@@ -357,6 +357,7 @@ body { font: 14px/1.6 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sa
           <span v-if="jobStats.running" style="color:var(--info)">{{ jobStats.running }} 处理中</span>
           <span style="color:var(--text-secondary)">{{ jobStats.completed || 0 }} 完成</span>
           <span v-if="jobStats.failed" style="color:var(--danger)">{{ jobStats.failed }} 失败</span>
+          <button v-if="jobStats.failed" @click="retryFailedJobs" style="margin-left:auto;padding:2px 10px;font-size:11px;border:1px solid var(--border);border-radius:99px;background:var(--card);color:var(--text-secondary);cursor:pointer">重试失败</button>
         </div>
         <div v-if="jobStats&&(jobStats.pending||jobStats.running)" style="margin-bottom:12px;height:3px;background:var(--bg-hover);border-radius:2px;overflow:hidden">
           <div :style="{width:jobPercent+'%',height:'100%',background:'var(--primary)',transition:'width .5s ease'}"></div>
@@ -664,6 +665,13 @@ createApp({
         jobPercent.value = total > 0 ? Math.round((d.data.completed||0)/total*100) : 0;
       } catch(e) { console.error(e); }
     }
+    async function retryFailedJobs() {
+      try {
+        const d = await api('/api/v1/jobs/retry-failed', {method:'POST'});
+        alert('已重试 ' + d.data.retried + ' 个任务');
+        await loadJobStats();
+      } catch(e) { console.error(e); }
+    }
     async function uploadFile(e) { const f=e.target.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);await fetch('/api/v1/documents/upload',{method:'POST',body:fd});uploading.value=false;await loadDocuments(); }
     function uploadDrop(e) { const f=e.dataTransfer.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);fetch('/api/v1/documents/upload',{method:'POST',body:fd}).then(()=>{uploading.value=false;loadDocuments()}); }
     async function delDoc(id) { if(!confirm('确定删除？'))return;await fetch('/api/v1/documents/'+id,{method:'DELETE'});await loadDocuments(); }
@@ -936,7 +944,7 @@ createApp({
     return { page,conversations,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,memoriesList,
       batchMode, selectedIds, allTags, allCollections, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, collectPickerDoc, categoryEditDoc, editCategoryName, showNewCollection, newCollectionName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
       loadTags, loadCollections, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCollectPicker, toggleDocCollection, createCollection, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
-      newTask,openTask,renameStart,renameDone,send,loadDocuments,loadJobStats,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,testChat,testOcr,loadMemories,rememberMessage,deleteMemory, md,fmtSize,fmtTime,statusText,statusColor,
+      newTask,openTask,renameStart,renameDone,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,testChat,testOcr,loadMemories,rememberMessage,deleteMemory, md,fmtSize,fmtTime,statusText,statusColor,
       batchRetry };
   }
 }).mount('#app');

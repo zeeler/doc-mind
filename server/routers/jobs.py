@@ -44,8 +44,19 @@ def retry_job(job_id: str, session: Session = Depends(get_session)):
     job = session.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="任务不存在")
-    if job.status == "failed":
+    if job.status in ("failed", "running"):
         job.status = "pending"
         job.error_message = None
+        job.started_at = None
         session.commit()
     return {"code": "OK", "data": {"id": job.id, "status": job.status}}
+
+
+@router.post("/retry-failed")
+def retry_failed_jobs(session: Session = Depends(get_session)):
+    """批量重试所有失败和卡住的任务。"""
+    count = session.query(Job).filter(Job.status.in_(["failed", "running"])).update(
+        {"status": "pending", "error_message": None, "started_at": None}, synchronize_session=False
+    )
+    session.commit()
+    return {"code": "OK", "data": {"retried": count}}

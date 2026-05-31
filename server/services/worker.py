@@ -21,11 +21,24 @@ _stop = False
 def start_workers(num: int = 2):
     global _stop
     _stop = False
+    _recover_stuck_jobs()
     for i in range(num):
         t = threading.Thread(target=_worker_loop, args=(i,), daemon=True, name=f"kb-worker-{i}")
         t.start()
         _workers.append(t)
     logger.info(f"Worker 启动: {num} 线程")
+
+
+def _recover_stuck_jobs():
+    """启动时将卡在 running 状态的任务重置为 pending。"""
+    with next(get_session()) as s:
+        from server.models.job import Job
+        count = s.query(Job).filter(Job.status == "running").update(
+            {"status": "pending", "error_message": None, "started_at": None}, synchronize_session=False
+        )
+        if count:
+            s.commit()
+            logger.info(f"恢复卡住任务: {count} 个 running → pending")
 
 
 def stop_workers():
