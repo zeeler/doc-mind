@@ -137,10 +137,10 @@ def _migrate(engine):
         conn.close()
 
 
-def _fts_execute(sql: str, params: tuple = ()) -> None:
+def _fts_execute(sql: str, params: dict | None = None) -> None:
     """执行 FTS5 DML 语句（使用 SQLAlchemy engine 连接池）。"""
     with get_engine().connect() as conn:
-        conn.execute(sa.text(sql), list(params))
+        conn.execute(sa.text(sql), params or {})
         conn.commit()
 
 
@@ -148,13 +148,13 @@ def fts_insert(chunk_id: str, content: str, title: str) -> None:
     """向 FTS5 索引写入一条 chunk。"""
     _fts_execute(
         "INSERT INTO chunks_fts(chunk_id, content, document_title) VALUES (:cid, :text, :title)",
-        (chunk_id, content, title),
+        {"cid": chunk_id, "text": content, "title": title},
     )
 
 
 def fts_delete_by_chunk_id(chunk_id: str) -> None:
     """从 FTS5 索引删除指定 chunk。"""
-    _fts_execute("DELETE FROM chunks_fts WHERE chunk_id = :cid", (chunk_id,))
+    _fts_execute("DELETE FROM chunks_fts WHERE chunk_id = :cid", {"cid": chunk_id})
 
 
 def fts_delete_by_document_id(document_id: str) -> None:
@@ -163,7 +163,7 @@ def fts_delete_by_document_id(document_id: str) -> None:
     tbl = DocumentChunk.__tablename__
     _fts_execute(
         f"DELETE FROM chunks_fts WHERE chunk_id IN (SELECT id FROM {tbl} WHERE document_id = :did)",
-        (document_id,),
+        {"did": document_id},
     )
 
 

@@ -4,7 +4,7 @@ import time
 import logging
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from server.database import DATA_DIR, get_session
+from server.database import DATA_DIR, get_session, fts_insert, fts_delete_by_document_id
 from server.models.document import Document, DocumentChunk
 from server.services.parser import parse_file
 from server.services.chunker import chunk_text, estimate_tokens
@@ -21,6 +21,11 @@ def process_document(doc_id: str, config: dict) -> None:
         doc = session.get(Document, doc_id)
         if not doc:
             return
+
+        try:
+            fts_delete_by_document_id(doc_id)
+        except Exception:
+            pass
 
         doc.status = "parsing"
         session.commit()
@@ -87,6 +92,10 @@ def process_document(doc_id: str, config: dict) -> None:
                             "chunk_no": i + 1,
                         }],
                     )
+                    try:
+                        fts_insert(chunk.id, chunk_content, doc.title)
+                    except Exception:
+                        pass
                     continue
                 except Exception as e:
                     logger.warning(f"外部 embedding 失败 chunk {i+1}，降级为内置: {e}")
@@ -101,6 +110,10 @@ def process_document(doc_id: str, config: dict) -> None:
                     "chunk_no": i + 1,
                 }],
             )
+            try:
+                fts_insert(chunk.id, chunk_content, doc.title)
+            except Exception:
+                pass
 
         doc.status = "done"
         doc.chunk_count = len(chunks_text)
@@ -113,7 +126,7 @@ def process_document(doc_id: str, config: dict) -> None:
 
 def index_document(doc_id: str, text: str, config: dict) -> None:
     """仅执行切块→embedding→写入 ChromaDB，不包含解析。供 Worker 调用。"""
-    from server.database import DATA_DIR, get_session
+    from server.database import DATA_DIR, get_session, fts_insert
     from server.models.document import Document, DocumentChunk
     from server.services.chunker import chunk_text, estimate_tokens
     from server.services.embedder import Embedder
@@ -153,11 +166,19 @@ def index_document(doc_id: str, text: str, config: dict) -> None:
                     embedding = embedder.embed([chunk_content])[0]
                     store.add(ids=[chunk.id], texts=[chunk_content], embeddings=[embedding],
                               metadatas=[{"document_id": doc_id, "title": doc.title, "file_name": doc.file_name, "chunk_no": i + 1}])
+                    try:
+                        fts_insert(chunk.id, chunk_content, doc.title)
+                    except Exception:
+                        pass
                     continue
                 except Exception:
                     pass
             store.add(ids=[chunk.id], texts=[chunk_content],
                       metadatas=[{"document_id": doc_id, "title": doc.title, "file_name": doc.file_name, "chunk_no": i + 1}])
+            try:
+                fts_insert(chunk.id, chunk_content, doc.title)
+            except Exception:
+                pass
 
         doc.chunk_count = len(chunks_text)
         session.commit()

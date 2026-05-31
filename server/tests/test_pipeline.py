@@ -15,6 +15,17 @@ class TestPipeline:
         from server.database import get_engine
         reset_engine()
         Base.metadata.create_all(bind=get_engine())
+        # FTS5 虚拟表需要手动创建（不在 ORM 模型中）
+        import sqlite3
+        db_path = str(tmp_data_dir / "app.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+                chunk_id, content, document_title, tokenize='unicode61'
+            )
+        """)
+        conn.commit()
+        conn.close()
 
         doc = Document(
             id="test-doc-1",

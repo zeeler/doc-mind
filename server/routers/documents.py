@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from server.database import get_session, DATA_DIR
+from server.database import get_session, DATA_DIR, fts_delete_by_document_id
 from server.models.document import Document, DocumentChunk
 from server.models.tag import Tag, document_tags
 from server.models.collection import Collection, collection_documents
@@ -211,6 +211,10 @@ def delete_document(doc_id: str, session: Session = Depends(get_session)):
     doc = session.get(Document, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
+    try:
+        fts_delete_by_document_id(doc_id)
+    except Exception:
+        pass
     session.delete(doc)
     session.commit()
     file_dir = DATA_DIR / "files" / doc_id
@@ -283,6 +287,10 @@ def batch_operation(payload: dict, session: Session = Depends(get_session)):
                 continue
 
             if action == "delete":
+                try:
+                    fts_delete_by_document_id(doc_id)
+                except Exception:
+                    pass
                 session.delete(doc)
             elif action == "categorize":
                 doc.category = (params.get("category") or "").strip()
