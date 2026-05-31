@@ -562,9 +562,14 @@ createApp({
       try { const d = await api('/api/v1/conversations'); conversations.value = d.data||[]; } catch(e) { console.error(e); }
     }
     async function newTask() {
-      const d = await api('/api/v1/conversations', {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-      page.value = 'chat';
-      await openTask(d.data.id);
+      try {
+        const d = await api('/api/v1/conversations', {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+        page.value = 'chat';
+        await openTask(d.data.id);
+      } catch(e) {
+        console.error('新建任务失败:', e);
+        alert('新建任务失败: ' + e.message);
+      }
     }
     async function openTask(id) {
       page.value = 'chat'; currentConv.value = id;
