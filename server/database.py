@@ -121,5 +121,58 @@ def _migrate(engine):
         if "category" not in cols2:
             conn.execute("ALTER TABLE documents ADD COLUMN category VARCHAR(100) DEFAULT ''")
             conn.commit()
+
+        # v3 迁移：FTS5 全文索引
+        conn.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+                chunk_id,
+                content,
+                document_title,
+                tokenize='unicode61'
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def fts_insert(chunk_id: str, content: str, title: str) -> None:
+    """向 FTS5 索引写入一条 chunk。"""
+    import sqlite3
+    db_path = str(DATA_DIR / "app.db")
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO chunks_fts(chunk_id, content, document_title) VALUES (?, ?, ?)",
+            (chunk_id, content, title),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def fts_delete_by_chunk_id(chunk_id: str) -> None:
+    """从 FTS5 索引删除指定 chunk。"""
+    import sqlite3
+    db_path = str(DATA_DIR / "app.db")
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("DELETE FROM chunks_fts WHERE chunk_id = ?", (chunk_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def fts_delete_by_document_id(document_id: str) -> None:
+    """从 FTS5 索引删除某文档的所有 chunk。"""
+    import sqlite3
+    db_path = str(DATA_DIR / "app.db")
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "DELETE FROM chunks_fts WHERE chunk_id IN (SELECT id FROM document_chunks WHERE document_id = ?)",
+            (document_id,),
+        )
+        conn.commit()
     finally:
         conn.close()
