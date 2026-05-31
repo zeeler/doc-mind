@@ -25,6 +25,7 @@ from server.routers.chat import router as chat_router
 from server.routers.config import router as config_router
 from server.routers.jobs import router as jobs_router
 from server.routers.memories import router as memories_router
+from server.routers.search import router as search_router
 
 # 配置日志
 logging.basicConfig(
@@ -42,6 +43,7 @@ app.include_router(chat_router)
 app.include_router(config_router)
 app.include_router(jobs_router)
 app.include_router(memories_router)
+app.include_router(search_router)
 from server.routers.tags import router as tags_router
 app.include_router(tags_router)
 from server.routers.collections import router as collections_router
