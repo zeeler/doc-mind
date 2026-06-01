@@ -144,7 +144,13 @@ def process_document(doc_id: str, config: dict) -> None:
 
         chunk_size = int(config.get("chunk_size", "800"))
         chunk_overlap = int(config.get("chunk_overlap", "100"))
-        chunks_text = chunk_text(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        section_chunk_size = chunk_size * 2
+        chunks_text = chunk_text(
+            text,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            section_chunk_size=section_chunk_size,
+        )
 
         doc.status = "indexing"
         session.commit()
@@ -169,7 +175,13 @@ def index_document(doc_id: str, text: str, config: dict) -> None:
 
         chunk_size = int(config.get("chunk_size", "800"))
         chunk_overlap = int(config.get("chunk_overlap", "100"))
-        chunks_text = chunk_text(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        section_chunk_size = chunk_size * 2
+        chunks_text = chunk_text(
+            text,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            section_chunk_size=section_chunk_size,
+        )
 
         if not chunks_text:
             return

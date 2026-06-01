@@ -18,24 +18,35 @@ def build_qa_prompt(question: str, chunks: list[dict], memories: list[dict] | No
     if not chunks:
         return f"用户问题：{question}\n\n{memory_section}知识库中未找到相关内容，请如实告知用户。"
 
+    # 收集涉及的文档标题
+    doc_titles = list(dict.fromkeys(c["document_title"] for c in chunks if c.get("document_title")))
+
     context_parts = []
     for i, chunk in enumerate(chunks, 1):
-        context_parts.append(f"[{i}] 来源: {chunk['document_title']}\n{chunk['content']}")
+        chunk_no = chunk.get("chunk_no", 0)
+        context_parts.append(
+            f"[{i}] 来源: {chunk['document_title']} (段落 {chunk_no})\n{chunk['content']}"
+        )
 
     context = "\n\n".join(context_parts)
+
+    doc_hint = ""
+    if doc_titles:
+        titles_str = "、".join(doc_titles[:3])
+        doc_hint = f"\n以上参考资料来自你的知识库文档：{titles_str}。这些是用户已上传的个人文档内容。"
 
     return f"""你是一个知识库助手。请根据以下参考资料回答用户问题。
 
 {memory_section}
 ## 参考资料
-{context}
+{context}{doc_hint}
 
 ## 要求
-- 使用参考资料中的信息回答问题
+- 参考资料来自用户已上传的文档，优先使用其中的信息回答问题
+- 即使信息分散在多个片段中，也要尽量综合整理，给出有价值的回答
 - 回答中引用来源编号，如 [1]、[2]
-- 如果有相关记忆，参考记忆中的用户偏好调整回答风格
 - 如果参考资料覆盖了多个不同的要点或角度，请全面综合回答，不要遗漏
-- 如果参考资料不足以回答问题，如实说明
+- 只有确实完全不相关时才说明无法回答，不要因为信息不完整就放弃
 - 使用中文回答
 
 ## 用户问题

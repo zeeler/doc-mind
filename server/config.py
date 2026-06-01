@@ -42,7 +42,10 @@ DEFAULTS = {
     "retrieval_enable_mmr": "true",
     "retrieval_mmr_lambda": "0.7",
     "retrieval_fetch_multiplier": "3",
-    "retrieval_enable_query_expansion": "false",
+    "retrieval_enable_query_expansion": "true",
+    "retrieval_context_window": "3",
+    "retrieval_max_results": "15",
+    "chunk_structure_aware": "true",
 }
 
 

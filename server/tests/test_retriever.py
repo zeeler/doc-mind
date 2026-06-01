@@ -7,10 +7,12 @@ class TestRetriever:
     @patch("server.services.retriever.get_search_service")
     def test_retrieve_returns_chunks_with_scores(self, MockGetSearchService):
         mock_svc = MagicMock()
-        mock_svc.hybrid_search.return_value = [
+        base_results = [
             {"chunk_id": "c1", "content": "相关段落A", "document_id": "d1", "document_title": "文档A", "file_name": "a.pdf", "score": 0.9, "chunk_no": 1},
             {"chunk_id": "c2", "content": "相关段落B", "document_id": "d1", "document_title": "文档A", "file_name": "a.pdf", "score": 0.7, "chunk_no": 2},
         ]
+        mock_svc.hybrid_search.return_value = base_results
+        mock_svc.expand_context.return_value = base_results
         MockGetSearchService.return_value = mock_svc
 
         retriever = Retriever(vector_store=MagicMock(), config={"retrieval_top_k": "3"})
@@ -24,10 +26,12 @@ class TestRetriever:
     def test_retrieve_passes_config_to_search(self, MockGetSearchService):
         """验证 config 被正确传递给 hybrid_search。"""
         mock_svc = MagicMock()
-        mock_svc.hybrid_search.return_value = [
+        base_results = [
             {"chunk_id": "c1", "content": "内容A", "document_id": "d1",
              "document_title": "文档A", "file_name": "a.pdf", "score": 0.9, "chunk_no": 1},
         ]
+        mock_svc.hybrid_search.return_value = base_results
+        mock_svc.expand_context.return_value = base_results
         MockGetSearchService.return_value = mock_svc
 
         config = {"retrieval_top_k": "10", "retrieval_enable_mmr": "true",
@@ -44,6 +48,7 @@ class TestRetriever:
     def test_retrieve_empty_result(self, MockGetSearchService):
         mock_svc = MagicMock()
         mock_svc.hybrid_search.return_value = []
+        mock_svc.expand_context.return_value = []
         MockGetSearchService.return_value = mock_svc
 
         retriever = Retriever(vector_store=MagicMock(), config={})
@@ -55,24 +60,28 @@ class TestRetriever:
         """查询扩展开启时应对多个查询变体进行检索并去重。"""
         mock_svc = MagicMock()
         # 模拟每个查询返回不同结果（扩展可能产生 3-4 个查询变体）
-        mock_svc.hybrid_search.side_effect = lambda *args, **kwargs: {
-            "谈判心理学有哪些要点": [
-                {"chunk_id": "c1", "content": "守望者策略内容", "document_id": "d1",
-                 "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "score": 0.9, "chunk_no": 1},
-            ],
-            "谈判心理学": [
-                {"chunk_id": "c2", "content": "锚定效应内容", "document_id": "d1",
-                 "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "score": 0.8, "chunk_no": 10},
-            ],
-            "谈判心理学要点": [
-                {"chunk_id": "c3", "content": "框架效应内容", "document_id": "d1",
-                 "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "score": 0.7, "chunk_no": 15},
-            ],
-            "谈判心理学的要点": [
-                {"chunk_id": "c1", "content": "守望者策略内容", "document_id": "d1",
-                 "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "score": 0.9, "chunk_no": 1},
-            ],
-        }.get(args[0], [])
+        def _side_effect(*args, **kwargs):
+            return {
+                "谈判心理学有哪些要点": [
+                    {"chunk_id": "c1", "content": "守望者策略内容", "document_id": "d1",
+                     "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "score": 0.9, "chunk_no": 1},
+                ],
+                "谈判心理学": [
+                    {"chunk_id": "c2", "content": "锚定效应内容", "document_id": "d1",
+                     "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "score": 0.8, "chunk_no": 10},
+                ],
+                "谈判心理学要点": [
+                    {"chunk_id": "c3", "content": "框架效应内容", "document_id": "d1",
+                     "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "score": 0.7, "chunk_no": 15},
+                ],
+                "谈判心理学的要点": [
+                    {"chunk_id": "c1", "content": "守望者策略内容", "document_id": "d1",
+                     "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "score": 0.9, "chunk_no": 1},
+                ],
+            }.get(args[0], [])
+        mock_svc.hybrid_search.side_effect = _side_effect
+        # expand_context 返回输入不变
+        mock_svc.expand_context.side_effect = lambda results, **kwargs: results
         MockGetSearchService.return_value = mock_svc
 
         config = {"retrieval_top_k": "5", "retrieval_enable_query_expansion": "true"}

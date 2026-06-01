@@ -9,27 +9,19 @@ from server.database import get_engine
 
 logger = logging.getLogger("knowledge-base")
 
-# FTS5 特殊字符，按字面值搜索时需要转义或引用
-_FTS5_SPECIAL_RE = re.compile(r'[\\"*()^]')
+# FTS5 需要转义的特殊字符（会改变查询语义的运算符）
+_FTS5_SPECIAL_CHARS_RE = re.compile(r'([\\*()^])')
 
 
 def _escape_fts5_query(query: str) -> str:
-    """将用户输入转为 FTS5 字面值搜索，避免特殊字符被解释为运算符。
+    """转义 FTS5 特殊字符，避免语法错误。
 
-    策略：将整个查询用双引号包裹作为 phrase query，
-    同时内部的双引号进行转义。如果查询中已经有逻辑运算符
-    (AND/OR/NOT/NEAR)，则仍然保留原始语义。
+    仅转义 FTS5 运算符: * ( ) ^ \\
+    保持查询原样以保留 FTS5 隐式 AND 语义。
     """
     stripped = query.strip()
-    # 检测是否包含 FTS5 布尔运算符（大写，作为独立词）
-    has_bool_ops = bool(re.search(r'\b(AND|OR|NOT|NEAR)\b', stripped))
-    if has_bool_ops:
-        # 用户可能意图使用高级搜索，保持原样但转义括号等危险字符
-        escaped = _FTS5_SPECIAL_RE.sub(r'\\\g<0>', stripped)
-        return escaped
-    # 普通搜索：将整个查询作为 phrase，内部双引号转义
-    escaped = stripped.replace('"', '""')
-    return f'"{escaped}"'
+    escaped = _FTS5_SPECIAL_CHARS_RE.sub(r'\\\g<1>', stripped)
+    return escaped
 
 
 def highlight(text: str, query: str, max_len: int = 160) -> str:
@@ -53,6 +45,39 @@ def highlight(text: str, query: str, max_len: int = 160) -> str:
         result = prefix + result[start:end] + suffix
 
     return result
+
+
+# 检测纯目录页的 chunk（短文本 + 多个章节标记）
+_TOC_PATTERN = re.compile(r'(第[一二三四五六七八九十百千\d]+[章节]|Chapter\s+\d+|第[一二三四五六七八九十百千\d]+部)', re.IGNORECASE)
+
+
+def _is_toc_chunk(content: str) -> bool:
+    """判断 chunk 是否为纯目录页（无实际内容的章节列表）。"""
+    stripped = content.strip()
+    # 短文本（<300 字符）且包含 ≥3 个章节标记 → 可能是目录
+    if len(stripped) < 300:
+        markers = _TOC_PATTERN.findall(stripped)
+        if len(markers) >= 3:
+            return True
+    return False
+
+
+# 常见垃圾内容关键词（出版社信息、公众号推广等）
+_JUNK_KEYWORDS = [
+    "微信公众号", "小编微信", "微信号", "电子书下载",
+    "周读", "ireadweek", "幸福的味道", "行行整理",
+    "ISBN", "图书在版编目", "版权所有", "翻印必究",
+]
+
+
+def _is_junk_chunk(content: str) -> bool:
+    """判断 chunk 是否为无价值的出版社信息/推广内容。"""
+    stripped = content.strip()
+    if len(stripped) < 200:
+        return False  # 太短的不一定是垃圾
+    junk_count = sum(1 for kw in _JUNK_KEYWORDS if kw in stripped)
+    # 包含 ≥2 个垃圾关键词 → 可能是出版社信息页
+    return junk_count >= 2
 
 
 class SearchService:
@@ -86,6 +111,8 @@ class SearchService:
         """FTS5 关键词搜索，返回排名结果。"""
         k = top_k or self.top_k
         escaped_query = _escape_fts5_query(query)
+        # 仅搜索 content 列：避免 document_title 匹配导致整本书所有 chunk 都命中
+        content_query = f"content:({escaped_query})"
         base_sql = """
             SELECT c.id, c.content, d.title, d.file_name, c.chunk_no, d.id as doc_id
             FROM chunks_fts
@@ -93,7 +120,7 @@ class SearchService:
             JOIN documents d ON c.document_id = d.id
             WHERE chunks_fts MATCH :query
         """
-        params: dict = {"query": escaped_query, "limit": k}
+        params: dict = {"query": content_query, "limit": k}
         if document_id:
             base_sql += " AND d.id = :doc_id"
             params["doc_id"] = document_id
@@ -273,7 +300,13 @@ class SearchService:
         return [results[i] for i in selected]
 
     def hybrid_search(self, query: str, top_k: int | None = None, document_id: str | None = None, config: dict | None = None) -> list[dict]:
-        """混合搜索：FTS5 关键词 + 向量搜索 + RRF 融合 + 可选 MMR 多样性重排序。"""
+        """混合搜索：FTS5 关键词 + 向量搜索（有外部 embedding 时）+ RRF 融合 + 可选 MMR。
+
+        无外部 embedding 模型时跳过 ChromaDB 向量搜索，仅用 FTS5，
+        避免 ChromaDB 内置英文 embedding 对中文的低质量搜索和卡顿。
+        """
+        from server.config import has_embedding_model
+
         k = top_k or self.top_k
         if config:
             fetch_mult = int(config.get("retrieval_fetch_multiplier", "2"))
@@ -282,15 +315,40 @@ class SearchService:
         fetch_k = k * fetch_mult
 
         keyword_results = self._fts_search(query, top_k=fetch_k, document_id=document_id)
-        vector_results = self._vector_search(query, top_k=fetch_k, document_id=document_id)
 
-        merged = self._rrf_merge(keyword_results, vector_results)
+        # 仅在有外部 embedding 模型时使用向量搜索
+        use_vector = config and has_embedding_model(config) if config else False
+        if use_vector:
+            try:
+                vector_results = self._vector_search(query, top_k=fetch_k, document_id=document_id)
+            except Exception as e:
+                logger.warning(f"向量搜索失败，仅用 FTS5: {e}")
+                vector_results = []
+                use_vector = False
+        else:
+            vector_results = []
+
+        if use_vector and vector_results:
+            merged = self._rrf_merge(keyword_results, vector_results)
+        else:
+            # 纯 FTS5 模式：添加 match_type 和占位 score
+            merged = []
+            for r in keyword_results[:k]:
+                merged.append({
+                    **r,
+                    "score": round(1.0 / (1 + keyword_results.index(r)), 4),
+                    "match_type": "keyword",
+                })
 
         # MMR 多样性重排序
         if config and config.get("retrieval_enable_mmr", "true") == "true" and len(merged) > k:
             lambda_val = float(config.get("retrieval_mmr_lambda", "0.7"))
             candidate_pool = merged[:min(len(merged), k * 3)]
             merged = self._mmr_rerank(candidate_pool, query, config, k, lambda_val)
+
+        # 过滤纯目录 chunk 和垃圾内容（公众号、ISBN、推荐语列表等）
+        merged = [r for r in merged if not _is_toc_chunk(r.get("content", ""))]
+        merged = [r for r in merged if not _is_junk_chunk(r.get("content", ""))]
 
         for r in merged:
             r["excerpt"] = highlight(r["content"], query)
@@ -320,6 +378,95 @@ class SearchService:
 
         result = sorted(docs.values(), key=lambda x: x["best_score"], reverse=True)
         return result[: top_k or self.top_k]
+
+
+    def expand_context(
+        self,
+        results: list[dict],
+        window: int = 2,
+    ) -> list[dict]:
+        """对检索结果扩展上下文：获取每个匹配 chunk 前后各 window 个相邻 chunk。
+
+        参数:
+            results: hybrid_search() 返回的结果列表
+            window: 前后各取几个相邻 chunk（默认 2，即前后各 2 个）
+
+        返回:
+            包含原始结果和相邻 chunk 的去重列表（按 chunk_no 排序）
+        """
+        if not results:
+            return results
+
+        # 收集需要扩展的 (document_id, chunk_no) 对
+        expand_requests: dict[str, set[int]] = {}
+        for r in results:
+            did = r.get("document_id", "")
+            cno = r.get("chunk_no", 0)
+            if did and cno:
+                if did not in expand_requests:
+                    expand_requests[did] = set()
+                for offset in range(-window, window + 1):
+                    if offset != 0:
+                        expand_requests[did].add(cno + offset)
+
+        if not expand_requests:
+            return results
+
+        # 排除已有的 chunk_no
+        existing = {(r.get("document_id", ""), r.get("chunk_no", 0)) for r in results}
+
+        # 从 SQLite 批量获取相邻 chunks
+        import sqlalchemy as sa
+        from server.database import get_engine
+
+        expanded = list(results)
+        seen_chunk_ids = {r.get("chunk_id", "") for r in results}
+
+        try:
+            with get_engine().connect() as conn:
+                for did, chunk_nos in expand_requests.items():
+                    # 只请求不存在的 chunk_no
+                    needed = [n for n in chunk_nos if (did, n) not in existing and n > 0]
+                    if not needed:
+                        continue
+
+                    # SQLite 不支持 IN :param 绑定元组，需要动态构建占位符
+                    placeholders = ",".join([f":cn_{i}" for i in range(len(needed))])
+                    params = {"did": did}
+                    for i, cn in enumerate(needed):
+                        params[f"cn_{i}"] = cn
+
+                    rows = conn.execute(
+                        sa.text(f"""
+                            SELECT dc.id, dc.content, d.title, d.file_name, dc.chunk_no, d.id as doc_id
+                            FROM document_chunks dc
+                            JOIN documents d ON dc.document_id = d.id
+                            WHERE dc.document_id = :did AND dc.chunk_no IN ({placeholders})
+                            ORDER BY dc.chunk_no
+                        """),
+                        params,
+                    ).fetchall()
+
+                    for row in rows:
+                        chunk_id = row[0]
+                        if chunk_id not in seen_chunk_ids:
+                            seen_chunk_ids.add(chunk_id)
+                            expanded.append({
+                                "chunk_id": chunk_id,
+                                "content": row[1],
+                                "document_title": row[2],
+                                "file_name": row[3],
+                                "chunk_no": row[4],
+                                "document_id": row[5],
+                                "score": 0.0,  # 相邻 chunk 无相关性分数
+                                "match_type": "context_expansion",
+                            })
+        except Exception as e:
+            logger.warning(f"上下文扩展失败: {e}")
+
+        # 按 chunk_no 排序以保持上下文连贯性
+        expanded.sort(key=lambda x: (x.get("document_id", ""), x.get("chunk_no", 0)))
+        return expanded
 
 
 _search_service_cache: dict[tuple, "SearchService"] = {}

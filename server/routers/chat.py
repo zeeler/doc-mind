@@ -33,6 +33,8 @@ def _get_rag_service(data_dir):
         config.get("retrieval_mmr_lambda", "0.7"),
         config.get("retrieval_fetch_multiplier", "3"),
         config.get("retrieval_enable_query_expansion", "false"),
+        config.get("retrieval_context_window", "2"),
+        config.get("retrieval_max_results", "50"),
     )
     if _rag_service_cache is None or cache_key != _rag_cache_key:
         store = VectorStore(persist_dir=str(data_dir / "chroma"))
