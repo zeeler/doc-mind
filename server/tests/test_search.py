@@ -114,3 +114,104 @@ class TestHighlight:
         result = highlight(long_text, "Python", max_len=80)
         assert "<mark>Python</mark>" in result
         assert len(result) <= 80 + len("<mark></mark>") + 10
+
+
+class TestMMRRerank:
+    """MMR 多样性重排序单元测试。"""
+
+    def _empty_embedding_config(self):
+        """返回无 embedding 模型的配置，强制 MMR 使用 Jaccard fallback。"""
+        return {
+            "mlx_embedding_model": "",
+            "openai_embedding_model": "",
+            "custom_embedding_model": "",
+        }
+
+    def test_mmr_returns_diverse_results(self, search_service):
+        """MMR 应优先选择语义多样的 chunk。
+
+        使用 λ=0.3（偏重多样性），让 Jaccard fallback 能克服相关性差距。
+        前 3 个 chunk 共享大量重复词组（Jaccard 高），后 2 个完全不同。
+        """
+        # c1, c2, c3 几乎相同 → Jaccard 接近 1.0
+        same_prefix = "守望者策略守望者策略守望者策略守望者策略"
+        results = [
+            {"chunk_id": "c1", "content": same_prefix + "核心概念", "score": 0.9,
+             "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "chunk_no": 1, "document_id": "d1"},
+            {"chunk_id": "c2", "content": same_prefix + "观察情绪", "score": 0.88,
+             "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "chunk_no": 2, "document_id": "d1"},
+            {"chunk_id": "c3", "content": same_prefix + "避免冲动", "score": 0.85,
+             "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "chunk_no": 3, "document_id": "d1"},
+            {"chunk_id": "c4", "content": "锚定效应首次报价影响谈判结果研究分析", "score": 0.80,
+             "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "chunk_no": 10, "document_id": "d1"},
+            {"chunk_id": "c5", "content": "框架效应决策偏好认知角度双方谈判", "score": 0.75,
+             "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "chunk_no": 15, "document_id": "d1"},
+        ]
+        config = self._empty_embedding_config()
+
+        reranked = search_service._mmr_rerank(
+            results, "谈判心理学有哪些要点", config, target_k=3, lambda_val=0.3
+        )
+        assert len(reranked) == 3
+        # 最高相关分 chunk 应保留
+        assert reranked[0]["chunk_id"] == "c1"
+        # 多样性选择: 应包含不同概念的 chunk（c4 或 c5）
+        selected_ids = {r["chunk_id"] for r in reranked}
+        assert "c4" in selected_ids or "c5" in selected_ids
+
+    def test_mmr_candidate_smaller_than_target(self, search_service):
+        """候选池 ≤ target_k 时应直接返回全部。"""
+        results = [
+            {"chunk_id": "c1", "content": "测试内容A", "score": 0.9,
+             "document_title": "测试", "file_name": "a.pdf", "chunk_no": 1, "document_id": "d1"},
+        ]
+        config = self._empty_embedding_config()
+        reranked = search_service._mmr_rerank(
+            results, "测试", config, target_k=5, lambda_val=0.7
+        )
+        assert len(reranked) == 1
+
+    def test_mmr_empty_results(self, search_service):
+        """空候选池应直接返回空列表。"""
+        config = self._empty_embedding_config()
+        reranked = search_service._mmr_rerank(
+            [], "测试", config, target_k=5, lambda_val=0.7
+        )
+        assert reranked == []
+
+    def test_mmr_lambda_all_relevance(self, search_service):
+        """λ=1.0 时 MMR 应等同于按分数降序排列（无多样性惩罚）。"""
+        results = [
+            {"chunk_id": "c1", "content": "守望者策略是谈判心理学的核心", "score": 0.9,
+             "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "chunk_no": 1, "document_id": "d1"},
+            {"chunk_id": "c2", "content": "守望者策略要求观察情绪反应", "score": 0.85,
+             "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "chunk_no": 2, "document_id": "d1"},
+            {"chunk_id": "c3", "content": "锚定效应是另一个重要概念", "score": 0.70,
+             "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "chunk_no": 10, "document_id": "d1"},
+        ]
+        config = self._empty_embedding_config()
+        reranked = search_service._mmr_rerank(
+            results, "谈判心理学", config, target_k=3, lambda_val=1.0
+        )
+        # λ=1.0 应保持原始相关性排序
+        assert [r["chunk_id"] for r in reranked] == ["c1", "c2", "c3"]
+
+    def test_mmr_lambda_all_diversity(self, search_service):
+        """λ=0.0 时 MMR 应优先选与已选内容最不相似的 chunk。"""
+        results = [
+            {"chunk_id": "c1", "content": "守望者策略在谈判中非常重要", "score": 0.9,
+             "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "chunk_no": 1, "document_id": "d1"},
+            {"chunk_id": "c2", "content": "守望者策略需要持续练习", "score": 0.85,
+             "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "chunk_no": 2, "document_id": "d1"},
+            {"chunk_id": "c3", "content": "锚定效应影响首次报价策略", "score": 0.50,
+             "document_title": "哈佛谈判心理学", "file_name": "a.pdf", "chunk_no": 10, "document_id": "d1"},
+        ]
+        config = self._empty_embedding_config()
+        reranked = search_service._mmr_rerank(
+            results, "谈判心理学", config, target_k=2, lambda_val=0.0
+        )
+        # λ=0.0: 第一个选最高分 c1，第二个选与 c1 最不相似的（c3）
+        assert len(reranked) == 2
+        assert reranked[0]["chunk_id"] == "c1"
+        # c3（锚定效应）与 c1（守望者）的 Jaccard 相似度应低于 c2
+        assert reranked[1]["chunk_id"] == "c3"

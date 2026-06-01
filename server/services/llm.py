@@ -3,7 +3,7 @@
 import json
 import logging
 from typing import AsyncIterator
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 import httpx
 
 logger = logging.getLogger("knowledge-base")
@@ -13,13 +13,13 @@ class LLMAdapter:
     def __init__(self, config: dict):
         self._cfg = {k: v for k, v in config.items()}
         self.provider = self._cfg.get("llm_provider", "mlx")
-        self._client = self._build_openai_client()
+        self._client: OpenAI | None = None
+        self._async_client: AsyncOpenAI | None = None
         self.chat_model = self._get_chat_model()
         self.embedding_model = self._get_embedding_model()
         self.api_type = self._get_api_type()
 
-        base = str(self._client.base_url) if hasattr(self._client, 'base_url') else "unknown"
-        logger.info(f"LLM 适配器: provider={self.provider}, api_type={self.api_type}, model={self.chat_model}, base_url={base}")
+        logger.info(f"LLM 适配器: provider={self.provider}, api_type={self.api_type}, model={self.chat_model}")
 
     def _get_api_type(self) -> str:
         """返回 API 格式类型: 'openai' 或 'anthropic'"""
@@ -54,6 +54,32 @@ class LLMAdapter:
             )
         raise ValueError(f"不支持的 LLM provider: {self.provider}")
 
+    def _build_async_openai_client(self) -> AsyncOpenAI:
+        if self.provider == "mlx":
+            return AsyncOpenAI(
+                base_url=self._cfg.get("mlx_api_base", "http://localhost:8080/v1"),
+                api_key="mlx",
+            )
+        if self.provider == "openai":
+            return AsyncOpenAI(
+                base_url=self._cfg.get("openai_api_base", "https://api.openai.com/v1"),
+                api_key=self._cfg.get("openai_api_key", ""),
+            )
+        if self.provider == "claude":
+            return AsyncOpenAI(
+                base_url="https://api.anthropic.com/v1",
+                api_key=self._cfg.get("claude_api_key", ""),
+            )
+        if self.provider == "custom":
+            custom_base = self._cfg.get("custom_api_base", "")
+            if self._cfg.get("custom_api_type", "openai") == "anthropic":
+                return AsyncOpenAI(base_url=custom_base, api_key=self._cfg.get("custom_api_key", ""))
+            return AsyncOpenAI(
+                base_url=custom_base,
+                api_key=self._cfg.get("custom_api_key", ""),
+            )
+        raise ValueError(f"不支持的 LLM provider: {self.provider}")
+
     def _get_chat_model(self) -> str:
         if self.provider == "mlx":
             return self._cfg.get("mlx_chat_model", "")
@@ -76,7 +102,15 @@ class LLMAdapter:
 
     @property
     def client(self) -> OpenAI:
+        if self._client is None:
+            self._client = self._build_openai_client()
         return self._client
+
+    @property
+    def async_client(self) -> AsyncOpenAI:
+        if self._async_client is None:
+            self._async_client = self._build_async_openai_client()
+        return self._async_client
 
     # ---- 统一对话接口 ----
 
@@ -92,12 +126,12 @@ class LLMAdapter:
             async for chunk in self._anthropic_chat_stream(messages, temperature):
                 yield chunk
         else:
-            for chunk in self._openai_chat_stream(messages, temperature):
+            async for chunk in self._openai_chat_stream(messages, temperature):
                 yield chunk
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """文本转向量。"""
-        response = self._client.embeddings.create(
+        response = self.client.embeddings.create(
             model=self.embedding_model,
             input=texts,
         )
@@ -106,21 +140,21 @@ class LLMAdapter:
     # ---- OpenAI 格式 ----
 
     def _openai_chat(self, messages: list[dict], temperature: float) -> dict:
-        response = self._client.chat.completions.create(
+        response = self.client.chat.completions.create(
             model=self.chat_model,
             messages=messages,
             temperature=temperature,
         )
         return {"content": response.choices[0].message.content or ""}
 
-    def _openai_chat_stream(self, messages: list[dict], temperature: float):
-        stream = self._client.chat.completions.create(
+    async def _openai_chat_stream(self, messages: list[dict], temperature: float):
+        stream = await self.async_client.chat.completions.create(
             model=self.chat_model,
             messages=messages,
             temperature=temperature,
             stream=True,
         )
-        for chunk in stream:
+        async for chunk in stream:
             delta = chunk.choices[0].delta
             if delta.content:
                 yield {"type": "token", "content": delta.content}

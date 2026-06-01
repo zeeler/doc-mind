@@ -352,14 +352,17 @@ body { font: 14px/1.6 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sa
           <button class="btn btn-ghost" @click="scanDirectory" style="flex:1;margin-top:0" :disabled="dirProcessing">{{ dirProcessing ? '扫描中 ('+dirProgress+')' : '选择本地目录' }}</button>
         </div>
         <div v-if="!dirProcessing && dirResult" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">{{ dirResult }}</div>
-        <div v-if="jobStats" style="display:flex;gap:12px;margin-bottom:12px;font-size:12px;align-items:center">
-          <span v-if="jobStats.pending" style="color:var(--text-tertiary)">{{ jobStats.pending }} 等待</span>
-          <span v-if="jobStats.running" style="color:var(--info)">{{ jobStats.running }} 处理中</span>
-          <span style="color:var(--text-secondary)">{{ jobStats.completed || 0 }} 完成</span>
-          <span v-if="jobStats.failed" style="color:var(--danger)">{{ jobStats.failed }} 失败</span>
-          <button v-if="jobStats.failed" @click="retryFailedJobs" style="margin-left:auto;padding:2px 10px;font-size:11px;border:1px solid var(--border);border-radius:99px;background:var(--card);color:var(--text-secondary);cursor:pointer">重试失败</button>
+        <div v-if="jobStats" style="margin-bottom:12px">
+          <div v-for="(st, jt) in jobStats" :key="jt" style="display:flex;gap:8px;font-size:11px;align-items:center;margin-bottom:2px;line-height:1.6">
+            <span style="color:var(--text-tertiary);min-width:65px;font-weight:500">{{ jt === 'quick_scan' ? '🔍 扫描' : '📑 索引' }}</span>
+            <span v-if="st.pending" style="color:var(--text-tertiary)">{{ st.pending }} 等待</span>
+            <span v-if="st.running" style="color:var(--info)">{{ st.running }} 处理中</span>
+            <span style="color:var(--text-secondary)">{{ st.completed || 0 }} 完成</span>
+            <span v-if="st.failed" style="color:var(--danger)">{{ st.failed }} 失败</span>
+          </div>
+          <button v-if="anyFailed||anyRunning" @click="retryFailedJobs" style="margin-top:4px;padding:2px 10px;font-size:11px;border:1px solid var(--border);border-radius:99px;background:var(--card);color:var(--text-secondary);cursor:pointer">重试失败/卡住</button>
         </div>
-        <div v-if="jobStats&&(jobStats.pending||jobStats.running)" style="margin-bottom:12px;height:3px;background:var(--bg-hover);border-radius:2px;overflow:hidden">
+        <div v-if="jobStats&&(totalPending||totalRunning)" style="margin-bottom:12px;height:3px;background:var(--bg-hover);border-radius:2px;overflow:hidden">
           <div :style="{width:jobPercent+'%',height:'100%',background:'var(--primary)',transition:'width .5s ease'}"></div>
         </div>
         <div class="docs-toolbar">
@@ -553,6 +556,10 @@ createApp({
     const documents = ref([]);
     const jobStats = ref(null);
     const jobPercent = ref(0);
+    const totalPending = ref(0);
+    const totalRunning = ref(0);
+    const anyFailed = ref(false);
+    const anyRunning = ref(false);
     let jobInterval = null;
     const uploading = ref(false);
     const dirProcessing = ref(false);
@@ -661,8 +668,18 @@ createApp({
       try {
         const d = await api('/api/v1/jobs/stats');
         jobStats.value = d.data;
-        const total = (d.data.pending||0)+(d.data.running||0)+(d.data.completed||0)+(d.data.failed||0);
-        jobPercent.value = total > 0 ? Math.round((d.data.completed||0)/total*100) : 0;
+        // 汇总各类型的统计用于进度条
+        totalPending.value = 0; totalRunning.value = 0;
+        let totalDone = 0, totalAll = 0; anyFailed.value = false; anyRunning.value = false;
+        for (const jt of Object.values(d.data||{})) {
+          totalPending.value += jt.pending||0;
+          totalRunning.value += jt.running||0;
+          totalDone += jt.completed||0;
+          totalAll += (jt.pending||0)+(jt.running||0)+(jt.completed||0)+(jt.failed||0);
+          if (jt.failed) anyFailed.value = true;
+          if (jt.running) anyRunning.value = true;
+        }
+        jobPercent.value = totalAll > 0 ? Math.round(totalDone/totalAll*100) : 0;
       } catch(e) { console.error(e); }
     }
     async function retryFailedJobs() {
@@ -941,7 +958,7 @@ createApp({
       }
     });
 
-    return { page,conversations,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,memoriesList,
+    return { page,conversations,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,memoriesList,
       batchMode, selectedIds, allTags, allCollections, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, collectPickerDoc, categoryEditDoc, editCategoryName, showNewCollection, newCollectionName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
       loadTags, loadCollections, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCollectPicker, toggleDocCollection, createCollection, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
       newTask,openTask,renameStart,renameDone,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,testChat,testOcr,loadMemories,rememberMessage,deleteMemory, md,fmtSize,fmtTime,statusText,statusColor,

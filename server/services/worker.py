@@ -1,11 +1,12 @@
 """后台任务 Worker — 线程池消费 Job 队列。"""
 
 import threading
+import sqlalchemy as sa
 import logging
 import time
 from pathlib import Path
 from datetime import datetime, timezone
-from server.database import get_session
+from server.database import get_session_ctx
 from server.models.job import Job
 from server.models.document import Document
 from server.services.scanner import quick_scan, build_index_md
@@ -16,6 +17,7 @@ logger = logging.getLogger("knowledge-base")
 
 _workers: list[threading.Thread] = []
 _stop = False
+_claim_lock = threading.Lock()
 
 
 def start_workers(num: int = 2):
@@ -30,15 +32,41 @@ def start_workers(num: int = 2):
 
 
 def _recover_stuck_jobs():
-    """启动时将卡在 running 状态的任务重置为 pending。"""
-    with next(get_session()) as s:
-        from server.models.job import Job
-        count = s.query(Job).filter(Job.status == "running").update(
-            {"status": "pending", "error_message": None, "started_at": None}, synchronize_session=False
-        )
-        if count:
-            s.commit()
-            logger.info(f"恢复卡住任务: {count} 个 running → pending")
+    """启动时清理：恢复卡住的 running 任务、删除孤儿 jobs、去重。"""
+    with get_session_ctx() as s:
+        # 恢复卡住的 running 任务
+        count = Job.reset_by_status(s, ["running"])
+
+        # 删除文档已被删除的孤儿任务
+        orphan = s.query(Job).filter(
+            ~Job.document_id.in_(s.query(Document.id))
+        ).delete(synchronize_session=False)
+
+        # 删除同文档同类型重复的 pending（保留最早），防止启动恢复造成堆积
+        kept = s.query(
+            Job.document_id, Job.job_type,
+            sa.func.min(Job.created_at).label("earliest")
+        ).filter(Job.status == "pending").group_by(
+            Job.document_id, Job.job_type
+        ).subquery()
+        dup = s.query(Job).filter(
+            Job.status == "pending",
+            ~Job.id.in_(
+                s.query(Job.id).join(
+                    kept,
+                    sa.and_(
+                        Job.document_id == kept.c.document_id,
+                        Job.job_type == kept.c.job_type,
+                        Job.created_at == kept.c.earliest,
+                    ),
+                )
+            ),
+        ).delete(synchronize_session=False)
+
+        s.commit()  # 一次提交所有清理操作
+
+        if count or orphan or dup:
+            logger.info(f"启动清理: {count or 0} running→pending, {orphan or 0} 孤儿, {dup or 0} 重复已删除")
 
 
 def stop_workers():
@@ -51,7 +79,13 @@ def stop_workers():
 def _worker_loop(idx: int):
     logger.info(f"Worker {idx} 就绪")
     while not _stop:
-        job = _claim_job()
+        try:
+            job = _claim_job()
+        except Exception as e:
+            logger.error(f"Worker {idx} 认领任务失败: {e}")
+            time.sleep(1)
+            continue
+
         if job is None:
             time.sleep(1)
             continue
@@ -59,7 +93,7 @@ def _worker_loop(idx: int):
             _execute_job(job)
         except Exception as e:
             logger.error(f"Worker {idx} 任务失败 {job.id}: {e}", exc_info=True)
-            with next(get_session()) as s:
+            with get_session_ctx() as s:
                 j = s.get(Job, job.id)
                 if j:
                     j.status = "failed"
@@ -69,20 +103,24 @@ def _worker_loop(idx: int):
 
 
 def _claim_job() -> Job | None:
-    with next(get_session()) as s:
-        job = s.query(Job).filter(Job.status == "pending").order_by(Job.priority, Job.created_at).first()
-        if job:
-            job.status = "running"
-            job.started_at = datetime.now(timezone.utc)
-            s.commit()
-            s.refresh(job)
-            return job
+    """认领一个 pending 任务。锁只保护 claim 操作，不阻塞 commit。"""
+    with _claim_lock:
+        with get_session_ctx() as s:
+            job = s.query(Job).filter(Job.status == "pending").order_by(Job.priority, Job.created_at).first()
+            if job:
+                job.status = "running"
+                job.started_at = datetime.now(timezone.utc)
+                s.commit()
+                s.refresh(job)
+                s.expunge(job)  # 显式分离，在锁外使用
+                return job
     return None
 
 
 def _execute_job(job: Job):
     config = AppConfig().get_all()
-    with next(get_session()) as s:
+    with get_session_ctx() as s:
+        job = s.merge(job)  # 将 detached job 重新关联到当前 session
         doc = s.get(Document, job.document_id)
         if not doc:
             job.status = "failed"
@@ -130,7 +168,12 @@ def _execute_job(job: Job):
 
 def create_jobs_for_document(doc_id: str):
     """为一篇文档创建 quick_scan + full_index 两个任务（跳过已有活跃任务）。"""
-    with next(get_session()) as s:
+    with get_session_ctx() as s:
+        # 清理旧的 completed/failed 任务，避免多次重建后堆积
+        s.query(Job).filter(
+            Job.document_id == doc_id,
+            Job.status.in_(["completed", "failed"]),
+        ).delete()
         for jt, pri in [("quick_scan", 1), ("full_index", 5)]:
             existing = s.query(Job).filter(
                 Job.document_id == doc_id,

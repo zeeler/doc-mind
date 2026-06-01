@@ -2,7 +2,8 @@
 import logging
 from fastapi import APIRouter, HTTPException, Query
 from server.database import DATA_DIR
-from server.services.search import SearchService
+from server.services.search import get_search_service
+from server.config import AppConfig
 
 logger = logging.getLogger("knowledge-base")
 
@@ -19,11 +20,12 @@ def search(
     if not q.strip():
         raise HTTPException(status_code=400, detail="搜索关键词不能为空")
 
-    svc = SearchService(data_dir=DATA_DIR, top_k=top_k)
+    svc = get_search_service(data_dir=DATA_DIR, top_k=top_k)
+    config = AppConfig().get_all()
 
     if type == "documents":
-        results = svc.document_search(q.strip(), top_k=top_k)
+        results = svc.document_search(q.strip(), top_k=top_k, config=config)
     else:
-        results = svc.hybrid_search(q.strip(), top_k=top_k, document_id=document_id)
+        results = svc.hybrid_search(q.strip(), top_k=top_k, document_id=document_id, config=config)
 
     return {"code": "OK", "message": "success", "data": results}

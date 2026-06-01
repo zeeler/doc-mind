@@ -1,6 +1,7 @@
 """数据库连接管理。"""
 
 import os
+from contextlib import contextmanager
 from pathlib import Path
 import sqlalchemy as sa
 from sqlalchemy import create_engine, Engine
@@ -38,6 +39,22 @@ def get_session():
         db.close()
 
 
+@contextmanager
+def get_session_ctx() -> Session:
+    """上下文管理器版 session 获取，供非 FastAPI 代码（Worker、Config 等）使用。
+
+    用法: with get_session_ctx() as session:
+    """
+    global _SessionLocal
+    if _SessionLocal is None:
+        _SessionLocal = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=get_engine())
+    db = _SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
 def reset_engine():
     """重置引擎和会话工厂（用于测试时切换 DATA_DIR）。"""
     global _engine, _SessionLocal
@@ -46,31 +63,49 @@ def reset_engine():
 
 
 def init_db():
-    """创建所有表，并执行迁移。在模型导入后调用。"""
+    """创建所有表，并执行迁移。显式导入所有模型确保 create_all 正确工作。"""
     from server.models.base import Base
+    # 显式导入所有模型类，确保 SQLAlchemy 知道要创建哪些表
+    from server.models.document import Document, DocumentChunk  # noqa: F401
+    from server.models.conversation import Conversation, Message  # noqa: F401
+    from server.models.job import Job  # noqa: F401
+    from server.models.tag import Tag  # noqa: F401
+    from server.models.collection import Collection  # noqa: F401
+    from server.config import AppConfigModel  # noqa: F401
     Base.metadata.create_all(bind=get_engine())
     _migrate(get_engine())
 
 
+def _table_exists(conn, name: str) -> bool:
+    result = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,))
+    return result.fetchone() is not None
+
+
 def _migrate(engine):
     """增量迁移：为旧数据库补齐缺失的列，并创建新表。"""
-    import sqlite3
-    db_path = str(engine.url).replace("sqlite:///", "")
-    conn = sqlite3.connect(db_path)
+    conn = engine.raw_connection()
     try:
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(documents)")}
-        if "elapsed_ms" not in cols:
-            conn.execute("ALTER TABLE documents ADD COLUMN elapsed_ms INTEGER DEFAULT 0")
-            conn.commit()
-        if "checksum" not in cols:
-            conn.execute("ALTER TABLE documents ADD COLUMN checksum VARCHAR(64)")
-            conn.commit()
+        # 先检查 documents 表是否存在，避免首次部署时 ALTER TABLE 崩溃
+        if _table_exists(conn, "documents"):
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(documents)")}
+            if "elapsed_ms" not in cols:
+                conn.execute("ALTER TABLE documents ADD COLUMN elapsed_ms INTEGER DEFAULT 0")
+                conn.commit()
+            if "checksum" not in cols:
+                conn.execute("ALTER TABLE documents ADD COLUMN checksum VARCHAR(64)")
+                conn.commit()
+            if "folder_path" not in cols:
+                conn.execute("ALTER TABLE documents ADD COLUMN folder_path TEXT DEFAULT ''")
+                conn.commit()
+            if "category" not in cols:
+                conn.execute("ALTER TABLE documents ADD COLUMN category VARCHAR(100) DEFAULT ''")
+                conn.commit()
 
         # 确保 jobs 表存在（新表或旧数据库迁移）
         conn.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id VARCHAR(36) PRIMARY KEY,
-                document_id VARCHAR(36) NOT NULL,
+                document_id VARCHAR(36) NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
                 job_type VARCHAR(20) NOT NULL,
                 priority INTEGER DEFAULT 5,
                 status VARCHAR(20) DEFAULT 'pending',
@@ -115,26 +150,27 @@ def _migrate(engine):
         """)
         conn.commit()
 
-        cols2 = {r[1] for r in conn.execute("PRAGMA table_info(documents)")}
-        if "folder_path" not in cols2:
-            conn.execute("ALTER TABLE documents ADD COLUMN folder_path TEXT DEFAULT ''")
-            conn.commit()
-        if "category" not in cols2:
-            conn.execute("ALTER TABLE documents ADD COLUMN category VARCHAR(100) DEFAULT ''")
-            conn.commit()
-
         # v3 迁移：FTS5 全文索引
-        conn.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-                chunk_id,
-                content,
-                document_title,
-                tokenize='unicode61'
-            )
-        """)
-        conn.commit()
+        ensure_fts5_table()
     finally:
         conn.close()
+
+
+FTS5_DDL = """
+CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+    chunk_id,
+    content,
+    document_title,
+    tokenize='unicode61'
+)
+"""
+
+
+def ensure_fts5_table():
+    """创建 FTS5 全文索引虚拟表（若不存在）。使用 SQLAlchemy 连接池。"""
+    with get_engine().connect() as conn:
+        conn.execute(sa.text(FTS5_DDL))
+        conn.commit()
 
 
 def _fts_execute(sql: str, params: dict | None = None) -> None:
@@ -152,10 +188,6 @@ def fts_insert(chunk_id: str, content: str, title: str) -> None:
     )
 
 
-def fts_delete_by_chunk_id(chunk_id: str) -> None:
-    """从 FTS5 索引删除指定 chunk。"""
-    _fts_execute("DELETE FROM chunks_fts WHERE chunk_id = :cid", {"cid": chunk_id})
-
 
 def fts_delete_by_document_id(document_id: str) -> None:
     """从 FTS5 索引删除某文档的所有 chunk。"""
@@ -167,17 +199,3 @@ def fts_delete_by_document_id(document_id: str) -> None:
     )
 
 
-def fts_insert_batch(records: list[tuple[str, str, str]]) -> None:
-    """批量写入 FTS5 索引。records: [(chunk_id, content, title), ...]"""
-    if not records:
-        return
-    with get_engine().connect() as conn:
-        for chunk_id, content, title in records:
-            conn.execute(
-                sa.text(
-                    "INSERT INTO chunks_fts(chunk_id, content, document_title) "
-                    "VALUES (:cid, :text, :title)"
-                ),
-                {"cid": chunk_id, "text": content, "title": title},
-            )
-        conn.commit()

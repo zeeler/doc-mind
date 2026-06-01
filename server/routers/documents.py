@@ -8,15 +8,14 @@ from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from server.database import get_session, DATA_DIR, fts_delete_by_document_id
+from server.database import get_session, get_session_ctx, DATA_DIR, fts_delete_by_document_id
 from server.models.document import Document, DocumentChunk
 from server.models.tag import Tag, document_tags
 from server.models.collection import Collection, collection_documents
-from server.services.parser import parse_file, SUPPORTED_TYPES
-from server.services.chunker import chunk_text, estimate_tokens
-from server.services.search import SearchService
+from server.models.job import Job
+from server.services.parser import SUPPORTED_TYPES
+from server.services.search import get_search_service
 from server.services.worker import create_jobs_for_document
-from server.config import AppConfig
 
 logger = logging.getLogger("knowledge-base")
 
@@ -40,7 +39,7 @@ async def upload_document(file: UploadFile = File(...), folder_path: str = Form(
     checksum = _compute_sha256(content)
 
     # === 去重检查 ===
-    with next(get_session()) as session:
+    with get_session_ctx() as session:
         existing = session.query(Document).filter(Document.checksum == checksum).first()
     if existing:
         # 判断是否需要重新处理：无 chunk 或状态为 failed
@@ -49,7 +48,7 @@ async def upload_document(file: UploadFile = File(...), folder_path: str = Form(
 
         if need_reprocess:
             sid = existing.id
-            with next(get_session()) as s:
+            with get_session_ctx() as s:
                 doc = s.get(Document, sid)
                 if doc and doc.status in ("done", "failed"):
                     doc.status = "pending"
@@ -93,21 +92,13 @@ async def upload_document(file: UploadFile = File(...), folder_path: str = Form(
         status="pending",
     )
 
-    with next(get_session()) as session:
+    with get_session_ctx() as session:
         session.add(doc)
         session.commit()
         session.refresh(doc)
 
-        # 处理文档（解析→切块→embedding→索引）
-        try:
-            from server.services.pipeline import process_document
-            from server.config import AppConfig
-            process_document(doc_id, AppConfig().get_all())
-            session.refresh(doc)
-        except Exception as e:
-            logger.error(f"文档处理失败 {doc.title} ({doc_id}): {e}", exc_info=True)
-            doc.status = "failed"
-            session.commit()
+        # 通过 Worker 队列异步处理文档
+        create_jobs_for_document(doc_id)
 
         return {
             "code": "OK",
@@ -143,7 +134,7 @@ def list_documents(
     if status is not None:
         q = q.filter(Document.status == status)
     if search is not None:
-        search_svc = SearchService(data_dir=DATA_DIR, top_k=50)
+        search_svc = get_search_service(data_dir=DATA_DIR, top_k=50)
         doc_results = search_svc.document_search(search, top_k=50)
         match_ids = [d["document_id"] for d in doc_results]
         if match_ids:
@@ -212,8 +203,9 @@ def batch_operation(payload: dict, session: Session = Depends(get_session)):
             if action == "delete":
                 try:
                     fts_delete_by_document_id(doc_id)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"FTS5 清除索引失败 doc {doc_id}: {e}")
+                session.query(Job).filter(Job.document_id == doc_id).delete()
                 session.delete(doc)
             elif action == "categorize":
                 doc.category = (params.get("category") or "").strip()
@@ -289,8 +281,8 @@ def delete_document(doc_id: str, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="文档不存在")
     try:
         fts_delete_by_document_id(doc_id)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"FTS5 清除索引失败 doc {doc_id}: {e}")
     session.delete(doc)
     session.commit()
     file_dir = DATA_DIR / "files" / doc_id

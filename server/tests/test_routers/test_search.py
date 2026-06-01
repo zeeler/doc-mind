@@ -12,18 +12,13 @@ def client(tmp_data_dir, monkeypatch):
     from server.database import reset_engine
     reset_engine()
     from server.models.base import Base
-    from server.database import get_engine
+    from server.database import get_engine, ensure_fts5_table
     Base.metadata.create_all(bind=get_engine())
-    # FTS5 虚拟表需要手动创建
+    ensure_fts5_table()
+    # 插入测试文档和 chunks 用于搜索
     import sqlite3
     db_path = str(tmp_data_dir / "app.db")
     conn = sqlite3.connect(db_path)
-    conn.execute("""
-        CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-            chunk_id, content, document_title, tokenize='unicode61'
-        )
-    """)
-    # 插入测试文档和 chunks 用于搜索
     conn.execute("""
         INSERT INTO documents (id, title, file_name, file_type, file_path, file_size, status, chunk_count, elapsed_ms, folder_path, category, created_at, updated_at)
         VALUES ('doc-search-1', 'Python入门指南', 'python-guide.pdf', 'pdf', '/tmp/test.pdf', 100, 'done', 2, 0, '', '技术', datetime('now'), datetime('now'))

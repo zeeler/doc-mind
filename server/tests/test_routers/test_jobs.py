@@ -23,8 +23,9 @@ class TestJobRoutes:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == "OK"
-        assert "pending" in data["data"]
-        assert data["data"]["pending"] == 0
+        assert "quick_scan" in data["data"]
+        assert "full_index" in data["data"]
+        assert data["data"]["quick_scan"]["pending"] == 0
 
     def test_list_jobs_empty(self, client):
         response = client.get("/api/v1/jobs")

@@ -1,16 +1,12 @@
 """ChromaDB 记忆存储封装。"""
 
 import uuid
-import chromadb
-from chromadb.config import Settings
+from server.vector.store import _get_client
 
 
 class MemoryStore:
     def __init__(self, persist_dir: str):
-        self.client = chromadb.PersistentClient(
-            path=persist_dir,
-            settings=Settings(anonymized_telemetry=False),
-        )
+        self.client = _get_client(persist_dir)
         self.collection = self.client.get_or_create_collection(name="memories")
 
     def add(self, mem_id: str | None, content: str, metadata: dict) -> str:

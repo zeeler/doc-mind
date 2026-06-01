@@ -6,7 +6,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
-from server.database import get_session, DATA_DIR
+from server.database import get_session, get_session_ctx, DATA_DIR
 from server.models.conversation import Conversation, Message
 from server.config import AppConfig
 from server.services.rag import RAGService
@@ -16,13 +16,30 @@ from server.vector.store import VectorStore
 logger = logging.getLogger("knowledge-base")
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
+_rag_service_cache: RAGService | None = None
+_rag_cache_key: tuple | None = None
+
 
 def _get_rag_service(data_dir):
+    """获取缓存的 RAGService 实例，配置变化时重建。"""
+    global _rag_service_cache, _rag_cache_key
     cfg = AppConfig()
     config = cfg.get_all()
-    store = VectorStore(persist_dir=str(data_dir / "chroma"))
-    retriever = Retriever(vector_store=store, config=config)
-    return RAGService(retriever=retriever, config=config)
+    # 仅根据影响检索的配置项判断是否需要重建
+    cache_key = (
+        str(data_dir),
+        config.get("retrieval_top_k", "15"),
+        config.get("retrieval_enable_mmr", "true"),
+        config.get("retrieval_mmr_lambda", "0.7"),
+        config.get("retrieval_fetch_multiplier", "3"),
+        config.get("retrieval_enable_query_expansion", "false"),
+    )
+    if _rag_service_cache is None or cache_key != _rag_cache_key:
+        store = VectorStore(persist_dir=str(data_dir / "chroma"))
+        retriever = Retriever(vector_store=store, config=config)
+        _rag_service_cache = RAGService(retriever=retriever, config=config)
+        _rag_cache_key = cache_key
+    return _rag_service_cache
 
 
 @router.post("/ask")
@@ -124,7 +141,7 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
             logger.error(f"LLM 流式调用失败: {e}", exc_info=True)
             yield {"event": "error", "data": json.dumps({"message": f"LLM 调用失败: {str(e)}"}, ensure_ascii=False)}
         finally:
-            with next(get_session()) as s:
+            with get_session_ctx() as s:
                 assistant_msg = Message(
                     id=str(uuid.uuid4()),
                     conversation_id=conversation_id,

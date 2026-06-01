@@ -15,9 +15,9 @@ def remember_message(body: dict):
     if not conversation_id or not message_id:
         raise HTTPException(status_code=400, detail="缺少 conversation_id 或 message_id")
 
-    from server.database import get_session
+    from server.database import get_session_ctx
     from server.models.conversation import Message
-    with next(get_session()) as session:
+    with get_session_ctx() as session:
         msg = session.get(Message, message_id)
         if not msg:
             raise HTTPException(status_code=404, detail="消息不存在")

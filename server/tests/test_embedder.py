@@ -6,13 +6,8 @@ from server.services.embedder import Embedder
 class TestEmbedder:
     @patch("server.services.embedder.LLMAdapter")
     def test_embed_returns_list_of_floats(self, MockAdapter):
-        mock_client = MagicMock()
-        mock_embedding = MagicMock()
-        mock_embedding.data = [MagicMock(embedding=[0.1, 0.2, 0.3])]
-        mock_client.embeddings.create.return_value = mock_embedding
         mock_adapter = MagicMock()
-        mock_adapter.client = mock_client
-        mock_adapter.embedding_model = "test-model"
+        mock_adapter.embed.return_value = [[0.1, 0.2, 0.3]]
         MockAdapter.return_value = mock_adapter
 
         embedder = Embedder({})
@@ -22,16 +17,8 @@ class TestEmbedder:
 
     @patch("server.services.embedder.LLMAdapter")
     def test_embed_batch(self, MockAdapter):
-        mock_client = MagicMock()
-        mock_embedding = MagicMock()
-        mock_embedding.data = [
-            MagicMock(embedding=[0.1, 0.2]),
-            MagicMock(embedding=[0.3, 0.4]),
-        ]
-        mock_client.embeddings.create.return_value = mock_embedding
         mock_adapter = MagicMock()
-        mock_adapter.client = mock_client
-        mock_adapter.embedding_model = "test-model"
+        mock_adapter.embed.return_value = [[0.1, 0.2], [0.3, 0.4]]
         MockAdapter.return_value = mock_adapter
 
         embedder = Embedder({})

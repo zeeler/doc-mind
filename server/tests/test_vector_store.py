@@ -20,7 +20,7 @@ class TestVectorStore:
         results = store.search("水果有哪些", top_k=2)
         assert len(results) > 0
         assert any("苹果" in r["content"] for r in results)
-        assert all("document_id" in r for r in results)
+        assert all("document_id" in r.get("metadata", {}) for r in results)
 
     def test_delete_by_document_id(self, store):
         store.add(
@@ -33,7 +33,7 @@ class TestVectorStore:
         )
         store.delete_by_document_id("doc-del")
         results = store.search("测试内容", top_k=5)
-        doc_ids = {r.get("document_id", "") for r in results}
+        doc_ids = {r.get("metadata", {}).get("document_id", "") for r in results}
         assert "doc-del" not in doc_ids
         assert "doc-keep" in doc_ids
 

@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime, timezone
 from server.services.memory_store import MemoryStore
-from server.database import DATA_DIR
+from server.database import DATA_DIR, get_session_ctx
 
 logger = logging.getLogger("knowledge-base")
 
@@ -85,12 +85,11 @@ def _reset_store() -> None:
 
 def summarize_conversation(conv_id: str) -> int:
     """对一段对话生成摘要记忆。返回新增的记忆数。"""
-    from server.database import get_session
     from server.models.conversation import Conversation
     from server.services.llm import LLMAdapter
     from server.config import AppConfig
 
-    with next(get_session()) as session:
+    with get_session_ctx() as session:
         conv = session.get(Conversation, conv_id)
         if not conv:
             return 0

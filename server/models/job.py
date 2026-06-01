@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import String, Integer, DateTime, ForeignKey, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, Session
 from server.models.base import Base
 
 
@@ -20,3 +20,11 @@ class Job(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    @staticmethod
+    def reset_by_status(session: Session, statuses: list[str]) -> int:
+        """将指定状态的任务批量重置为 pending，返回受影响行数。"""
+        return session.query(Job).filter(Job.status.in_(statuses)).update(
+            {"status": "pending", "error_message": None, "started_at": None},
+            synchronize_session=False,
+        )
