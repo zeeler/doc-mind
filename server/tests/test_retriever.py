@@ -158,9 +158,24 @@ class TestRetriever:
             vector_store=MagicMock(),
             config={"retrieval_enable_query_expansion": "true"}
         )
-        # 验证 _find_document_id 被调用（文档名在 DB 中存在时）
         from unittest.mock import patch
         with patch.object(retriever, '_find_document_id', return_value='doc-123') as mock_find:
             queries = retriever._expand_query("哈佛谈判心理学第3章讲了什么")
-            # 文档过滤逻辑在 retrieve() 中，这里只验证扩展正确
             assert "第3章" in queries
+
+    def test_cn_chapter_to_arabic(self):
+        """'第三章' 应生成 '第3章' 变体。"""
+        from server.services.retriever import _cn_num_to_arabic
+        assert _cn_num_to_arabic("第三章") == "第3章"
+        assert _cn_num_to_arabic("第十二章") == "第12章"
+        assert _cn_num_to_arabic("第5章") == "第5章"  # already arabic
+
+    def test_expand_query_cn_chapter(self):
+        """中文数字章节查询应同时生成阿拉伯数字变体。"""
+        retriever = Retriever(
+            vector_store=MagicMock(),
+            config={"retrieval_enable_query_expansion": "true"}
+        )
+        queries = retriever._expand_query("数学之美第三章讲了什么")
+        assert "第三章" in queries
+        assert "第3章" in queries  # 阿拉伯变体
