@@ -66,6 +66,16 @@ def update_conversation(conv_id: str, body: dict, session: Session = Depends(get
     }
 
 
+@router.delete("/{conv_id}")
+def delete_conversation(conv_id: str, session: Session = Depends(get_session)):
+    conv = session.get(Conversation, conv_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    session.delete(conv)
+    session.commit()
+    return {"code": "OK", "message": "success", "data": None}
+
+
 @router.get("/{conv_id}")
 def get_conversation(conv_id: str, session: Session = Depends(get_session)):
     conv = session.get(Conversation, conv_id)
