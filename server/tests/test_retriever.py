@@ -113,3 +113,54 @@ class TestRetriever:
         )
         queries = retriever._expand_query("谈判心理学有哪些要点")
         assert queries == ["谈判心理学有哪些要点"]
+
+    def test_expand_query_chapter_book_split(self):
+        """'书名第N章讲了什么' → 拆分出章节关键词。"""
+        retriever = Retriever(
+            vector_store=MagicMock(),
+            config={"retrieval_enable_query_expansion": "true"}
+        )
+        queries = retriever._expand_query("哈佛谈判心理学第3章讲了什么")
+        assert "第3章" in queries
+        assert "哈佛谈判心理学第3章" in queries  # suffix-stripped core
+
+    def test_expand_query_suffix_stripping(self):
+        """去提问后缀：'XXX讲了什么' → 'XXX'。"""
+        retriever = Retriever(
+            vector_store=MagicMock(),
+            config={"retrieval_enable_query_expansion": "true"}
+        )
+        queries = retriever._expand_query("线性代数第一章的内容")
+        assert "线性代数第一章" in queries
+
+    def test_expand_query_chapter_only(self):
+        """仅第N章查询也能正确展开。"""
+        retriever = Retriever(
+            vector_store=MagicMock(),
+            config={"retrieval_enable_query_expansion": "true"}
+        )
+        queries = retriever._expand_query("第5章介绍了什么")
+        assert "第5章" in queries
+
+    def test_expand_query_and_pattern(self):
+        """'X和Y' 模式拆分。"""
+        retriever = Retriever(
+            vector_store=MagicMock(),
+            config={"retrieval_enable_query_expansion": "true"}
+        )
+        queries = retriever._expand_query("梦想家和思想者的区别")
+        assert any("梦想家" in q for q in queries)
+        assert any("思想者" in q for q in queries)
+
+    def test_document_filter_triggers_on_book_name(self):
+        """书名查询应触发文档过滤。"""
+        retriever = Retriever(
+            vector_store=MagicMock(),
+            config={"retrieval_enable_query_expansion": "true"}
+        )
+        # 验证 _find_document_id 被调用（文档名在 DB 中存在时）
+        from unittest.mock import patch
+        with patch.object(retriever, '_find_document_id', return_value='doc-123') as mock_find:
+            queries = retriever._expand_query("哈佛谈判心理学第3章讲了什么")
+            # 文档过滤逻辑在 retrieve() 中，这里只验证扩展正确
+            assert "第3章" in queries

@@ -1,6 +1,7 @@
 """数据库连接管理。"""
 
 import os
+import re
 from contextlib import contextmanager
 from pathlib import Path
 import sqlalchemy as sa
@@ -152,6 +153,16 @@ def _migrate(engine):
 
         # v3 迁移：FTS5 全文索引
         ensure_fts5_table()
+
+        # v4 迁移：FTS5 CJK 空格分隔（使每个 CJK 字符成为独立 token）
+        ver = conn.execute("PRAGMA user_version").fetchone()[0]
+        if ver < 4:
+            conn.execute("DELETE FROM chunks_fts")
+            conn.commit()
+            n = fts_rebuild_all()
+            conn.execute("PRAGMA user_version = 4")
+            conn.commit()
+            print(f"[kb_migrate] FTS5 CJK 索引重建完成: {n} 条 chunk", flush=True)
     finally:
         conn.close()
 
@@ -160,8 +171,7 @@ FTS5_DDL = """
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     chunk_id,
     content,
-    document_title,
-    tokenize='unicode61'
+    document_title
 )
 """
 
@@ -180,13 +190,39 @@ def _fts_execute(sql: str, params: dict | None = None) -> None:
         conn.commit()
 
 
+CJK_CHARS_RE = re.compile(r'(?<=[一-鿿＀-￯])(?=[一-鿿＀-￯])')
+
+
+def space_cjk(text: str) -> str:
+    """在连续 CJK 字符之间插入空格，让 FTS5 unicode61 将每个字符视为独立 token。
+
+    例如:  "哈佛谈判心理学" → "哈 佛 谈 判 心 理 学"
+    """
+    return CJK_CHARS_RE.sub(' ', text)
+
+
 def fts_insert(chunk_id: str, content: str, title: str) -> None:
-    """向 FTS5 索引写入一条 chunk。"""
+    """向 FTS5 索引写入一条 chunk（自动 CJK 字符间插空格）。"""
     _fts_execute(
-        "INSERT INTO chunks_fts(chunk_id, content, document_title) VALUES (:cid, :text, :title)",
-        {"cid": chunk_id, "text": content, "title": title},
+        "INSERT INTO chunks_fts(chunk_id, content, document_title) VALUES (:cid, :c, :t)",
+        {"cid": chunk_id, "c": space_cjk(content), "t": space_cjk(title)},
     )
 
+
+def fts_rebuild_all() -> int:
+    """从 document_chunks 重建整个 FTS5 索引。返回索引行数。"""
+    with get_engine().connect() as conn:
+        conn.execute(sa.text("DELETE FROM chunks_fts"))
+        rows = conn.execute(sa.text(
+            "SELECT dc.id, dc.content, d.title FROM document_chunks dc JOIN documents d ON dc.document_id = d.id"
+        )).fetchall()
+        for chunk_id, content, title in rows:
+            conn.execute(
+                sa.text("INSERT INTO chunks_fts(chunk_id, content, document_title) VALUES (:cid, :c, :t)"),
+                {"cid": chunk_id, "c": space_cjk(content), "t": space_cjk(title)},
+            )
+        conn.commit()
+        return len(rows)
 
 
 def fts_delete_by_document_id(document_id: str) -> None:

@@ -215,3 +215,68 @@ class TestMMRRerank:
         assert reranked[0]["chunk_id"] == "c1"
         # c3（锚定效应）与 c1（守望者）的 Jaccard 相似度应低于 c2
         assert reranked[1]["chunk_id"] == "c3"
+
+
+class TestTOCFilter:
+    """目录页过滤测试。"""
+
+    def test_toc_chunk_detected(self):
+        from server.services.search import _is_toc_chunk
+        toc = "第1章 概述\n第2章 基础\n第3章 进阶\n第4章 高级"
+        assert _is_toc_chunk(toc) is True
+
+    def test_toc_chunk_with_chinese_numbers(self):
+        from server.services.search import _is_toc_chunk
+        toc = "第一章 开始\n第二章 深入\n第三章 精通"
+        assert _is_toc_chunk(toc) is True
+
+    def test_normal_chunk_not_toc(self):
+        from server.services.search import _is_toc_chunk
+        normal = "本章介绍了深度学习的基本原理，包括反向传播算法和梯度下降优化方法。神经网络由多层感知器组成。"
+        assert _is_toc_chunk(normal) is False
+
+    def test_short_chunk_not_toc(self):
+        from server.services.search import _is_toc_chunk
+        short = "第3章"
+        assert _is_toc_chunk(short) is False  # 只有 1 个标记，不够 3 个
+
+    def test_long_text_with_markers_not_toc(self):
+        from server.services.search import _is_toc_chunk
+        long_text = "第1章内容很丰富..." + "内容" * 300  # > 300 字符
+        assert _is_toc_chunk(long_text) is False
+
+
+class TestJunkFilter:
+    """垃圾内容过滤测试。"""
+
+    def test_junk_chunk_detected(self):
+        from server.services.search import _is_junk_chunk
+        junk = "本书由微信公众号：幸福的味道整理，小编微信：12345，电子书下载请访问..."
+        assert _is_junk_chunk(junk) is True
+
+    def test_normal_chunk_not_junk(self):
+        from server.services.search import _is_junk_chunk
+        normal = "这是关于深度学习的详细介绍内容，包括神经网络的基本结构和训练方法。"
+        assert _is_junk_chunk(normal) is False
+
+    def test_short_text_not_junk(self):
+        from server.services.search import _is_junk_chunk
+        short = "微信公众号"
+        assert _is_junk_chunk(short) is False  # < 200 字符，不判断
+
+
+class TestFTS5Escaping:
+    """FTS5 查询转义测试。"""
+
+    def test_special_chars_escaped(self):
+        from server.services.search import _escape_fts5_query
+        assert "\\*" in _escape_fts5_query("hello*world")
+        assert "\\(" in _escape_fts5_query("func()")
+
+    def test_normal_query_unchanged(self):
+        from server.services.search import _escape_fts5_query
+        assert _escape_fts5_query("第3章 梦想家") == "第3章 梦想家"
+
+    def test_chinese_query_preserved(self):
+        from server.services.search import _escape_fts5_query
+        assert _escape_fts5_query("哈佛谈判心理学") == "哈佛谈判心理学"

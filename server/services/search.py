@@ -5,7 +5,7 @@ import sqlalchemy as sa
 import logging
 from pathlib import Path
 from server.vector.store import VectorStore
-from server.database import get_engine
+from server.database import get_engine, space_cjk
 
 logger = logging.getLogger("knowledge-base")
 
@@ -73,11 +73,12 @@ _JUNK_KEYWORDS = [
 def _is_junk_chunk(content: str) -> bool:
     """判断 chunk 是否为无价值的出版社信息/推广内容。"""
     stripped = content.strip()
-    if len(stripped) < 200:
-        return False  # 太短的不一定是垃圾
     junk_count = sum(1 for kw in _JUNK_KEYWORDS if kw in stripped)
-    # 包含 ≥2 个垃圾关键词 → 可能是出版社信息页
-    return junk_count >= 2
+    if junk_count >= 3:
+        return True
+    if junk_count >= 2 and len(stripped) >= 100:
+        return True
+    return False
 
 
 class SearchService:
@@ -110,7 +111,8 @@ class SearchService:
     def _fts_search(self, query: str, top_k: int | None = None, document_id: str | None = None) -> list[dict]:
         """FTS5 关键词搜索，返回排名结果。"""
         k = top_k or self.top_k
-        escaped_query = _escape_fts5_query(query)
+        cjk_spaced = space_cjk(query)
+        escaped_query = _escape_fts5_query(cjk_spaced)
         # 仅搜索 content 列：避免 document_title 匹配导致整本书所有 chunk 都命中
         content_query = f"content:({escaped_query})"
         base_sql = """
@@ -417,7 +419,7 @@ class SearchService:
 
         # 从 SQLite 批量获取相邻 chunks
         import sqlalchemy as sa
-        from server.database import get_engine
+        from server.database import get_engine, space_cjk
 
         expanded = list(results)
         seen_chunk_ids = {r.get("chunk_id", "") for r in results}
