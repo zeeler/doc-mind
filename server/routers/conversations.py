@@ -76,6 +76,16 @@ def delete_conversation(conv_id: str, session: Session = Depends(get_session)):
     return {"code": "OK", "message": "success", "data": None}
 
 
+@router.post("/batch-delete")
+def batch_delete_conversations(body: dict, session: Session = Depends(get_session)):
+    ids = body.get("ids") or []
+    if not ids:
+        raise HTTPException(status_code=400, detail="ids 不能为空")
+    count = session.query(Conversation).filter(Conversation.id.in_(ids)).delete(synchronize_session=False)
+    session.commit()
+    return {"code": "OK", "message": "success", "data": {"deleted": count}}
+
+
 @router.get("/{conv_id}")
 def get_conversation(conv_id: str, session: Session = Depends(get_session)):
     conv = session.get(Conversation, conv_id)

@@ -137,6 +137,7 @@ body {
 .task-item:hover .task-del { opacity: .6; }
 .task-item .task-del:hover { opacity: 1; background: var(--danger-bg); color: var(--danger); }
 .task-item:hover { background: var(--bg-hover); color: var(--text); }
+.task-item.selected { background: var(--amber-light); border: 1px solid var(--amber); }
 .task-item.active {
   background: var(--amber-light);
   color: var(--amber);
@@ -531,7 +532,10 @@ body {
 <body>
 <div id="app">
   <aside class="sidebar">
-    <div class="sidebar-head"><span class="sidebar-logo">知识库</span></div>
+    <div class="sidebar-head">
+      <span class="sidebar-logo">知识库</span>
+      <button @click="convBatchMode=!convBatchMode;convSelected.clear()" :class="{'batch-toggle':true,on:convBatchMode}" style="font-size:11px;padding:3px 8px">{{ convBatchMode ? '取消' : '多选' }}</button>
+    </div>
     <button class="sidebar-new" @click="newTask">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
       新对话
@@ -539,11 +543,16 @@ body {
     <hr class="sidebar-divider">
     <div class="task-list">
       <div v-if="conversations.length===0" class="task-empty">暂无对话</div>
-      <div v-for="c in conversations" :key="c.id" @click="openTask(c.id)" @dblclick="renameStart(c)" :class="['task-item',{active:currentConv===c.id}]">
+      <div v-for="c in conversations" :key="c.id" @click="convBatchMode?toggleConvSelect(c.id):openTask(c.id)" @dblclick="!convBatchMode&&renameStart(c)" :class="['task-item',{active:currentConv===c.id,selected:convSelected.has(c.id)}]">
+        <input v-if="convBatchMode" type="checkbox" :checked="convSelected.has(c.id)" @click.stop="toggleConvSelect(c.id)" style="width:14px;height:14px;accent-color:var(--amber);flex-shrink:0">
         <span class="task-title" v-if="editingId!==c.id">{{ c.title }}</span>
         <input v-else v-model="editTitle" @blur="renameDone(c.id)" @keydown.enter="renameDone(c.id)" @keydown.escape="editingId=null" @click.stop>
-        <button class="task-del" @click.stop="deleteConv(c.id)" title="删除对话">×</button>
+        <button v-if="!convBatchMode" class="task-del" @click.stop="deleteConv(c.id)" title="删除对话">×</button>
       </div>
+    </div>
+    <div v-if="convBatchMode&&convSelected.size>0" style="padding:6px 10px;border-top:1px solid var(--border-light);display:flex;align-items:center;gap:8px;background:var(--card)">
+      <span style="font:500 12px var(--sans);color:var(--text)">已选 {{ convSelected.size }} 个</span>
+      <button @click="batchDeleteConvs" style="margin-left:auto;padding:4px 10px;border:1px solid var(--danger);border-radius:4px;background:var(--card);color:var(--danger);cursor:pointer;font:11px var(--sans)">🗑 删除</button>
     </div>
     <div class="sidebar-footer">
       <button @click="page='docs'" :class="{'nav-active':page==='docs'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8"/></svg>文档管理</button>
@@ -822,6 +831,8 @@ createApp({
   setup() {
     const page = ref('chat');
     const conversations = ref([]);
+    const convBatchMode = ref(false);
+    const convSelected = ref(new Set());
     const currentConv = ref(null);
     const messages = ref([]);
     const input = ref('');
@@ -904,6 +915,22 @@ createApp({
         }
         await loadConversations();
       } catch(e) { console.error('删除失败:', e); alert('删除失败: ' + e.message); }
+    }
+    function toggleConvSelect(id) {
+      const s = new Set(convSelected.value);
+      if (s.has(id)) s.delete(id); else s.add(id);
+      convSelected.value = s;
+    }
+    async function batchDeleteConvs() {
+      const ids = [...convSelected.value];
+      if (!confirm(`确定删除选中的 ${ids.length} 个对话？`)) return;
+      try {
+        await api('/api/v1/conversations/batch-delete', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});
+        ids.forEach(id => { if (currentConv.value === id) { currentConv.value = null; messages.value = []; } });
+        convSelected.value = new Set();
+        convBatchMode.value = false;
+        await loadConversations();
+      } catch(e) { console.error('批量删除失败:', e); alert('删除失败: ' + e.message); }
     }
     async function renameDone(id) {
       const t = editTitle.value.trim(); editingId.value = null;
@@ -1061,10 +1088,10 @@ createApp({
       else { if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } }
     });
 
-    return { page,conversations,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,memoriesList,
+    return { page,conversations,convBatchMode,convSelected,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,memoriesList,
       batchMode, selectedIds, allTags, allCollections, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, collectPickerDoc, categoryEditDoc, editCategoryName, showNewCollection, newCollectionName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
       loadTags, loadCollections, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCollectPicker, toggleDocCollection, createCollection, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
-      newTask,openTask,renameStart,renameDone,deleteConv,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,testChat,testOcr,loadMemories,rememberMessage,deleteMemory, md,fmtSize,fmtTime,statusText,statusColor,
+      newTask,openTask,renameStart,renameDone,deleteConv,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,testChat,testOcr,loadMemories,rememberMessage,deleteMemory, md,fmtSize,fmtTime,statusText,statusColor,
       batchRetry };
   }
 }).mount('#app');
