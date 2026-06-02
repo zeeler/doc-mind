@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>知识库</title>
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -226,8 +227,21 @@ body {
   color: var(--text); font-size: 14px; line-height: 1.85;
   font-family: var(--sans);
 }
-.msg.assistant .bubble p { margin-bottom: .7em; }
+.msg.assistant .bubble h1, .msg.assistant .bubble h2, .msg.assistant .bubble h3 { font-family: var(--serif); margin: 1em 0 .4em; font-weight: 600; line-height: 1.3; }
+.msg.assistant .bubble h1 { font-size: 1.3em; }
+.msg.assistant .bubble h2 { font-size: 1.15em; }
+.msg.assistant .bubble h3 { font-size: 1.05em; }
+.msg.assistant .bubble p { margin-bottom: .6em; }
 .msg.assistant .bubble p:last-child { margin-bottom: 0; }
+.msg.assistant .bubble ul, .msg.assistant .bubble ol { padding-left: 1.5em; margin: .5em 0; }
+.msg.assistant .bubble li { margin-bottom: .2em; }
+.msg.assistant .bubble strong { font-weight: 600; color: var(--text); }
+.msg.assistant .bubble blockquote { border-left: 3px solid var(--amber); margin: .6em 0; padding: .4em 1em; color: var(--text-secondary); background: var(--amber-light); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.msg.assistant .bubble a { color: var(--amber); }
+.msg.assistant .bubble table { border-collapse: collapse; margin: .6em 0; width: 100%; font-size: .92em; }
+.msg.assistant .bubble th, .msg.assistant .bubble td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; }
+.msg.assistant .bubble th { background: var(--bg-sidebar); font-weight: 600; }
+.msg.assistant .bubble hr { border: none; border-top: 1px solid var(--border-light); margin: 1em 0; }
 .msg.assistant .bubble code {
   background: var(--bg-hover); padding: 2px 7px;
   border-radius: 4px; font-size: .88em;
@@ -240,6 +254,12 @@ body {
   border: 1px solid var(--border);
 }
 .msg.assistant .bubble pre code { background:none; padding:0; }
+/* Copy button */
+.msg-actions { display:flex; gap:4px; margin-top:6px; opacity:0; transition:opacity .15s; }
+.msg:hover .msg-actions { opacity:1; }
+.msg-actions button { background:none; border:1px solid var(--border-light); border-radius:4px; padding:2px 8px; cursor:pointer; font:11px var(--sans); color:var(--text-tertiary); transition:all .1s; }
+.msg-actions button:hover { background:var(--bg-hover); color:var(--text); border-color:var(--border); }
+.msg-actions button.copied { color:var(--success); border-color:var(--success); }
 .msg .citations { display:flex; flex-wrap:wrap; gap:5px; margin-top: 10px; }
 .msg.user .citations { justify-content:flex-end; }
 .msg .citation {
@@ -590,7 +610,10 @@ body {
               <div class="citations" v-if="m.citations&&m.citations.length">
                 <span class="citation" v-for="(c,i) in m.citations" :key="i">{{ c.document_title||c.file_name }}</span>
               </div>
-              <button v-if="m.role==='assistant'" @click="rememberMessage(m, currentConv)" style="background:none;border:none;color:var(--text-tertiary);font-size:11px;cursor:pointer;padding:3px 0;margin-top:4px;opacity:0;transition:opacity .15s;font-family:var(--sans)" class="remember-btn">✦ 记住</button>
+              <div v-if="m.role==='assistant'" class="msg-actions">
+                <button :class="{copied:copyId===m.id}" @click="copyMd(m)">{{ copyId===m.id ? '✓ 已复制' : '📋 复制原文' }}</button>
+                <button @click="rememberMessage(m, currentConv)">✦ 记住</button>
+              </div>
             </div>
           </div>
           <div v-if="streaming" class="msg assistant">
@@ -1045,7 +1068,23 @@ createApp({
     async function saveConfig() { config.value.ocr_enabled=ocrOn.value?'true':'false';await api('/api/v1/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config.value)});saved.value=true;setTimeout(()=>saved.value=false,2000); }
     async function testChat() { testingChat.value=true;chatResult.value=null;try{const cr=await api('/api/v1/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const res=await fetch('/api/v1/chat/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:cr.data.id,question:'你好'})});const d=await res.json();chatResult.value=d.data&&d.data.answer?{ok:true,msg:'✓ '+d.data.answer.slice(0,60)+'...'}:{ok:false,msg:'✗ '+(d.detail||res.statusText)}}catch(e){chatResult.value={ok:false,msg:'✗ '+e.message}}testingChat.value=false; }
     async function testOcr() { testingOcr.value=true;ocrResult.value=null;if(config.value.ocr_engine!=='ollama'){ocrResult.value={ok:true,msg:'✓ Tesseract 就绪'};testingOcr.value=false;return}try{const b=(config.value.ocr_ollama_base_url||'http://localhost:11434/v1').replace(/\/+$/,'');const res=await fetch(b+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:config.value.ocr_ollama_model||'minicpm-v:8b',messages:[{role:'user',content:'OK'}],max_tokens:10})});if(res.ok)ocrResult.value={ok:true,msg:'✓ API 正常'};else{const e=await res.text();ocrResult.value={ok:false,msg:'✗ '+res.status+': '+e.slice(0,100)}}}catch(e){ocrResult.value={ok:false,msg:'✗ '+e.message}}testingOcr.value=false; }
-    function md(t) { if(!t)return'';return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/```(\w*)\n([\s\S]*?)```/g,'<pre><code>$2</code></pre>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>').replace(/^/,'<p>').replace(/$/,'</p>'); }
+    const copyId = ref(null);
+    function md(t) {
+      if (!t) return '';
+      if (typeof marked !== 'undefined') {
+        marked.setOptions({ breaks: true, gfm: true });
+        return marked.parse(t);
+      }
+      // Fallback
+      return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>').replace(/^/,'<p>').replace(/$/,'</p>');
+    }
+    async function copyMd(msg) {
+      try {
+        await navigator.clipboard.writeText(msg.content);
+        copyId.value = msg.id;
+        setTimeout(() => { copyId.value = null; }, 2000);
+      } catch(e) { console.error('复制失败', e); }
+    }
     function fmtSize(b) { if(!b)return'0 B';const u=['B','KB','MB','GB'];let i=0,s=b;while(s>=1024&&i<u.length-1){s/=1024;i++}return s.toFixed(1)+' '+u[i]; }
     function fmtTime(ms) { if(!ms)return'';if(ms<1000)return ms+'ms';if(ms<60000)return(ms/1000).toFixed(1)+'s';const m=Math.floor(ms/60000),s=Math.round((ms%60000)/1000);return m+'m'+s+'s'; }
     function statusText(s) { const m={pending:'待处理',parsing:'解析中',chunking:'切块中',indexing:'索引中',done:'已完成',failed:'失败'};return m[s]||s; }
@@ -1105,7 +1144,7 @@ createApp({
     return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,memoriesList,
       batchMode, selectedIds, allTags, allCollections, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, collectPickerDoc, categoryEditDoc, editCategoryName, showNewCollection, newCollectionName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
       loadTags, loadCollections, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCollectPicker, toggleDocCollection, createCollection, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
-      newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,testChat,testOcr,loadMemories,rememberMessage,deleteMemory, md,fmtSize,fmtTime,statusText,statusColor,
+      newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,testChat,testOcr,loadMemories,rememberMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,
       batchRetry };
   }
 }).mount('#app');
