@@ -53,6 +53,27 @@ def _get_or_create_tag(session: Session, name: str) -> "Tag | None":
     return tag_obj
 
 
+def _get_tag(session: Session, name: str) -> "Tag | None":
+    """按名称查找标签（大小写不敏感），name 必须已通过 _normalize_tag_name 处理。"""
+    if not name:
+        return None
+    return session.query(Tag).filter(func.lower(Tag.name) == name.lower()).first()
+
+
+def _cleanup_document_indices(doc_id: str) -> None:
+    """清理某文档的所有索引（ChromaDB + FTS5）。静默处理错误。"""
+    try:
+        from server.vector.store import VectorStore
+        store = VectorStore(persist_dir=str(DATA_DIR / "chroma"))
+        store.delete_by_document_id(doc_id)
+    except Exception as e:
+        logger.warning(f"ChromaDB 清理失败 doc {doc_id}: {e}")
+    try:
+        fts_delete_by_document_id(doc_id)
+    except Exception as e:
+        logger.warning(f"FTS5 清除索引失败 doc {doc_id}: {e}")
+
+
 @router.post("/upload")
 async def upload_document(request: Request, file: UploadFile = File(...), folder_path: str = Form("")):
     if not file.filename:
@@ -243,23 +264,10 @@ def batch_operation(payload: dict, session: Session = Depends(get_session)):
                 continue
 
             if action == "delete":
-                # 清理 ChromaDB
-                try:
-                    from server.vector.store import VectorStore
-                    store = VectorStore(persist_dir=str(DATA_DIR / "chroma"))
-                    store.delete_by_document_id(doc_id)
-                except Exception as e:
-                    logger.warning(f"ChromaDB 清理失败 doc {doc_id}: {e}")
-                # 清理 FTS5
-                try:
-                    fts_delete_by_document_id(doc_id)
-                except Exception as e:
-                    logger.warning(f"FTS5 清除索引失败 doc {doc_id}: {e}")
-                # 清理关联数据
+                _cleanup_document_indices(doc_id)
                 session.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).delete()
                 session.query(Job).filter(Job.document_id == doc_id).delete()
                 session.delete(doc)
-                # 清理文件（标记为待删除，session 提交后执行）
                 file_dir = DATA_DIR / "files" / doc_id
                 if file_dir.exists():
                     shutil.rmtree(file_dir)
@@ -282,11 +290,13 @@ def batch_operation(payload: dict, session: Session = Depends(get_session)):
                 seen_names = set()
                 for tag_name in params.get("tags") or []:
                     name = _normalize_tag_name(tag_name)
-                    if not name or name.lower() in seen_names:
+                    if not name:
                         continue
-                    seen_names.add(name.lower())
-                    normalized = name.lower()
-                    tag_obj = session.query(Tag).filter(func.lower(Tag.name) == normalized).first()
+                    name_lower = name.lower()
+                    if name_lower in seen_names:
+                        continue
+                    seen_names.add(name_lower)
+                    tag_obj = _get_tag(session, name)
                     if tag_obj and tag_obj in doc.tags:
                         doc.tags.remove(tag_obj)
             elif action == "collect":
@@ -342,29 +352,14 @@ def delete_document(doc_id: str, session: Session = Depends(get_session)):
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
 
-    # 1. 清理 ChromaDB 向量
-    try:
-        from server.vector.store import VectorStore
-        store = VectorStore(persist_dir=str(DATA_DIR / "chroma"))
-        store.delete_by_document_id(doc_id)
-    except Exception as e:
-        logger.warning(f"ChromaDB 清理失败 doc {doc_id}: {e}")
+    _cleanup_document_indices(doc_id)
 
-    # 2. 清理 FTS5 全文索引
-    try:
-        fts_delete_by_document_id(doc_id)
-    except Exception as e:
-        logger.warning(f"FTS5 清除索引失败 doc {doc_id}: {e}")
-
-    # 3. 删除关联数据（显式清理，兼容未启用 CASCADE 的旧数据库）
+    # 显式清理关联数据（兼容未启用 CASCADE 的旧数据库）
     session.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).delete()
     session.query(Job).filter(Job.document_id == doc_id).delete()
-
-    # 4. 删除文档本身（CASCADE 会处理 tags/collections 关联表）
     session.delete(doc)
     session.commit()
 
-    # 5. 清理文件目录
     file_dir = DATA_DIR / "files" / doc_id
     if file_dir.exists():
         shutil.rmtree(file_dir)
@@ -394,11 +389,13 @@ def update_document(doc_id: str, payload: dict, session: Session = Depends(get_s
     seen_remove: set[str] = set()
     for tag_name in payload.get("remove_tags") or []:
         name = _normalize_tag_name(tag_name)
-        if not name or name.lower() in seen_remove:
+        if not name:
             continue
-        seen_remove.add(name.lower())
-        normalized = name.lower()
-        tag_obj = session.query(Tag).filter(func.lower(Tag.name) == normalized).first()
+        name_lower = name.lower()
+        if name_lower in seen_remove:
+            continue
+        seen_remove.add(name_lower)
+        tag_obj = _get_tag(session, name)
         if tag_obj and tag_obj in doc.tags:
             doc.tags.remove(tag_obj)
 

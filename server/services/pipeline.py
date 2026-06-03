@@ -107,19 +107,13 @@ def _rollback_chunks(session, doc_id: str, store) -> None:
     """删除已写入的所有 chunk（SQLite + ChromaDB + FTS5）。"""
     from server.models.document import DocumentChunk
 
-    # 收集已写入的 chunk ID（从 ChromaDB）
     try:
-        existing = store.collection.get(where={"document_id": doc_id})
-        if existing and existing.get("ids"):
-            store.collection.delete(ids=existing["ids"])
+        store.delete_by_document_id(doc_id)
     except Exception as e:
         logger.warning(f"回滚 ChromaDB 失败 doc {doc_id}: {e}")
 
-    # 从 SQLite 删除
     session.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).delete()
     session.flush()
-
-    # 清除 FTS5 索引
     _clear_old_index(doc_id)
 
 

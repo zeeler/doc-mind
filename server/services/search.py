@@ -164,13 +164,11 @@ class SearchService:
             for h in hits
         ]
 
-    def _rrf_merge(self, keyword_results: list[dict], vector_results: list[dict], k: int = 60, alpha: float | None = None) -> list[dict]:
+    def _rrf_merge(self, keyword_results: list[dict], vector_results: list[dict], k: int = 60, alpha: float = 0.5) -> list[dict]:
         """RRF (Reciprocal Rank Fusion) 结果融合。
 
         alpha: 关键词搜索权重（0-1），默认 0.5。可通过 retrieval_rrf_alpha 配置。
         """
-        if alpha is None:
-            alpha = 0.5
         info: dict[str, dict] = {}
 
         for rank, r in enumerate(keyword_results, 1):

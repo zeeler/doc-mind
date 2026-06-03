@@ -1038,7 +1038,7 @@ createApp({
     async function retryFailedJobs() { try { const d = await api('/api/v1/jobs/retry-failed', {method:'POST'}); alert('已重试 ' + d.data.retried + ' 个任务'); await loadJobStats(); } catch(e) { console.error(e); } }
     async function uploadFile(e) { const f=e.target.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);await fetch('/api/v1/documents/upload',{method:'POST',body:fd});uploading.value=false;await loadDocuments(); }
     function uploadDrop(e) { const f=e.dataTransfer.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);fetch('/api/v1/documents/upload',{method:'POST',body:fd}).then(()=>{uploading.value=false;loadDocuments()}); }
-    async function delDoc(id) { if(!confirm('确定删除？'))return;await fetch('/api/v1/documents/'+id,{method:'DELETE'});await loadDocuments();await loadJobStats();await loadTags();await loadFolders(); }
+    async function delDoc(id) { if(!confirm('确定删除？'))return;await fetch('/api/v1/documents/'+id,{method:'DELETE'});await Promise.all([loadDocuments(),loadJobStats(),loadTags(),loadFolders()]); }
     async function retryDoc(id) {
       retryingIds.add(id);
       try {
@@ -1147,10 +1147,11 @@ createApp({
       } catch(e) { alert('✗ 请求失败: ' + e.message + '\n请确认服务器已重启'); }
       ids.forEach(id => retryingIds.delete(id)); selectedIds.value = new Set(); await loadDocuments(); await loadJobStats();
     }
-    async function batchDelete() { if (!confirm(`确定删除选中的 ${selectedIds.value.size} 个文档？`)) return; await api('/api/v1/documents/batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: [...selectedIds.value], action: 'delete'})}); selectedIds.value = new Set(); await loadDocuments(); await loadTags(); await loadFolders(); }
+    async function batchDelete() { if (!confirm(`确定删除选中的 ${selectedIds.value.size} 个文档？`)) return; await api('/api/v1/documents/batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: [...selectedIds.value], action: 'delete'})}); selectedIds.value = new Set(); await Promise.all([loadDocuments(),loadTags(),loadFolders()]); }
     function toggleSection(name) { sections[name] = !sections[name]; }
-    function uniqueTags(tags) { const seen = new Set(); return (tags||[]).filter(t => { if (seen.has(t.id)) return false; seen.add(t.id); return true; }); }
-    function uniqueCitations(cits) { const seen = new Set(); return (cits||[]).filter(c => { const k = c.document_title || c.file_name || ''; if (!k || seen.has(k)) return false; seen.add(k); return true; }); }
+    function dedupBy(arr, keyFn) { const seen = new Set(); return (arr||[]).filter(item => { const k = keyFn(item); if (!k || seen.has(k)) return false; seen.add(k); return true; }); }
+    function uniqueTags(tags) { return dedupBy(tags, t => t.id); }
+    function uniqueCitations(cits) { return dedupBy(cits, c => c.document_title || c.file_name); }
 
     onMounted(() => { loadConversations(); loadConfig(); });
     watch(page, (v) => {

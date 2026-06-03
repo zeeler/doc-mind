@@ -66,9 +66,6 @@ def start_stale_recovery():
 
     def _loop():
         while not _stale_recovery_stop:
-            time.sleep(_STALE_CHECK_INTERVAL)
-            if _stale_recovery_stop:
-                break
             try:
                 with get_session_ctx() as s:
                     count = _recover_stale_running(s)
@@ -76,6 +73,7 @@ def start_stale_recovery():
                         s.commit()
             except Exception as e:
                 logger.warning(f"后台恢复线程出错: {e}")
+            time.sleep(_STALE_CHECK_INTERVAL)
 
     _stale_recovery_thread = threading.Thread(
         target=_loop, daemon=True, name="stale-recovery"

@@ -248,9 +248,11 @@ def fts_rebuild_all() -> int:
 
 def fts_delete_by_document_id(document_id: str) -> None:
     """从 FTS5 索引删除某文档的所有 chunk。"""
+    from server.models.document import DocumentChunk
+    tbl = DocumentChunk.__tablename__
     _fts_execute(
         "DELETE FROM chunks_fts WHERE chunk_id IN ("
-        "SELECT id FROM document_chunks WHERE document_id = :did"
+        f"SELECT id FROM {tbl} WHERE document_id = :did"
         ")",
         {"did": document_id},
     )
