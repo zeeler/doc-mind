@@ -1,6 +1,7 @@
 """记忆服务 — 存入/搜索/去重/摘要。"""
 
 import logging
+import threading
 from datetime import datetime, timezone
 from server.services.memory_store import MemoryStore
 from server.database import DATA_DIR, get_session_ctx
@@ -9,12 +10,15 @@ logger = logging.getLogger("knowledge-base")
 
 MEMORY_DEDUP_THRESHOLD = 0.85
 _store: MemoryStore | None = None
+_store_lock = threading.Lock()
 
 
 def _get_store() -> MemoryStore:
     global _store
     if _store is None:
-        _store = MemoryStore(persist_dir=str(DATA_DIR / "chroma"))
+        with _store_lock:
+            if _store is None:
+                _store = MemoryStore(persist_dir=str(DATA_DIR / "chroma"))
     return _store
 
 

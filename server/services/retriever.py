@@ -98,10 +98,11 @@ class Retriever:
 
         return queries
 
-    def _find_document_id(self, book_name: str) -> str | None:
+    def _find_document_id(self, book_name: str, session=None) -> str | None:
         """通过文档名搜索找到匹配的 document_id，用于过滤搜索。
 
         支持书名包含"吴军的《数学之美》"、章节后缀等变体。
+        session 为可选的外部 DB 会话，不传则内部创建（兼容外部调用）。
         """
         from server.database import get_session_ctx
         from server.models.document import Document
@@ -111,14 +112,11 @@ class Retriever:
             """生成多个候选书名片段用于匹配。"""
             cand = []
             s = s.strip()
-            # 去书名号
             s = _re.sub(r'[《》「」""]', '', s)
             cand.append(s)
-            # 去"XXX的"前缀
             no_prefix = _re.sub(r'^.+的', '', s).strip()
             if no_prefix and no_prefix != s:
                 cand.append(no_prefix)
-            # 去章节后缀（"第N章" 或 "第三章"）
             no_chapter = _re.sub(r'第[一二三四五六七八九十百千\d]+[章节].*$', '', s).strip()
             if no_chapter and no_chapter not in cand:
                 cand.append(no_chapter)
@@ -127,31 +125,40 @@ class Retriever:
                 cand.append(no_prefix_chapter)
             return [c for c in cand if len(c) >= 2]
 
+        def _lookup(s, candidates):
+            for c in candidates:
+                doc = s.query(Document).filter(
+                    Document.title.ilike(f"%{c}%")
+                ).first()
+                if doc:
+                    return doc.id
+            return None
+
         try:
             candidates = _candidates(book_name)
+            if session is not None:
+                return _lookup(session, candidates)
             with get_session_ctx() as s:
-                for c in candidates:
-                    doc = s.query(Document).filter(
-                        Document.title.ilike(f"%{c}%")
-                    ).first()
-                    if doc:
-                        return doc.id
-                return None
+                return _lookup(s, candidates)
         except Exception:
             return None
 
     def retrieve(self, query: str) -> list[dict]:
+        from server.database import get_session_ctx
+
         queries = self._expand_query(query)
 
         # 检测查询中是否包含书名 → 尝试定位文档用于过滤
+        # 共享一个 DB 会话，避免每个变体都创建新连接
         doc_id_filter = None
-        for q in queries:
-            if q == query:  # 跳过原始查询
-                continue
-            doc_id = self._find_document_id(q)
-            if doc_id:
-                doc_id_filter = doc_id
-                break
+        with get_session_ctx() as lookup_session:
+            for q in queries:
+                if q == query:
+                    continue
+                doc_id = self._find_document_id(q, session=lookup_session)
+                if doc_id:
+                    doc_id_filter = doc_id
+                    break
 
         all_results = []
         seen_ids: set[str] = set()

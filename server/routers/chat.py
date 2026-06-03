@@ -149,16 +149,18 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
             logger.error(f"LLM 流式调用失败: {e}", exc_info=True)
             yield {"event": "error", "data": json.dumps({"message": f"LLM 调用失败: {str(e)}"}, ensure_ascii=False)}
         finally:
-            with get_session_ctx() as s:
-                assistant_msg = Message(
-                    id=str(uuid.uuid4()),
-                    conversation_id=conversation_id,
-                    role="assistant",
-                    content=full_answer,
-                    citations_json=citations,
-                )
-                s.add(assistant_msg)
-                s.commit()
+            # 只有实际收到回复内容时才保存消息，避免流式完全失败时产生空消息
+            if full_answer:
+                with get_session_ctx() as s:
+                    assistant_msg = Message(
+                        id=str(uuid.uuid4()),
+                        conversation_id=conversation_id,
+                        role="assistant",
+                        content=full_answer,
+                        citations_json=citations,
+                    )
+                    s.add(assistant_msg)
+                    s.commit()
         yield {"event": "done", "data": "{}"}
 
     return EventSourceResponse(event_stream())
