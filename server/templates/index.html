@@ -267,14 +267,6 @@ body {
 .msg-actions button.copied { color:var(--success); background:rgba(93,156,122,.1); }
 .msg-actions button.danger:hover { color:var(--danger); background:var(--danger-bg); border-color:var(--danger); }
 .msg-actions button svg { width:15px; height:15px; }
-.msg .citations { display:flex; flex-wrap:wrap; gap:5px; margin-top: 10px; }
-.msg.user .citations { justify-content:flex-end; }
-.msg .citation {
-  font-size: 11px; background: var(--amber-light);
-  color: var(--amber); padding: 3px 10px;
-  border-radius: 99px; border: 1px solid var(--amber-ring);
-  font-family: var(--sans);
-}
 .msg:hover .remember-btn { opacity: 1 !important; }
 .msg .typing {
   display:inline-block; width:5px; height:14px;
@@ -614,12 +606,6 @@ body {
             <div class="content">
               <div v-if="m.role==='user'" class="bubble">{{ m.content }}</div>
               <div v-if="m.role==='assistant'" class="bubble" v-html="md(m.content)"></div>
-              <div class="citations" v-if="m.citations&&m.citations.length">
-                <a v-for="(c,i) in uniqueCitations(m.citations)" :key="i" class="citation"
-                   :href="c.url||'#'" :target="c.url?'_blank':''" :style="c.source_type==='web_search'?'background:var(--blue-light, #e8f0fe);border-color:var(--blue, #4a90d9);color:var(--blue, #2a6496)':''" :title="c.source_type==='web_search'?'点击访问原文':''">
-                  {{ c.source_type==='web_search' ? '🌐 ' : '' }}{{ c.document_title||c.file_name }}
-                </a>
-              </div>
               <div class="msg-actions">
                 <button :class="{copied:copyId===m.id}" @click="copyMd(m)" title="复制">
                   <svg v-if="copyId!==m.id" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>

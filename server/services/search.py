@@ -113,8 +113,9 @@ class SearchService:
         k = top_k or self.top_k
         cjk_spaced = space_cjk(query)
         escaped_query = _escape_fts5_query(cjk_spaced)
-        # 仅搜索 content 列：避免 document_title 匹配导致整本书所有 chunk 都命中
-        content_query = f"content:({escaped_query})"
+        # 同时搜索 content 和 document_title，标题匹配的 chunk 也会被召回
+        # top_k + max_results 限制防止单文档匹配标题时洪水式返回
+        query_str = f"(content:({escaped_query}) OR document_title:({escaped_query}))"
         base_sql = """
             SELECT c.id, c.content, d.title, d.file_name, c.chunk_no, d.id as doc_id
             FROM chunks_fts
@@ -122,7 +123,7 @@ class SearchService:
             JOIN documents d ON c.document_id = d.id
             WHERE chunks_fts MATCH :query
         """
-        params: dict = {"query": content_query, "limit": k}
+        params: dict = {"query": query_str, "limit": k}
         if document_id:
             base_sql += " AND d.id = :doc_id"
             params["doc_id"] = document_id
