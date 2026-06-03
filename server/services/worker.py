@@ -120,7 +120,15 @@ def _claim_job() -> Job | None:
 def _execute_job(job: Job):
     config = AppConfig().get_all()
     with get_session_ctx() as s:
-        job = s.merge(job)  # 将 detached job 重新关联到当前 session
+        # 使用 get() 而非 merge()，避免在 job 已被删除时复活一条新记录
+        job = s.get(Job, job.id)
+        if not job:
+            logger.warning(f"任务已被删除（文档可能已删除），跳过: {job.id}")
+            return
+        if job.status != "running":
+            # 已由其他进程处理或状态已变更
+            return
+
         doc = s.get(Document, job.document_id)
         if not doc:
             job.status = "failed"
@@ -129,11 +137,21 @@ def _execute_job(job: Job):
             s.commit()
             return
 
+        # 处理前检查文件是否仍然存在
+        file_path = Path(doc.file_path)
+        if not file_path.exists():
+            job.status = "failed"
+            job.error_message = f"文件不存在（可能已被移动或删除）: {doc.file_path}"
+            job.finished_at = datetime.now(timezone.utc)
+            s.commit()
+            logger.warning(f"任务 {job.id} 失败: 文件不存在 {doc.file_path}")
+            return
+
         if job.job_type == "quick_scan":
-            info = quick_scan(doc.file_path)
+            info = quick_scan(str(file_path))
             doc.title = info["title"] or doc.title
             doc.status = "scanned"
-            md_dir = Path(doc.file_path).parent
+            md_dir = file_path.parent
             md_path = md_dir / "index.md"
             info["status"] = "scanned"
             md_path.write_text(build_index_md(info), encoding="utf-8")
@@ -144,8 +162,8 @@ def _execute_job(job: Job):
             logger.info(f"快速扫描完成: {doc.title}")
 
         elif job.job_type == "full_index":
-            text = parse_file(doc.file_path, config)
-            md_dir = Path(doc.file_path).parent
+            text = parse_file(str(file_path), config)
+            md_dir = file_path.parent
             md_path = md_dir / "index.md"
             info = {
                 "title": doc.title, "format": doc.file_type,

@@ -164,8 +164,13 @@ class SearchService:
             for h in hits
         ]
 
-    def _rrf_merge(self, keyword_results: list[dict], vector_results: list[dict], k: int = 60, alpha: float = 0.5) -> list[dict]:
-        """RRF (Reciprocal Rank Fusion) 结果融合。"""
+    def _rrf_merge(self, keyword_results: list[dict], vector_results: list[dict], k: int = 60, alpha: float | None = None) -> list[dict]:
+        """RRF (Reciprocal Rank Fusion) 结果融合。
+
+        alpha: 关键词搜索权重（0-1），默认 0.5。可通过 retrieval_rrf_alpha 配置。
+        """
+        if alpha is None:
+            alpha = 0.5
         info: dict[str, dict] = {}
 
         for rank, r in enumerate(keyword_results, 1):
@@ -216,7 +221,10 @@ class SearchService:
 
         在候选结果中贪心选择：既与查询相关，又与已选结果语义不同的 chunk。
         有 embedding 模型时使用余弦相似度，否则退化为字符 bigram Jaccard 相似度。
+        lambda_val 被钳制在 [0.1, 0.95] 范围内，防止极端值导致退化。
         """
+        lambda_val = max(0.1, min(0.95, lambda_val))
+
         if len(results) <= target_k:
             return results
 
@@ -331,7 +339,8 @@ class SearchService:
             vector_results = []
 
         if use_vector and vector_results:
-            merged = self._rrf_merge(keyword_results, vector_results)
+            rrf_alpha = float(config.get("retrieval_rrf_alpha", "0.5")) if config else 0.5
+            merged = self._rrf_merge(keyword_results, vector_results, alpha=rrf_alpha)
         else:
             # 纯 FTS5 模式：添加 match_type 和占位 score
             merged = []

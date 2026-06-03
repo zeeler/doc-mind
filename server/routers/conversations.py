@@ -86,6 +86,16 @@ def batch_delete_conversations(body: dict, session: Session = Depends(get_sessio
     return {"code": "OK", "message": "success", "data": {"deleted": count}}
 
 
+@router.delete("/{conv_id}/messages/{msg_id}")
+def delete_message(conv_id: str, msg_id: str, session: Session = Depends(get_session)):
+    msg = session.get(Message, msg_id)
+    if not msg or msg.conversation_id != conv_id:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    session.delete(msg)
+    session.commit()
+    return {"code": "OK", "message": "success", "data": None}
+
+
 @router.get("/{conv_id}")
 def get_conversation(conv_id: str, session: Session = Depends(get_session)):
     conv = session.get(Conversation, conv_id)

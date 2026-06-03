@@ -4,8 +4,9 @@ import uuid
 import hashlib
 import shutil
 import logging
+import threading
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from server.database import get_session, get_session_ctx, DATA_DIR, fts_delete_by_document_id
@@ -21,13 +22,39 @@ logger = logging.getLogger("knowledge-base")
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
+# 文件上传限制
+MAX_FILE_SIZE = 200 * 1024 * 1024  # 200MB
+MAX_TAG_NAME_LENGTH = 100
+
+# 去重检查锁：防止并发上传相同文件绕过 TOCTOU 检查
+_dedup_lock = threading.Lock()
+
 
 def _compute_sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _normalize_tag_name(name: str) -> str:
+    """标准化标签名：去空白、截断至最大长度。"""
+    cleaned = name.strip()
+    return cleaned[:MAX_TAG_NAME_LENGTH] if cleaned else ""
+
+
+def _get_or_create_tag(session: Session, name: str) -> "Tag | None":
+    """获取或创建标签（大小写不敏感），name 必须已通过 _normalize_tag_name 处理。"""
+    if not name:
+        return None
+    normalized = name.lower()
+    tag_obj = session.query(Tag).filter(func.lower(Tag.name) == normalized).first()
+    if not tag_obj:
+        tag_obj = Tag(id=str(uuid.uuid4()), name=name)
+        session.add(tag_obj)
+        session.flush()
+    return tag_obj
+
+
 @router.post("/upload")
-async def upload_document(file: UploadFile = File(...), folder_path: str = Form("")):
+async def upload_document(request: Request, file: UploadFile = File(...), folder_path: str = Form("")):
     if not file.filename:
         raise HTTPException(status_code=400, detail="文件名不能为空")
 
@@ -35,82 +62,97 @@ async def upload_document(file: UploadFile = File(...), folder_path: str = Form(
     if suffix not in SUPPORTED_TYPES:
         raise HTTPException(status_code=400, detail=f"不支持的文件类型: {suffix}")
 
+    # 检查 Content-Length（如果客户端提供了的话，快速拒绝超大文件）
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件大小超过限制 ({MAX_FILE_SIZE // 1024 // 1024}MB)",
+        )
+
     content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件大小超过限制 ({MAX_FILE_SIZE // 1024 // 1024}MB)",
+        )
+
     checksum = _compute_sha256(content)
 
-    # === 去重检查 ===
-    with get_session_ctx() as session:
-        existing = session.query(Document).filter(Document.checksum == checksum).first()
-    if existing:
-        # 判断是否需要重新处理：无 chunk 或状态为 failed
-        need_reprocess = existing.chunk_count == 0 or existing.status == "failed"
-        new_status = existing.status
+    # === 去重检查（加锁防止 TOCTOU 竞态）===
+    with _dedup_lock:
+        with get_session_ctx() as session:
+            existing = session.query(Document).filter(Document.checksum == checksum).first()
 
-        if need_reprocess:
-            sid = existing.id
-            with get_session_ctx() as s:
-                doc = s.get(Document, sid)
-                if doc and doc.status in ("done", "failed"):
-                    doc.status = "pending"
-                    s.commit()
-                    new_status = "pending"
-                elif doc:
-                    new_status = doc.status
-            create_jobs_for_document(sid)
-            logger.info(f"去重: 已存在 {existing.title}，触发重新解析")
+        if existing:
+            need_reprocess = existing.chunk_count == 0 or existing.status == "failed"
+            new_status = existing.status
 
-        return {
-            "code": "OK",
-            "message": "success",
-            "data": {
-                "id": existing.id,
-                "title": existing.title,
-                "file_name": existing.file_name,
-                "file_type": existing.file_type,
-                "status": new_status,
-                "duplicate": True,
-                "reprocess": need_reprocess,
-            },
-        }
+            if need_reprocess:
+                sid = existing.id
+                with get_session_ctx() as s:
+                    doc = s.get(Document, sid)
+                    if doc and doc.status in ("done", "failed"):
+                        doc.status = "pending"
+                        s.commit()
+                        new_status = "pending"
+                    elif doc:
+                        new_status = doc.status
+                create_jobs_for_document(sid)
+                logger.info(f"去重: 已存在 {existing.title}，触发重新解析")
 
-    # === 新文件 ===
-    doc_id = str(uuid.uuid4())
-    file_dir = DATA_DIR / "files" / doc_id
-    file_dir.mkdir(parents=True, exist_ok=True)
-    file_path = file_dir / file.filename
-    file_path.write_bytes(content)
+            return {
+                "code": "OK",
+                "message": "success",
+                "data": {
+                    "id": existing.id,
+                    "title": existing.title,
+                    "file_name": existing.file_name,
+                    "file_type": existing.file_type,
+                    "status": new_status,
+                    "duplicate": True,
+                    "reprocess": need_reprocess,
+                },
+            }
 
-    doc = Document(
-        id=doc_id,
-        title=Path(file.filename).stem,
-        file_name=file.filename,
-        file_type=suffix,
-        file_path=str(file_path),
-        file_size=len(content),
-        checksum=checksum,
-        folder_path=folder_path,
-        status="pending",
-    )
+        # === 新文件 ===
+        doc_id = str(uuid.uuid4())
+        file_dir = DATA_DIR / "files" / doc_id
+        file_dir.mkdir(parents=True, exist_ok=True)
+        file_path = file_dir / file.filename
+        file_path.write_bytes(content)
 
-    with get_session_ctx() as session:
-        session.add(doc)
-        session.commit()
-        session.refresh(doc)
+        doc = Document(
+            id=doc_id,
+            title=Path(file.filename).stem,
+            file_name=file.filename,
+            file_type=suffix,
+            file_path=str(file_path),
+            file_size=len(content),
+            checksum=checksum,
+            folder_path=folder_path,
+            status="pending",
+        )
 
-        # 通过 Worker 队列异步处理文档
-        create_jobs_for_document(doc_id)
+        with get_session_ctx() as session:
+            session.add(doc)
+            session.commit()
+            session.refresh(doc)
 
-        return {
-            "code": "OK",
-            "message": "success",
-            "data": {
-                "id": doc.id,
-                "title": doc.title,
-                "file_name": doc.file_name,
-                "file_type": doc.file_type,
-                "status": doc.status,
-            },
-        }
+    # 在锁外创建任务，避免长时间持锁
+    create_jobs_for_document(doc_id)
+
+    return {
+        "code": "OK",
+        "message": "success",
+        "data": {
+            "id": doc.id,
+            "title": doc.title,
+            "file_name": doc.file_name,
+            "file_type": doc.file_type,
+            "status": doc.status,
+        },
+    }
 
 
 @router.get("")
@@ -127,13 +169,13 @@ def list_documents(
 ):
     q = session.query(Document)
 
-    if folder is not None:
+    if folder:
         q = q.filter(Document.folder_path == folder)
-    if category is not None:
+    if category:
         q = q.filter(Document.category == category)
-    if status is not None:
+    if status:
         q = q.filter(Document.status == status)
-    if search is not None:
+    if search:
         search_svc = get_search_service(data_dir=DATA_DIR, top_k=50)
         doc_results = search_svc.document_search(search, top_k=50)
         match_ids = [d["document_id"] for d in doc_results]
@@ -142,9 +184,9 @@ def list_documents(
         else:
             # FTS 无结果时回退到标题模糊匹配
             q = q.filter(Document.title.ilike(f"%{search}%"))
-    if tag is not None:
+    if tag:
         q = q.join(Document.tags).filter(Tag.name == tag)
-    if collection is not None:
+    if collection:
         q = q.join(Document.collections).filter(Collection.id == collection)
 
     docs = q.order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
@@ -163,8 +205,8 @@ def list_documents(
                 "elapsed_ms": d.elapsed_ms,
                 "folder_path": d.folder_path,
                 "category": d.category,
-                "tags": [{"id": t.id, "name": t.name} for t in d.tags],
-                "collections": [{"id": c.id, "name": c.name} for c in d.collections],
+                "tags": list({t.id: {"id": t.id, "name": t.name} for t in d.tags}.values()),
+                "collections": list({c.id: {"id": c.id, "name": c.name} for c in d.collections}.values()),
                 "created_at": d.created_at.isoformat(),
             }
             for d in docs
@@ -201,30 +243,49 @@ def batch_operation(payload: dict, session: Session = Depends(get_session)):
                 continue
 
             if action == "delete":
+                # 清理 ChromaDB
+                try:
+                    from server.vector.store import VectorStore
+                    store = VectorStore(persist_dir=str(DATA_DIR / "chroma"))
+                    store.delete_by_document_id(doc_id)
+                except Exception as e:
+                    logger.warning(f"ChromaDB 清理失败 doc {doc_id}: {e}")
+                # 清理 FTS5
                 try:
                     fts_delete_by_document_id(doc_id)
                 except Exception as e:
                     logger.warning(f"FTS5 清除索引失败 doc {doc_id}: {e}")
+                # 清理关联数据
+                session.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).delete()
                 session.query(Job).filter(Job.document_id == doc_id).delete()
                 session.delete(doc)
+                # 清理文件（标记为待删除，session 提交后执行）
+                file_dir = DATA_DIR / "files" / doc_id
+                if file_dir.exists():
+                    shutil.rmtree(file_dir)
             elif action == "categorize":
                 doc.category = (params.get("category") or "").strip()
             elif action == "tag":
+                # 对输入去重（按 lower 名），防止同一请求重复添加
+                seen_names: set[str] = set()
                 for tag_name in params.get("tags") or []:
-                    name = tag_name.strip()
+                    name = _normalize_tag_name(tag_name)
                     if not name:
                         continue
-                    normalized = name.lower()
-                    tag_obj = session.query(Tag).filter(func.lower(Tag.name) == normalized).first()
-                    if not tag_obj:
-                        tag_obj = Tag(id=str(uuid.uuid4()), name=name)
-                        session.add(tag_obj)
-                        session.flush()
-                    if tag_obj not in doc.tags:
+                    if name.lower() in seen_names:
+                        continue
+                    seen_names.add(name.lower())
+                    tag_obj = _get_or_create_tag(session, name)
+                    if tag_obj and tag_obj not in doc.tags:
                         doc.tags.append(tag_obj)
             elif action == "untag":
+                seen_names = set()
                 for tag_name in params.get("tags") or []:
-                    normalized = tag_name.strip().lower()
+                    name = _normalize_tag_name(tag_name)
+                    if not name or name.lower() in seen_names:
+                        continue
+                    seen_names.add(name.lower())
+                    normalized = name.lower()
                     tag_obj = session.query(Tag).filter(func.lower(Tag.name) == normalized).first()
                     if tag_obj and tag_obj in doc.tags:
                         doc.tags.remove(tag_obj)
@@ -242,6 +303,7 @@ def batch_operation(payload: dict, session: Session = Depends(get_session)):
             results.append({"id": doc_id, "success": True})
         except Exception as e:
             logger.error(f"批量操作 {action} 在 {doc_id} 失败: {e}")
+            session.rollback()
             results.append({"id": doc_id, "success": False, "error": str(e)})
 
     session.commit()
@@ -279,15 +341,34 @@ def delete_document(doc_id: str, session: Session = Depends(get_session)):
     doc = session.get(Document, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
+
+    # 1. 清理 ChromaDB 向量
+    try:
+        from server.vector.store import VectorStore
+        store = VectorStore(persist_dir=str(DATA_DIR / "chroma"))
+        store.delete_by_document_id(doc_id)
+    except Exception as e:
+        logger.warning(f"ChromaDB 清理失败 doc {doc_id}: {e}")
+
+    # 2. 清理 FTS5 全文索引
     try:
         fts_delete_by_document_id(doc_id)
     except Exception as e:
         logger.warning(f"FTS5 清除索引失败 doc {doc_id}: {e}")
+
+    # 3. 删除关联数据（显式清理，兼容未启用 CASCADE 的旧数据库）
+    session.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).delete()
+    session.query(Job).filter(Job.document_id == doc_id).delete()
+
+    # 4. 删除文档本身（CASCADE 会处理 tags/collections 关联表）
     session.delete(doc)
     session.commit()
+
+    # 5. 清理文件目录
     file_dir = DATA_DIR / "files" / doc_id
     if file_dir.exists():
         shutil.rmtree(file_dir)
+
     return {"code": "OK", "message": "success", "data": None}
 
 
@@ -300,21 +381,23 @@ def update_document(doc_id: str, payload: dict, session: Session = Depends(get_s
     if "category" in payload:
         doc.category = (payload["category"] or "").strip()
 
+    seen_add: set[str] = set()
     for tag_name in payload.get("add_tags") or []:
-        name = tag_name.strip()
-        if not name:
+        name = _normalize_tag_name(tag_name)
+        if not name or name.lower() in seen_add:
             continue
-        normalized = name.lower()
-        tag_obj = session.query(Tag).filter(func.lower(Tag.name) == normalized).first()
-        if not tag_obj:
-            tag_obj = Tag(id=str(uuid.uuid4()), name=name)
-            session.add(tag_obj)
-            session.flush()
-        if tag_obj not in doc.tags:
+        seen_add.add(name.lower())
+        tag_obj = _get_or_create_tag(session, name)
+        if tag_obj and tag_obj not in doc.tags:
             doc.tags.append(tag_obj)
 
+    seen_remove: set[str] = set()
     for tag_name in payload.get("remove_tags") or []:
-        normalized = tag_name.strip().lower()
+        name = _normalize_tag_name(tag_name)
+        if not name or name.lower() in seen_remove:
+            continue
+        seen_remove.add(name.lower())
+        normalized = name.lower()
         tag_obj = session.query(Tag).filter(func.lower(Tag.name) == normalized).first()
         if tag_obj and tag_obj in doc.tags:
             doc.tags.remove(tag_obj)

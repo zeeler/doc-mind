@@ -35,14 +35,35 @@ def _index_chunks(
 ) -> int:
     """将 chunks 写入 ChromaDB + FTS5，返回成功写入的 chunk 数。
 
-    如果外部 embedding 部分失败，会将所有后续 chunk 统一降级为内置 embedding，
-    保证同一文档的 chunks 不会分布在两个不同的向量空间中。
+    如果外部 embedding 在任一个 chunk 失败，会立即回退：
+    先删掉前面已写入的 chunk（ChromaDB + SQLite），再用 ChromaDB 内置 embedding
+    重新索引所有 chunk，确保同一文档的 chunks 不会分布在两个不同的向量空间中。
     """
     store = VectorStore(persist_dir=str(DATA_DIR / "chroma"))
     embedder, use_external = _init_embedder(config)
 
-    embedded_count = 0  # 使用外部 embedding 成功写入的 chunk 数
+    result = _try_index_chunks(session, doc, chunks_text, config, store, embedder, use_external)
+    if result is not None:
+        return result
 
+    # 外部 embedding 中途失败 → 回滚已写入的 chunk，全部用内置 embedding 重新索引
+    logger.warning(
+        f"外部 embedding 失败，回退全部 {len(chunks_text)} 个 chunk 到内置 embedding"
+    )
+    _rollback_chunks(session, doc.id, store)
+    return _try_index_chunks(session, doc, chunks_text, config, store, None, False)
+
+
+def _try_index_chunks(
+    session,
+    doc: Document,
+    chunks_text: list[str],
+    config: dict,
+    store,
+    embedder,
+    use_external: bool,
+) -> int | None:
+    """尝试索引所有 chunk，返回写入数；外部 embedding 中途失败返回 None。"""
     for i, chunk_content in enumerate(chunks_text):
         chunk = DocumentChunk(
             document_id=doc.id,
@@ -60,7 +81,6 @@ def _index_chunks(
             "chunk_no": i + 1,
         }
 
-        # 尝试外部 embedding
         if use_external and embedder is not None:
             try:
                 embedding = embedder.embed([chunk_content])[0]
@@ -69,28 +89,38 @@ def _index_chunks(
                     embeddings=[embedding], metadatas=[metadata],
                 )
                 _safe_fts_insert(chunk.id, chunk_content, doc.title)
-                embedded_count += 1
                 continue
             except Exception as e:
-                logger.warning(
-                    f"外部 embedding 失败 chunk {i+1}/{len(chunks_text)}，"
-                    f"统一降级为内置 embedding: {e}"
-                )
-                use_external = False  # 所有后续 chunk 统一使用内置 embedding
+                logger.warning(f"外部 embedding 失败 chunk {i+1}/{len(chunks_text)}: {e}")
+                return None  # 触发调用方回滚重试
 
-        # 降级：使用 ChromaDB 内置 embedding
+        # 内置 embedding
         store.add(
             ids=[chunk.id], texts=[chunk_content], metadatas=[metadata],
         )
         _safe_fts_insert(chunk.id, chunk_content, doc.title)
 
-    if embedder is not None and embedded_count > 0 and embedded_count < len(chunks_text):
-        logger.warning(
-            f"文档 {doc.title}: {embedded_count}/{len(chunks_text)} chunks 使用外部 embedding，"
-            f"其余使用内置 embedding — 搜索结果可能受影响"
-        )
-
     return len(chunks_text)
+
+
+def _rollback_chunks(session, doc_id: str, store) -> None:
+    """删除已写入的所有 chunk（SQLite + ChromaDB + FTS5）。"""
+    from server.models.document import DocumentChunk
+
+    # 收集已写入的 chunk ID（从 ChromaDB）
+    try:
+        existing = store.collection.get(where={"document_id": doc_id})
+        if existing and existing.get("ids"):
+            store.collection.delete(ids=existing["ids"])
+    except Exception as e:
+        logger.warning(f"回滚 ChromaDB 失败 doc {doc_id}: {e}")
+
+    # 从 SQLite 删除
+    session.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).delete()
+    session.flush()
+
+    # 清除 FTS5 索引
+    _clear_old_index(doc_id)
 
 
 def _safe_fts_insert(chunk_id: str, content: str, title: str) -> None:
@@ -110,15 +140,16 @@ def _clear_old_index(doc_id: str) -> None:
 
 
 def process_document(doc_id: str, config: dict) -> None:
-    """完整文档处理流程：解析 → 切块 → embedding → 写入 ChromaDB。"""
+    """完整文档处理流程：解析 → 切块 → embedding → 写入 ChromaDB。
+
+    顺序调整：先成功索引新数据，再清除旧索引，避免处理失败后数据丢失。
+    """
     t_start = time.time()
 
     with get_session_ctx() as session:
         doc = session.get(Document, doc_id)
         if not doc:
             return
-
-        _clear_old_index(doc_id)
 
         doc.status = "parsing"
         session.commit()
@@ -155,7 +186,11 @@ def process_document(doc_id: str, config: dict) -> None:
         doc.status = "indexing"
         session.commit()
 
+        # 先索引新数据，成功后再清除旧索引
         _index_chunks(session, doc, chunks_text, config)
+
+        # 索引成功后清除旧 FTS5 记录（避免处理失败导致数据丢失）
+        _clear_old_index(doc_id)
 
         doc.status = "done"
         doc.chunk_count = len(chunks_text)

@@ -16,7 +16,13 @@ def build_qa_prompt(question: str, chunks: list[dict], memories: list[dict] | No
             memory_section = f"\n## 相关记忆\n" + "\n".join(mem_parts) + "\n"
 
     if not chunks:
-        return f"用户问题：{question}\n\n{memory_section}知识库中未找到相关内容，请如实告知用户。"
+        return (
+            f"用户问题：{question}\n\n"
+            f"{memory_section}"
+            f"知识库中未找到相关内容。请基于你自身的知识如实回答，"
+            f"并在回答末尾注明：\n"
+            f"> 📚 *以上回答基于模型自身知识，未引用知识库文档。*"
+        )
 
     # 收集涉及的文档标题
     doc_titles = list(dict.fromkeys(c["document_title"] for c in chunks if c.get("document_title")))
@@ -48,14 +54,22 @@ def build_qa_prompt(question: str, chunks: list[dict], memories: list[dict] | No
 - 如果参考资料覆盖了多个不同的要点或角度，请全面综合回答，不要遗漏
 - 只有确实完全不相关时才说明无法回答，不要因为信息不完整就放弃
 - 使用中文回答
+- 在回答末尾必须添加信息来源说明，格式如下：
+  > 📚 **信息来源**：知识库文档《书名1》、《书名2》
 
 ## 用户问题
 {question}"""
 
 
 def format_citations(chunks: list[dict]) -> list[dict]:
-    return [
-        {
+    seen_titles: set[str] = set()
+    result = []
+    for c in chunks:
+        title = c.get("document_title", "") or c.get("file_name", "")
+        if title in seen_titles:
+            continue
+        seen_titles.add(title)
+        result.append({
             "source_type": "document_chunk",
             "chunk_id": c["chunk_id"],
             "document_id": c.get("document_id", ""),
@@ -63,9 +77,8 @@ def format_citations(chunks: list[dict]) -> list[dict]:
             "file_name": c.get("file_name", ""),
             "chunk_no": c.get("chunk_no", 0),
             "excerpt": c["content"][:300],
-        }
-        for c in chunks
-    ]
+        })
+    return result
 
 
 class RAGService:

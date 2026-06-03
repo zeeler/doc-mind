@@ -2,12 +2,17 @@
 
 import base64
 import logging
+import threading
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger("knowledge-base")
 
 SUPPORTED_TYPES = {"pdf", "docx", "xlsx", "pptx", "mobi", "md", "txt", "markdown"}
+
+# 原生 PDF 引擎（liteparse）的底层 C 库在多线程并发调用时
+# 可能出现 malloc double-free 等内存错误。全局锁保证同一时间只有一个线程解析 PDF。
+pdf_lock = threading.Lock()
 
 
 def parse_file(file_path: str | Path, config: dict | None = None) -> str:
@@ -47,8 +52,10 @@ def _parse_pdf(path: Path, config: dict) -> str:
     ocr_enabled = config.get("ocr_enabled", "true") != "false"
     max_workers = int(config.get("ocr_max_workers", "4"))
 
-    parser = LiteParse(ocr_enabled=ocr_enabled, num_workers=max_workers)
-    result = parser.parse(str(path))
+    # 加锁防止多 Worker 并发调用原生 PDF 引擎导致内存错误
+    with pdf_lock:
+        parser = LiteParse(ocr_enabled=ocr_enabled, num_workers=max_workers)
+        result = parser.parse(str(path))
     text = result.text.strip()
     text_len = len(text)
     page_count = len(result.pages) if result.pages else 0
@@ -98,9 +105,10 @@ def _ocr_ollama(path: str, page_count: int, config: dict) -> str:
     page_numbers = list(range(1, page_count + 1))
     logger.info(f"OCR 并行处理 {page_count} 页 (模型: {model}, 并发: {max_workers})")
 
-    # 使用 liteparse 生成页面截图
-    img_parser = LiteParse(ocr_enabled=False)
-    screenshots = img_parser.screenshot(path, page_numbers=page_numbers)
+    # 使用 liteparse 生成页面截图（加锁防止并发崩溃）
+    with pdf_lock:
+        img_parser = LiteParse(ocr_enabled=False)
+        screenshots = img_parser.screenshot(path, page_numbers=page_numbers)
 
     def ocr_page(idx: int, s) -> tuple[int, str]:
         client = OpenAI(base_url=base_url, api_key="ocr")

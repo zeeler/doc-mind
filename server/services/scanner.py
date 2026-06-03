@@ -23,12 +23,13 @@ def quick_scan(file_path: str) -> dict:
             result["page_count"] = max(1, text.count("\n") // 50 + 1)
             result["preview"] = text[:500]
         elif suffix == "pdf":
-            import fitz
-            doc = fitz.open(str(path))
-            result["page_count"] = len(doc)
-            if len(doc) > 0:
-                result["preview"] = doc[0].get_text()[:500]
-            doc.close()
+            from liteparse import LiteParse
+            from server.services.parser import pdf_lock
+            with pdf_lock:
+                parser = LiteParse(ocr_enabled=False)
+                parse_result = parser.parse(str(path))
+            result["page_count"] = len(parse_result.pages) if parse_result.pages else 0
+            result["preview"] = parse_result.text.strip()[:500]
         elif suffix == "docx":
             from docx import Document
             doc = Document(str(path))

@@ -5,7 +5,7 @@ import re
 from contextlib import contextmanager
 from pathlib import Path
 import sqlalchemy as sa
-from sqlalchemy import create_engine, Engine
+from sqlalchemy import create_engine, Engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 DATA_DIR = Path(os.environ.get("KB_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
@@ -26,6 +26,14 @@ def get_engine() -> Engine:
             connect_args={"check_same_thread": False},
             echo=False,
         )
+
+        @event.listens_for(_engine, "connect")
+        def _set_sqlite_pragma(dbapi_connection, connection_record):
+            """每次连接时启用外键约束（SQLite 默认关闭）。"""
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys = ON")
+            cursor.close()
+
     return _engine
 
 
@@ -115,6 +123,19 @@ def _migrate(engine):
                 started_at TIMESTAMP,
                 finished_at TIMESTAMP,
                 created_at TIMESTAMP NOT NULL
+            )
+        """)
+        conn.commit()
+
+        # 确保 document_chunks 表也存在（首次部署时由 create_all 创建，但 migrate 确保旧库有新字段）
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS document_chunks (
+                id VARCHAR(36) PRIMARY KEY,
+                document_id VARCHAR(36) NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                chunk_no INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                token_count INTEGER DEFAULT 0,
+                metadata_json JSON
             )
         """)
         conn.commit()
@@ -227,10 +248,10 @@ def fts_rebuild_all() -> int:
 
 def fts_delete_by_document_id(document_id: str) -> None:
     """从 FTS5 索引删除某文档的所有 chunk。"""
-    from server.models.document import DocumentChunk
-    tbl = DocumentChunk.__tablename__
     _fts_execute(
-        f"DELETE FROM chunks_fts WHERE chunk_id IN (SELECT id FROM {tbl} WHERE document_id = :did)",
+        "DELETE FROM chunks_fts WHERE chunk_id IN ("
+        "SELECT id FROM document_chunks WHERE document_id = :did"
+        ")",
         {"did": document_id},
     )
 

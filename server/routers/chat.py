@@ -2,6 +2,7 @@
 
 import json
 import logging
+import threading
 import uuid
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
@@ -18,10 +19,11 @@ router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
 _rag_service_cache: RAGService | None = None
 _rag_cache_key: tuple | None = None
+_rag_cache_lock = threading.Lock()
 
 
 def _get_rag_service(data_dir):
-    """获取缓存的 RAGService 实例，配置变化时重建。"""
+    """获取缓存的 RAGService 实例，配置变化时重建（线程安全）。"""
     global _rag_service_cache, _rag_cache_key
     cfg = AppConfig()
     config = cfg.get_all()
@@ -36,11 +38,15 @@ def _get_rag_service(data_dir):
         config.get("retrieval_context_window", "2"),
         config.get("retrieval_max_results", "50"),
     )
-    if _rag_service_cache is None or cache_key != _rag_cache_key:
-        store = VectorStore(persist_dir=str(data_dir / "chroma"))
-        retriever = Retriever(vector_store=store, config=config)
-        _rag_service_cache = RAGService(retriever=retriever, config=config)
-        _rag_cache_key = cache_key
+    # 双重检查锁定模式避免并发重建
+    if _rag_service_cache is not None and cache_key == _rag_cache_key:
+        return _rag_service_cache
+    with _rag_cache_lock:
+        if _rag_service_cache is None or cache_key != _rag_cache_key:
+            store = VectorStore(persist_dir=str(data_dir / "chroma"))
+            retriever = Retriever(vector_store=store, config=config)
+            _rag_service_cache = RAGService(retriever=retriever, config=config)
+            _rag_cache_key = cache_key
     return _rag_service_cache
 
 

@@ -1,7 +1,7 @@
 """配置路由。"""
 
-from fastapi import APIRouter
-from server.config import AppConfig
+from fastapi import APIRouter, HTTPException
+from server.config import AppConfig, DEFAULTS
 
 router = APIRouter(prefix="/api/v1/config", tags=["config"])
 
@@ -15,6 +15,12 @@ def get_config():
 @router.put("")
 def update_config(body: dict):
     cfg = AppConfig()
+    unknown_keys = [k for k in body if k not in DEFAULTS]
+    if unknown_keys:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的配置项: {', '.join(unknown_keys)}",
+        )
     for key, value in body.items():
         cfg.set(key, str(value))
     return {"code": "OK", "message": "success", "data": cfg.get_all()}

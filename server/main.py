@@ -48,12 +48,15 @@ async def lifespan(app: FastAPI):
     init_db()
     from server.services.worker import start_workers
     start_workers(num=2)
+    from server.routers.jobs import start_stale_recovery, stop_stale_recovery
+    start_stale_recovery()
     logger.info("SQLite 就绪")
     logger.info("ChromaDB 就绪")
     logger.info("知识库服务已启动: http://localhost:8000")
     yield
     from server.services.worker import stop_workers
     stop_workers()
+    stop_stale_recovery()
 
 
 def _ensure_models_loaded():

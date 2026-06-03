@@ -11,7 +11,7 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), nullable=False, index=True)
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
     job_type: Mapped[str] = mapped_column(String(20), nullable=False)
     priority: Mapped[int] = mapped_column(Integer, default=5)
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)

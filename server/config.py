@@ -41,6 +41,7 @@ DEFAULTS = {
     "retrieval_top_k": "15",
     "retrieval_enable_mmr": "true",
     "retrieval_mmr_lambda": "0.7",
+    "retrieval_rrf_alpha": "0.5",
     "retrieval_fetch_multiplier": "3",
     "retrieval_enable_query_expansion": "true",
     "retrieval_context_window": "3",

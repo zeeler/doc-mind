@@ -254,12 +254,19 @@ body {
   border: 1px solid var(--border);
 }
 .msg.assistant .bubble pre code { background:none; padding:0; }
-/* Copy button */
-.msg-actions { display:flex; gap:4px; margin-top:6px; opacity:0; transition:opacity .15s; }
+/* Message action buttons — icon-only, ChatGPT/Grok style */
+.msg-actions { display:flex; gap:2px; margin-top:8px; opacity:0; transition:opacity .15s; }
 .msg:hover .msg-actions { opacity:1; }
-.msg-actions button { background:none; border:1px solid var(--border-light); border-radius:4px; padding:2px 8px; cursor:pointer; font:11px var(--sans); color:var(--text-tertiary); transition:all .1s; }
+.msg-actions button {
+  background:none; border:1px solid transparent; border-radius:6px;
+  padding:5px; cursor:pointer; color:var(--text-tertiary);
+  transition:all .15s; display:flex; align-items:center; justify-content:center;
+  width:30px; height:30px;
+}
 .msg-actions button:hover { background:var(--bg-hover); color:var(--text); border-color:var(--border); }
-.msg-actions button.copied { color:var(--success); border-color:var(--success); }
+.msg-actions button.copied { color:var(--success); background:rgba(93,156,122,.1); }
+.msg-actions button.danger:hover { color:var(--danger); background:var(--danger-bg); border-color:var(--danger); }
+.msg-actions button svg { width:15px; height:15px; }
 .msg .citations { display:flex; flex-wrap:wrap; gap:5px; margin-top: 10px; }
 .msg.user .citations { justify-content:flex-end; }
 .msg .citation {
@@ -608,11 +615,19 @@ body {
               <div v-if="m.role==='user'" class="bubble">{{ m.content }}</div>
               <div v-if="m.role==='assistant'" class="bubble" v-html="md(m.content)"></div>
               <div class="citations" v-if="m.citations&&m.citations.length">
-                <span class="citation" v-for="(c,i) in m.citations" :key="i">{{ c.document_title||c.file_name }}</span>
+                <span class="citation" v-for="(c,i) in uniqueCitations(m.citations)" :key="i">{{ c.document_title||c.file_name }}</span>
               </div>
-              <div v-if="m.role==='assistant'" class="msg-actions">
-                <button :class="{copied:copyId===m.id}" @click="copyMd(m)">{{ copyId===m.id ? '✓ 已复制' : '📋 复制原文' }}</button>
-                <button @click="rememberMessage(m, currentConv)">✦ 记住</button>
+              <div class="msg-actions">
+                <button :class="{copied:copyId===m.id}" @click="copyMd(m)" title="复制">
+                  <svg v-if="copyId!==m.id" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                  <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </button>
+                <button v-if="m.role==='assistant'" @click="rememberMessage(m, currentConv)" title="保存到记忆">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+                </button>
+                <button class="danger" @click="deleteMsg(m.id)" title="删除">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                </button>
               </div>
             </div>
           </div>
@@ -740,7 +755,7 @@ body {
                 <span v-if="d.category" class="doc-category">{{ d.category }}</span>
               </div>
               <div class="doc-tags" v-if="d.tags&&d.tags.length">
-                <span class="doc-tag" v-for="t in d.tags" :key="t.id" @click.stop="filters.tag=t.name;loadDocuments()">{{ t.name }}</span>
+                <span class="doc-tag" v-for="t in uniqueTags(d.tags)" :key="t.id" @click.stop="filters.tag=t.name;loadDocuments()">{{ t.name }}</span>
               </div>
             </div>
             <div class="doc-actions" v-if="!batchMode">
@@ -1023,7 +1038,7 @@ createApp({
     async function retryFailedJobs() { try { const d = await api('/api/v1/jobs/retry-failed', {method:'POST'}); alert('已重试 ' + d.data.retried + ' 个任务'); await loadJobStats(); } catch(e) { console.error(e); } }
     async function uploadFile(e) { const f=e.target.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);await fetch('/api/v1/documents/upload',{method:'POST',body:fd});uploading.value=false;await loadDocuments(); }
     function uploadDrop(e) { const f=e.dataTransfer.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);fetch('/api/v1/documents/upload',{method:'POST',body:fd}).then(()=>{uploading.value=false;loadDocuments()}); }
-    async function delDoc(id) { if(!confirm('确定删除？'))return;await fetch('/api/v1/documents/'+id,{method:'DELETE'});await loadDocuments(); }
+    async function delDoc(id) { if(!confirm('确定删除？'))return;await fetch('/api/v1/documents/'+id,{method:'DELETE'});await loadDocuments();await loadJobStats();await loadTags();await loadFolders(); }
     async function retryDoc(id) {
       retryingIds.add(id);
       try {
@@ -1091,6 +1106,7 @@ createApp({
     function statusColor(s) { if(s==='done')return'var(--success)';if(s==='failed')return'var(--danger)';if(s==='pending')return'var(--text-tertiary)';return'var(--info)'; }
     async function loadMemories() { try { const d = await api('/api/v1/memories'); memoriesList.value = d.data || []; } catch(e) { console.error(e); } }
     async function rememberMessage(msg, convId) { try { await api('/api/v1/memories/remember', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:convId, message_id:msg.id})}); } catch(e) { console.error(e); } }
+    async function deleteMessage(msgId) { if (!confirm('确定删除这条消息？')) return; try { await fetch('/api/v1/conversations/'+currentConv.value+'/messages/'+msgId, {method:'DELETE'}); messages.value = messages.value.filter(m => m.id !== msgId); } catch(e) { console.error('删除消息失败:', e); alert('删除失败: ' + e.message); } }
     async function deleteMemory(id) { if (!confirm('删除这条记忆？')) return; await fetch('/api/v1/memories/' + id, {method: 'DELETE'}); await loadMemories(); }
     async function loadTags() { try { const d = await api('/api/v1/tags'); allTags.value = d.data || []; } catch(e) { console.error(e); } }
     async function loadCollections() { try { const d = await api('/api/v1/collections'); allCollections.value = d.data || []; } catch(e) { console.error(e); } }
@@ -1133,6 +1149,8 @@ createApp({
     }
     async function batchDelete() { if (!confirm(`确定删除选中的 ${selectedIds.value.size} 个文档？`)) return; await api('/api/v1/documents/batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: [...selectedIds.value], action: 'delete'})}); selectedIds.value = new Set(); await loadDocuments(); await loadTags(); await loadFolders(); }
     function toggleSection(name) { sections[name] = !sections[name]; }
+    function uniqueTags(tags) { const seen = new Set(); return (tags||[]).filter(t => { if (seen.has(t.id)) return false; seen.add(t.id); return true; }); }
+    function uniqueCitations(cits) { const seen = new Set(); return (cits||[]).filter(c => { const k = c.document_title || c.file_name || ''; if (!k || seen.has(k)) return false; seen.add(k); return true; }); }
 
     onMounted(() => { loadConversations(); loadConfig(); });
     watch(page, (v) => {
@@ -1144,8 +1162,8 @@ createApp({
     return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,memoriesList,
       batchMode, selectedIds, allTags, allCollections, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, collectPickerDoc, categoryEditDoc, editCategoryName, showNewCollection, newCollectionName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
       loadTags, loadCollections, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCollectPicker, toggleDocCollection, createCollection, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
-      newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,testChat,testOcr,loadMemories,rememberMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,
-      batchRetry };
+      newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,testChat,testOcr,loadMemories,rememberMessage,deleteMsg:deleteMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,
+      batchRetry, uniqueTags, uniqueCitations };
   }
 }).mount('#app');
 </script>
