@@ -40,6 +40,10 @@ def _get_rag_service(data_dir):
         config.get("web_search_enabled", "false"),
         config.get("tavily_api_key", ""),
         config.get("web_search_max_results", "5"),
+        config.get("embedding_enabled", "false"),
+        config.get("embedding_model", ""),
+        config.get("embedding_api_base", ""),
+        config.get("embedding_api_key", ""),
     )
     # 双重检查锁定模式避免并发重建
     if _rag_service_cache is not None and cache_key == _rag_cache_key:

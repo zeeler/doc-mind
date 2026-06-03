@@ -50,15 +50,22 @@ DEFAULTS = {
     "web_search_enabled": "false",
     "tavily_api_key": "",
     "web_search_max_results": "5",
+    "embedding_enabled": "false",
+    "embedding_model": "",
+    "embedding_api_base": "",
+    "embedding_api_key": "",
 }
 
 
-EMBEDDING_CONFIG_KEYS = ("custom_embedding_model", "openai_embedding_model", "mlx_embedding_model")
+EMBEDDING_CONFIG_KEYS = (
+    "custom_embedding_model", "openai_embedding_model", "mlx_embedding_model",
+    "embedding_model",  # 独立 embedding 配置
+)
 
 
 def has_embedding_model(config: dict) -> bool:
     """判断配置中是否启用了外部 embedding 模型。"""
-    return any(config.get(k) for k in EMBEDDING_CONFIG_KEYS)
+    return config.get("embedding_enabled") == "true" or any(config.get(k) for k in EMBEDDING_CONFIG_KEYS)
 
 
 class AppConfig:

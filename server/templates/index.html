@@ -844,6 +844,18 @@ body {
         <div v-if="ocrResult" :class="ocrResult.ok?'result-ok':'result-err'">{{ ocrResult.msg }}</div>
       </div>
       <div class="page-card">
+        <h3>Embedding 模型（向量搜索）</h3>
+        <div class="desc">启用语义搜索，理解同义词和相近表达，大幅提升检索质量</div>
+        <label class="check-lbl"><input type="checkbox" v-model="embeddingOn"> 启用向量搜索</label>
+        <template v-if="embeddingOn">
+          <div class="field"><label>模型名称</label><input v-model="config.embedding_model" placeholder="例如: BAAI/bge-large-zh-v1.5"></div>
+          <div class="field"><label>API Base URL</label><input v-model="config.embedding_api_base" placeholder="例如: https://api.siliconflow.cn/v1"></div>
+          <div class="field"><label>API Key</label><input v-model="config.embedding_api_key" type="password"></div>
+        </template>
+        <div v-if="embeddingOn && config.embedding_model" class="hint">✓ 向量搜索已启用，知识库检索质量将显著提升</div>
+        <div v-if="embeddingOn && !config.embedding_model" class="hint" style="color:var(--danger)">请填写模型名称和 API 信息</div>
+      </div>
+      <div class="page-card">
         <h3>网络搜索（Tavily）</h3>
         <div class="desc">知识库检索结果不足时自动从互联网获取实时信息</div>
         <label class="check-lbl"><input type="checkbox" v-model="webSearchOn"> 启用网络搜索</label>
@@ -903,6 +915,7 @@ createApp({
     const dirResult = ref(null);
     const config = ref({llm_provider:'custom'});
     const ocrOn = ref(true);
+    const embeddingOn = ref(false);
     const webSearchOn = ref(false);
     const saved = ref(false);
     const chatResult = ref(null);
@@ -1079,8 +1092,8 @@ createApp({
         dirResult.value = msg; if (ok > 0) setTimeout(() => loadDocuments(), 500);
       } catch(e) { dirProcessing.value = false; if (e.name !== 'AbortError') dirResult.value = '目录选择失败: ' + e.message; }
     }
-    async function loadConfig() { try { const d=await api('/api/v1/config'); config.value=d.data||{}; ocrOn.value=config.value.ocr_enabled!=='false'; webSearchOn.value=config.value.web_search_enabled==='true'; } catch(e) {} }
-    async function saveConfig() { config.value.ocr_enabled=ocrOn.value?'true':'false';config.value.web_search_enabled=webSearchOn.value?'true':'false';await api('/api/v1/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config.value)});saved.value=true;setTimeout(()=>saved.value=false,2000); }
+    async function loadConfig() { try { const d=await api('/api/v1/config'); config.value=d.data||{}; ocrOn.value=config.value.ocr_enabled!=='false'; embeddingOn.value=config.value.embedding_enabled==='true'; webSearchOn.value=config.value.web_search_enabled==='true'; } catch(e) {} }
+    async function saveConfig() { config.value.ocr_enabled=ocrOn.value?'true':'false';config.value.embedding_enabled=embeddingOn.value?'true':'false';config.value.web_search_enabled=webSearchOn.value?'true':'false';await api('/api/v1/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config.value)});saved.value=true;setTimeout(()=>saved.value=false,2000); }
     async function testChat() { testingChat.value=true;chatResult.value=null;try{const cr=await api('/api/v1/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const res=await fetch('/api/v1/chat/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:cr.data.id,question:'你好'})});const d=await res.json();chatResult.value=d.data&&d.data.answer?{ok:true,msg:'✓ '+d.data.answer.slice(0,60)+'...'}:{ok:false,msg:'✗ '+(d.detail||res.statusText)}}catch(e){chatResult.value={ok:false,msg:'✗ '+e.message}}testingChat.value=false; }
     async function testOcr() { testingOcr.value=true;ocrResult.value=null;if(config.value.ocr_engine!=='ollama'){ocrResult.value={ok:true,msg:'✓ Tesseract 就绪'};testingOcr.value=false;return}try{const b=(config.value.ocr_ollama_base_url||'http://localhost:11434/v1').replace(/\/+$/,'');const res=await fetch(b+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:config.value.ocr_ollama_model||'minicpm-v:8b',messages:[{role:'user',content:'OK'}],max_tokens:10})});if(res.ok)ocrResult.value={ok:true,msg:'✓ API 正常'};else{const e=await res.text();ocrResult.value={ok:false,msg:'✗ '+res.status+': '+e.slice(0,100)}}}catch(e){ocrResult.value={ok:false,msg:'✗ '+e.message}}testingOcr.value=false; }
     const copyId = ref(null);
@@ -1160,7 +1173,7 @@ createApp({
       else { if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } }
     });
 
-    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,webSearchOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,memoriesList,
+    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,embeddingOn,webSearchOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,memoriesList,
       batchMode, selectedIds, allTags, allCollections, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, collectPickerDoc, categoryEditDoc, editCategoryName, showNewCollection, newCollectionName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
       loadTags, loadCollections, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCollectPicker, toggleDocCollection, createCollection, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
       newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,testChat,testOcr,loadMemories,rememberMessage,deleteMsg:deleteMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,
