@@ -86,10 +86,17 @@ class Retriever:
                     queries.append(arabic)  # 如 "第三章" → "第3章"
 
         # 去除常见中文提问后缀，保留核心关键词
-        for suffix in ["讲了什么", "的内容", "介绍了什么", "是什么", "怎么样", "讲了啥"]:
-            if query.endswith(suffix) and len(query) > len(suffix) + 2:
-                core = query[: -len(suffix)].strip()
-                if core not in queries:
+        # 先去除填充词（"都"、"主要"等），再匹配后缀
+        question_suffixes = [
+            r"(?:都|主要|大概|具体|到底|究竟)*?(讲了什么|的内容|介绍了什么|是什么|怎么样|讲了啥|说的是什么|写了什么|说了什么|包含什么|有什么内容|主要内容|相关内容|相关的内容)",
+            r"(?:都|主要|大概|具体|到底|究竟)*?(怎么做|如何处理|如何实现|如何操作)",
+            r"(?:都|主要|大概|具体|到底|究竟)*?(什么意思|是什么[意含]义)",
+        ]
+        for pattern in question_suffixes:
+            m = re.search(pattern + r"$", query)
+            if m and len(query) - len(m.group(0)) > 2:
+                core = query[: -len(m.group(0))].strip()
+                if core and core not in queries and len(core) > 1:
                     queries.append(core)
                 break
 
