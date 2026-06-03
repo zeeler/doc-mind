@@ -615,7 +615,10 @@ body {
               <div v-if="m.role==='user'" class="bubble">{{ m.content }}</div>
               <div v-if="m.role==='assistant'" class="bubble" v-html="md(m.content)"></div>
               <div class="citations" v-if="m.citations&&m.citations.length">
-                <span class="citation" v-for="(c,i) in uniqueCitations(m.citations)" :key="i">{{ c.document_title||c.file_name }}</span>
+                <a v-for="(c,i) in uniqueCitations(m.citations)" :key="i" class="citation"
+                   :href="c.url||'#'" :target="c.url?'_blank':''" :style="c.source_type==='web_search'?'background:var(--blue-light, #e8f0fe);border-color:var(--blue, #4a90d9);color:var(--blue, #2a6496)':''" :title="c.source_type==='web_search'?'点击访问原文':''">
+                  {{ c.source_type==='web_search' ? '🌐 ' : '' }}{{ c.document_title||c.file_name }}
+                </a>
               </div>
               <div class="msg-actions">
                 <button :class="{copied:copyId===m.id}" @click="copyMd(m)" title="复制">
@@ -854,6 +857,16 @@ body {
         <button class="btn btn-ghost" @click="testOcr">{{ testingOcr ? '测试中...' : '测试连接' }}</button>
         <div v-if="ocrResult" :class="ocrResult.ok?'result-ok':'result-err'">{{ ocrResult.msg }}</div>
       </div>
+      <div class="page-card">
+        <h3>网络搜索（Tavily）</h3>
+        <div class="desc">知识库检索结果不足时自动从互联网获取实时信息</div>
+        <label class="check-lbl"><input type="checkbox" v-model="webSearchOn"> 启用网络搜索</label>
+        <template v-if="webSearchOn">
+          <div class="field"><label>API Key</label><input v-model="config.tavily_api_key" type="password" placeholder="tvly-..."></div>
+          <div class="field"><label>最大结果数</label><input v-model="config.web_search_max_results" type="number" min="1" max="10"></div>
+          <div v-if="!config.tavily_api_key" class="hint" style="color:var(--danger)">需要输入 Tavily API Key 才能生效</div>
+        </template>
+      </div>
       <button class="btn btn-primary" @click="saveConfig" style="padding:13px">保存配置</button>
       <div v-if="saved" class="result-ok" style="text-align:center;margin-top:10px;font-family:var(--sans)">✓ 已保存</div>
     </div>
@@ -904,6 +917,7 @@ createApp({
     const dirResult = ref(null);
     const config = ref({llm_provider:'custom'});
     const ocrOn = ref(true);
+    const webSearchOn = ref(false);
     const saved = ref(false);
     const chatResult = ref(null);
     const ocrResult = ref(null);
@@ -1079,8 +1093,8 @@ createApp({
         dirResult.value = msg; if (ok > 0) setTimeout(() => loadDocuments(), 500);
       } catch(e) { dirProcessing.value = false; if (e.name !== 'AbortError') dirResult.value = '目录选择失败: ' + e.message; }
     }
-    async function loadConfig() { try { const d=await api('/api/v1/config'); config.value=d.data||{}; ocrOn.value=config.value.ocr_enabled!=='false'; } catch(e) {} }
-    async function saveConfig() { config.value.ocr_enabled=ocrOn.value?'true':'false';await api('/api/v1/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config.value)});saved.value=true;setTimeout(()=>saved.value=false,2000); }
+    async function loadConfig() { try { const d=await api('/api/v1/config'); config.value=d.data||{}; ocrOn.value=config.value.ocr_enabled!=='false'; webSearchOn.value=config.value.web_search_enabled==='true'; } catch(e) {} }
+    async function saveConfig() { config.value.ocr_enabled=ocrOn.value?'true':'false';config.value.web_search_enabled=webSearchOn.value?'true':'false';await api('/api/v1/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config.value)});saved.value=true;setTimeout(()=>saved.value=false,2000); }
     async function testChat() { testingChat.value=true;chatResult.value=null;try{const cr=await api('/api/v1/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const res=await fetch('/api/v1/chat/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:cr.data.id,question:'你好'})});const d=await res.json();chatResult.value=d.data&&d.data.answer?{ok:true,msg:'✓ '+d.data.answer.slice(0,60)+'...'}:{ok:false,msg:'✗ '+(d.detail||res.statusText)}}catch(e){chatResult.value={ok:false,msg:'✗ '+e.message}}testingChat.value=false; }
     async function testOcr() { testingOcr.value=true;ocrResult.value=null;if(config.value.ocr_engine!=='ollama'){ocrResult.value={ok:true,msg:'✓ Tesseract 就绪'};testingOcr.value=false;return}try{const b=(config.value.ocr_ollama_base_url||'http://localhost:11434/v1').replace(/\/+$/,'');const res=await fetch(b+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:config.value.ocr_ollama_model||'minicpm-v:8b',messages:[{role:'user',content:'OK'}],max_tokens:10})});if(res.ok)ocrResult.value={ok:true,msg:'✓ API 正常'};else{const e=await res.text();ocrResult.value={ok:false,msg:'✗ '+res.status+': '+e.slice(0,100)}}}catch(e){ocrResult.value={ok:false,msg:'✗ '+e.message}}testingOcr.value=false; }
     const copyId = ref(null);
@@ -1160,7 +1174,7 @@ createApp({
       else { if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } }
     });
 
-    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,memoriesList,
+    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,webSearchOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,memoriesList,
       batchMode, selectedIds, allTags, allCollections, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, collectPickerDoc, categoryEditDoc, editCategoryName, showNewCollection, newCollectionName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
       loadTags, loadCollections, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCollectPicker, toggleDocCollection, createCollection, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
       newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,testChat,testOcr,loadMemories,rememberMessage,deleteMsg:deleteMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,

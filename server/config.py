@@ -47,6 +47,9 @@ DEFAULTS = {
     "retrieval_context_window": "3",
     "retrieval_max_results": "15",
     "chunk_structure_aware": "true",
+    "web_search_enabled": "false",
+    "tavily_api_key": "",
+    "web_search_max_results": "5",
 }
 
 

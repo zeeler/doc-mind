@@ -37,6 +37,9 @@ def _get_rag_service(data_dir):
         config.get("retrieval_enable_query_expansion", "false"),
         config.get("retrieval_context_window", "2"),
         config.get("retrieval_max_results", "50"),
+        config.get("web_search_enabled", "false"),
+        config.get("tavily_api_key", ""),
+        config.get("web_search_max_results", "5"),
     )
     # 双重检查锁定模式避免并发重建
     if _rag_service_cache is not None and cache_key == _rag_cache_key:
