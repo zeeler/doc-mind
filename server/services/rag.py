@@ -22,6 +22,25 @@ def _build_history_text(history: list[dict] | None) -> str:
     return ""
 
 
+SYSTEM_PROMPT_BASE = "你是一个知识库助手。请根据参考资料回答用户问题。使用中文回答。"
+
+
+def _build_messages(prompt: str, history: list[dict] | None = None,
+                    memory_context: str = "") -> list[dict]:
+    """Build the messages list with a single system message (Anthropic compatible)."""
+    system_parts = [SYSTEM_PROMPT_BASE]
+    if history:
+        history_text = _build_history_text(history)
+        if history_text:
+            system_parts.append(history_text)
+    if memory_context:
+        system_parts.append(memory_context)
+    return [
+        {"role": "system", "content": "\n\n".join(system_parts)},
+        {"role": "user", "content": prompt},
+    ]
+
+
 def build_qa_prompt(
     question: str,
     chunks: list[dict],
@@ -206,17 +225,7 @@ class RAGService:
 
         prompt = build_qa_prompt(question, chunks, web_sourced=web_sourced)
 
-        # Build messages with single system message (Anthropic compatible)
-        messages = []
-        system_parts = ["你是一个知识库助手。请根据参考资料回答用户问题。使用中文回答。"]
-        if history:
-            history_text = _build_history_text(history)
-            if history_text:
-                system_parts.append(history_text)
-        if memory_context:
-            system_parts.append(memory_context)
-        messages.append({"role": "system", "content": "\n\n".join(system_parts)})
-        messages.append({"role": "user", "content": prompt})
+        messages = _build_messages(prompt, history=history, memory_context=memory_context)
 
         result = self.llm.chat(messages=messages, temperature=0.3)
         citations = format_citations(chunks, web_sourced=web_sourced)
@@ -242,16 +251,7 @@ class RAGService:
 
         prompt = build_qa_prompt(question, chunks, web_sourced=web_sourced)
 
-        messages = []
-        system_parts = ["你是一个知识库助手。请根据参考资料回答用户问题。使用中文回答。"]
-        if history:
-            history_text = _build_history_text(history)
-            if history_text:
-                system_parts.append(history_text)
-        if memory_context:
-            system_parts.append(memory_context)
-        messages.append({"role": "system", "content": "\n\n".join(system_parts)})
-        messages.append({"role": "user", "content": prompt})
+        messages = _build_messages(prompt, history=history, memory_context=memory_context)
 
         async for chunk in self.llm.chat_stream(messages=messages, temperature=0.3):
             yield chunk

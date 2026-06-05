@@ -23,16 +23,23 @@ _cached_llm_config_key: tuple | None = None
 
 _conv_last_observe: dict[str, float] = {}  # conv_id -> last_observe_timestamp
 _conv_observe_lock = threading.Lock()
+_llm_cache_lock = threading.Lock()
+_observe_executor = None
+_observe_executor_lock = threading.Lock()
 
 
-def _get_cached_llm(config: dict) -> 'LLMAdapter':
+def _get_cached_llm(config: dict):
     global _cached_llm, _cached_llm_config_key
     from server.services.llm import LLMAdapter
-    key = (config.get("llm_provider"), config.get("mlx_chat_model"), config.get("openai_chat_model"))
-    if _cached_llm is None or key != _cached_llm_config_key:
-        _cached_llm = LLMAdapter(config)
-        _cached_llm_config_key = key
-    return _cached_llm
+    key = (config.get("llm_provider"), config.get("mlx_chat_model"), config.get("openai_chat_model"),
+           config.get("claude_chat_model"), config.get("custom_chat_model"))
+    if _cached_llm is not None and key == _cached_llm_config_key:
+        return _cached_llm
+    with _llm_cache_lock:
+        if _cached_llm is None or key != _cached_llm_config_key:
+            _cached_llm = LLMAdapter(config)
+            _cached_llm_config_key = key
+        return _cached_llm
 
 
 def _get_conversation_history(session: Session, conversation_id: str, limit: int = 6) -> list[dict]:
@@ -50,6 +57,92 @@ def _get_conversation_history(session: Session, conversation_id: str, limit: int
         {"role": m.role, "content": m.content}
         for m in reversed(recent)
     ]
+
+
+def _get_observe_executor():
+    global _observe_executor
+    if _observe_executor is None:
+        with _observe_executor_lock:
+            if _observe_executor is None:
+                from concurrent.futures import ThreadPoolExecutor
+                _observe_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="observe")
+    return _observe_executor
+
+
+def _recall_memory_context(question: str, conversation_id: str | None) -> str:
+    """搜索相关记忆并返回可注入 system prompt 的文本。"""
+    try:
+        from server.config import AppConfig as Cfg
+        cfg = Cfg().get_all()
+        if cfg.get("memory_enabled", "true") != "true":
+            return ""
+        from server.services.memory_manager import MemoryManager
+        mem_mgr = MemoryManager(config=cfg, llm=None)  # recall doesn't need LLM
+        return mem_mgr.recall_as_context(question, conv_id=conversation_id)
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("knowledge-base")
+        logger.warning(f"记忆召回失败: {e}")
+        return ""
+
+
+def _run_observe_bg(conversation_id: str, history: list[dict], question: str,
+                    answer_text: str) -> None:
+    """后台异步：主动记忆分析（供 chat_ask 和 chat_stream 共用）。"""
+    try:
+        from server.config import AppConfig as Cfg
+        cfg = Cfg().get_all()
+        if cfg.get("memory_enabled", "true") != "true":
+            return
+        if cfg.get("memory_auto_observe", "true") != "true":
+            return
+
+        import time
+        idle_timeout = int(cfg.get("memory_session_idle_timeout", "30")) * 60
+        with _conv_observe_lock:
+            last_obs = _conv_last_observe.get(conversation_id, 0)
+        idle_secs = time.time() - last_obs
+
+        if idle_secs > idle_timeout:
+            from server.database import get_session_ctx as ctx
+            from server.models.conversation import Message as Msg
+            with ctx() as s:
+                all_msgs = s.query(Msg).filter(
+                    Msg.conversation_id == conversation_id
+                ).order_by(Msg.created_at.asc()).all()
+                if len(all_msgs) >= 2:
+                    from server.services.memory_manager import MemoryManager
+                    messages = [{"role": m.role, "content": m.content} for m in all_msgs]
+                    mem_mgr = MemoryManager(config=cfg, llm=_get_cached_llm(cfg))
+                    mem_mgr.observe(messages, conversation_id)
+            with _conv_observe_lock:
+                _conv_last_observe[conversation_id] = time.time()
+            return
+
+        observe_interval = int(cfg.get("memory_observe_interval", "3"))
+        from server.database import get_session_ctx as ctx
+        from server.models.conversation import Message as Msg
+        with ctx() as s:
+            msg_count = s.query(Msg).filter(
+                Msg.conversation_id == conversation_id
+            ).count()
+        if msg_count % observe_interval != 0:
+            return
+
+        from server.services.memory_manager import MemoryManager
+        mem_mgr = MemoryManager(config=cfg, llm=_get_cached_llm(cfg))
+        recent = history + [
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": answer_text},
+        ]
+        mem_mgr.observe(recent, conversation_id)
+        with _conv_observe_lock:
+            _conv_last_observe[conversation_id] = time.time()
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("knowledge-base")
+        logger.warning(f"主动记忆后台任务失败: {e}")
+
 
 _rag_service_cache: RAGService | None = None
 _rag_cache_key: tuple | None = None
@@ -117,18 +210,7 @@ def chat_ask(body: dict, session: Session = Depends(get_session)):
         rag = _get_rag_service(DATA_DIR)
         history = _get_conversation_history(session, conversation_id)
 
-        # === 记忆召回 ===
-        memory_context = ""
-        try:
-            from server.config import AppConfig as Cfg
-            cfg = Cfg().get_all()
-            if cfg.get("memory_enabled", "true") == "true":
-                from server.services.memory_manager import MemoryManager
-                from server.services.llm import LLMAdapter
-                mem_mgr = MemoryManager(config=cfg, llm=LLMAdapter(cfg))
-                memory_context = mem_mgr.recall_as_context(question, conv_id=conversation_id)
-        except Exception as e:
-            logger.warning(f"记忆召回失败: {e}")
+        memory_context = _recall_memory_context(question, conversation_id)
 
         result = rag.ask_sync(question, history=history, memory_context=memory_context)
     except Exception as e:
@@ -146,59 +228,7 @@ def chat_ask(body: dict, session: Session = Depends(get_session)):
     session.add(assistant_msg)
     session.commit()
 
-    # 后台异步：主动记忆分析
-    def _observe_bg():
-        try:
-            from server.config import AppConfig as Cfg
-            cfg = Cfg().get_all()
-            if cfg.get("memory_enabled", "true") != "true":
-                return
-            if cfg.get("memory_auto_observe", "true") != "true":
-                return
-
-            # === 会话空闲超时兜底 observe ===
-            idle_timeout = int(cfg.get("memory_session_idle_timeout", "30")) * 60
-            with _conv_observe_lock:
-                last_obs = _conv_last_observe.get(conversation_id, 0)
-            idle_secs = time.time() - last_obs
-            if idle_secs > idle_timeout:
-                from server.database import get_session_ctx as ctx
-                from server.models.conversation import Message as Msg
-                with ctx() as s:
-                    all_msgs = s.query(Msg).filter(
-                        Msg.conversation_id == conversation_id
-                    ).order_by(Msg.created_at.asc()).all()
-                    if len(all_msgs) >= 2:
-                        messages = [{"role": m.role, "content": m.content} for m in all_msgs]
-                        from server.services.memory_manager import MemoryManager
-                        mem_mgr = MemoryManager(config=cfg, llm=_get_cached_llm(cfg))
-                        mem_mgr.observe(messages, conversation_id)
-                with _conv_observe_lock:
-                    _conv_last_observe[conversation_id] = time.time()
-                return
-
-            # === 常规间隔检查 ===
-            observe_interval = int(cfg.get("memory_observe_interval", "3"))
-            from server.database import get_session_ctx as ctx
-            from server.models.conversation import Message as Msg
-            with ctx() as s:
-                msg_count = s.query(Msg).filter(
-                    Msg.conversation_id == conversation_id
-                ).count()
-            if msg_count % observe_interval != 0:
-                return
-            from server.services.memory_manager import MemoryManager
-            mem_mgr = MemoryManager(config=cfg, llm=_get_cached_llm(cfg))
-            recent = history + [
-                {"role": "user", "content": question},
-                {"role": "assistant", "content": result["answer"]},
-            ]
-            mem_mgr.observe(recent, conversation_id)
-            with _conv_observe_lock:
-                _conv_last_observe[conversation_id] = time.time()
-        except Exception as e:
-            logger.warning(f"主动记忆后台任务失败: {e}")
-    threading.Thread(target=_observe_bg, daemon=True).start()
+    _get_observe_executor().submit(_run_observe_bg, conversation_id, history, question, result["answer"])
 
     return {
         "code": "OK",
@@ -238,18 +268,7 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
         rag = _get_rag_service(DATA_DIR)
         history = _get_conversation_history(session, conversation_id)
 
-        # === 记忆召回 ===
-        memory_context = ""
-        try:
-            from server.config import AppConfig as Cfg
-            cfg = Cfg().get_all()
-            if cfg.get("memory_enabled", "true") == "true":
-                from server.services.memory_manager import MemoryManager
-                from server.services.llm import LLMAdapter
-                mem_mgr = MemoryManager(config=cfg, llm=LLMAdapter(cfg))
-                memory_context = mem_mgr.recall_as_context(question, conv_id=conversation_id)
-        except Exception as e:
-            logger.warning(f"记忆召回失败: {e}")
+        memory_context = _recall_memory_context(question, conversation_id)
     except Exception as e:
         logger.error(f"RAG 服务初始化失败: {e}", exc_info=True)
         raise HTTPException(status_code=502, detail=f"RAG 服务初始化失败: {str(e)}")
@@ -284,59 +303,7 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
                     )
                     s.add(assistant_msg)
                     s.commit()
-                # 后台异步：主动记忆分析
-                def _observe_bg():
-                    try:
-                        from server.config import AppConfig as Cfg
-                        cfg = Cfg().get_all()
-                        if cfg.get("memory_enabled", "true") != "true":
-                            return
-                        if cfg.get("memory_auto_observe", "true") != "true":
-                            return
-
-                        # === 会话空闲超时兜底 observe ===
-                        idle_timeout = int(cfg.get("memory_session_idle_timeout", "30")) * 60
-                        with _conv_observe_lock:
-                            last_obs = _conv_last_observe.get(conversation_id, 0)
-                        idle_secs = time.time() - last_obs
-                        if idle_secs > idle_timeout:
-                            from server.database import get_session_ctx as ctx
-                            from server.models.conversation import Message as Msg
-                            with ctx() as s:
-                                all_msgs = s.query(Msg).filter(
-                                    Msg.conversation_id == conversation_id
-                                ).order_by(Msg.created_at.asc()).all()
-                                if len(all_msgs) >= 2:
-                                    messages = [{"role": m.role, "content": m.content} for m in all_msgs]
-                                    from server.services.memory_manager import MemoryManager
-                                    mem_mgr = MemoryManager(config=cfg, llm=_get_cached_llm(cfg))
-                                    mem_mgr.observe(messages, conversation_id)
-                            with _conv_observe_lock:
-                                _conv_last_observe[conversation_id] = time.time()
-                            return
-
-                        # === 常规间隔检查 ===
-                        observe_interval = int(cfg.get("memory_observe_interval", "3"))
-                        from server.database import get_session_ctx as ctx
-                        from server.models.conversation import Message as Msg
-                        with ctx() as s:
-                            msg_count = s.query(Msg).filter(
-                                Msg.conversation_id == conversation_id
-                            ).count()
-                        if msg_count % observe_interval != 0:
-                            return
-                        from server.services.memory_manager import MemoryManager
-                        mem_mgr = MemoryManager(config=cfg, llm=_get_cached_llm(cfg))
-                        recent = history + [
-                            {"role": "user", "content": question},
-                            {"role": "assistant", "content": full_answer},
-                        ]
-                        mem_mgr.observe(recent, conversation_id)
-                        with _conv_observe_lock:
-                            _conv_last_observe[conversation_id] = time.time()
-                    except Exception as e:
-                        logger.warning(f"主动记忆后台任务失败: {e}")
-                threading.Thread(target=_observe_bg, daemon=True).start()
+                _get_observe_executor().submit(_run_observe_bg, conversation_id, history, question, full_answer)
         yield {"event": "done", "data": "{}"}
 
     return EventSourceResponse(event_stream())

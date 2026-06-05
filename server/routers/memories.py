@@ -94,7 +94,6 @@ def observe_endpoint(body: dict):
     mgr = _get_mgr(with_llm=True)
     count = mgr.observe(messages, conversation_id)
     return {"code": "OK", "data": {"new_memories": count}}
-    return {"code": "OK", "data": {"new_memories": count}}
 
 
 # ====== 合并记忆 ======

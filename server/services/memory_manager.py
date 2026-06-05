@@ -286,13 +286,14 @@ class MemoryManager:
             return {"pairs": pairs, "total_pairs": len(pairs), "expired_candidates": expired}
 
         # 执行合并
+        mem_by_id = {m["id"]: m for m in all_mems}
         deleted_ids = set()
         for pair in pairs:
             if pair["id_1"] in deleted_ids or pair["id_2"] in deleted_ids:
                 continue
             try:
-                mem1 = next((m for m in all_mems if m["id"] == pair["id_1"]), None)
-                mem2 = next((m for m in all_mems if m["id"] == pair["id_2"]), None)
+                mem1 = mem_by_id.get(pair["id_1"])
+                mem2 = mem_by_id.get(pair["id_2"])
                 if not mem1 or not mem2:
                     continue
                 m1_imp = mem1["metadata"].get("importance", 0.5)
@@ -329,7 +330,6 @@ class MemoryManager:
         return {"merged": merged_count, "deleted": merged_count, "expired_cleaned": expired_cleaned}
 
     def _count_expired(self) -> int:
-        from datetime import datetime, timezone
         all_mems = self.store.get_all(limit=10000)
         now = datetime.now(timezone.utc).timestamp()
         return sum(

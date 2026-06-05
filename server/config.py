@@ -68,8 +68,6 @@ DEFAULTS = {
     "memory_dedup_threshold": "0.85",
     "memory_export_auto": "true",
     "memory_export_dir": "",
-    "memory_consolidate_auto": "true",
-    "memory_max_per_recall": "5",
     "memory_session_idle_timeout": "30",
     "memory_session_expire_days": "30",
 }

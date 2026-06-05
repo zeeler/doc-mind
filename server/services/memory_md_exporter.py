@@ -1,5 +1,6 @@
 """MemoryMDExporter — 记忆 Markdown 导出器（线程安全）。"""
 
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,7 +78,6 @@ class MemoryMDExporter:
             else:
                 text = path.read_text(encoding="utf-8")
                 # 更新计数和时间
-                import re
                 now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
                 def _update_header(m):
                     return f'> 最后更新: {now} | 共 {int(m.group(1)) + 1} 条'

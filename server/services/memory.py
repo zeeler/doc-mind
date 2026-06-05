@@ -2,7 +2,6 @@
 
 import logging
 import threading
-from datetime import datetime, timezone
 from server.services.memory_manager import MemoryManager
 from server.database import DATA_DIR, get_session_ctx
 
