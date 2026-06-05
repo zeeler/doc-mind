@@ -13,18 +13,24 @@ _manager: MemoryManager | None = None
 _manager_lock = threading.Lock()
 
 
-def _get_manager() -> MemoryManager:
+def _get_manager(llm=None) -> MemoryManager:
     global _manager
-    if _manager is None:
-        with _manager_lock:
-            if _manager is None:
-                from server.config import AppConfig
-                config = AppConfig().get_all()
-                _manager = MemoryManager(
-                    config=config, llm=None,
-                    persist_dir=str(DATA_DIR / "chroma"),
-                )
-    return _manager
+    # Only use singleton when llm is None (non-LLM operations)
+    if llm is None:
+        if _manager is None:
+            with _manager_lock:
+                if _manager is None:
+                    from server.config import AppConfig
+                    config = AppConfig().get_all()
+                    _manager = MemoryManager(
+                        config=config, llm=None,
+                        persist_dir=str(DATA_DIR / "chroma"),
+                    )
+        return _manager
+    # For LLM operations, create a fresh manager with the provided llm
+    from server.config import AppConfig
+    config = AppConfig().get_all()
+    return MemoryManager(config=config, llm=llm, persist_dir=str(DATA_DIR / "chroma"))
 
 
 def add_memory(content: str, mem_type: str, metadata: dict | None = None) -> str:
@@ -92,5 +98,5 @@ def summarize_conversation(conv_id: str) -> int:
     from server.services.llm import LLMAdapter
     config = AppConfig().get_all()
     llm = LLMAdapter(config)
-    mgr = MemoryManager(config=config, llm=llm, persist_dir=str(DATA_DIR / "chroma"))
+    mgr = _get_manager(llm=llm)
     return mgr.observe(messages, conv_id)

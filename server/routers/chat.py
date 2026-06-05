@@ -17,6 +17,19 @@ from server.vector.store import VectorStore
 logger = logging.getLogger("knowledge-base")
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
+_cached_llm: 'LLMAdapter | None' = None
+_cached_llm_config_key: tuple | None = None
+
+
+def _get_cached_llm(config: dict) -> 'LLMAdapter':
+    global _cached_llm, _cached_llm_config_key
+    from server.services.llm import LLMAdapter
+    key = (config.get("llm_provider"), config.get("mlx_chat_model"), config.get("openai_chat_model"))
+    if _cached_llm is None or key != _cached_llm_config_key:
+        _cached_llm = LLMAdapter(config)
+        _cached_llm_config_key = key
+    return _cached_llm
+
 
 def _get_conversation_history(session: Session, conversation_id: str, limit: int = 6) -> list[dict]:
     """获取当前对话的最近 N 条消息作为上下文历史。"""
@@ -148,8 +161,7 @@ def chat_ask(body: dict, session: Session = Depends(get_session)):
             if msg_count % observe_interval != 0:
                 return
             from server.services.memory_manager import MemoryManager
-            from server.services.llm import LLMAdapter
-            mem_mgr = MemoryManager(config=cfg, llm=LLMAdapter(cfg))
+            mem_mgr = MemoryManager(config=cfg, llm=_get_cached_llm(cfg))
             recent = history + [
                 {"role": "user", "content": question},
                 {"role": "assistant", "content": result["answer"]},
@@ -262,8 +274,7 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
                         if msg_count % observe_interval != 0:
                             return
                         from server.services.memory_manager import MemoryManager
-                        from server.services.llm import LLMAdapter
-                        mem_mgr = MemoryManager(config=cfg, llm=LLMAdapter(cfg))
+                        mem_mgr = MemoryManager(config=cfg, llm=_get_cached_llm(cfg))
                         recent = history + [
                             {"role": "user", "content": question},
                             {"role": "assistant", "content": full_answer},

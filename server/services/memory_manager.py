@@ -84,7 +84,7 @@ class MemoryManager:
         # 加权排序
         now = datetime.now(timezone.utc)
         for m in candidates:
-            similarity = m["score"]
+            similarity = m.get("score", 0.5)
             importance = m["metadata"].get("importance", 0.5)
             updated_str = m["metadata"].get("updated_at", "")
             try:
@@ -139,6 +139,12 @@ class MemoryManager:
         now = datetime.now(timezone.utc).isoformat()
         meta.setdefault("updated_at", now)
         meta.setdefault("created_at", now)
+
+        # 参数验证
+        if scope not in ("global", "session"):
+            raise ValueError(f"无效的 scope: {scope}，必须是 'global' 或 'session'")
+        if mem_type not in ("preference", "conclusion", "fact", "manual"):
+            raise ValueError(f"无效的 mem_type: {mem_type}")
 
         # 去重
         existing = self.store.search(content, top_k=3)
@@ -250,14 +256,14 @@ class MemoryManager:
 
     # ============ consolidate() — 记忆合并 ============
 
-    def consolidate(self, dry_run: bool = False) -> dict:
+    def consolidate(self, dry_run: bool = False, max_memories: int = 500) -> dict:
         """合并相似记忆，清理过期。使用 query top-3 预筛选避免 O(n²)。"""
         all_mems = self.store.get_all(limit=10000)
         merged_count = 0
         pairs = []
         seen_pairs = set()
 
-        for mem in all_mems:
+        for mem in all_mems[:max_memories]:
             similar = self.store.search(mem["content"], top_k=3)
             for hit in similar:
                 if hit["id"] == mem["id"]:

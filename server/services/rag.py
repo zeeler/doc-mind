@@ -25,7 +25,6 @@ def _build_history_text(history: list[dict] | None) -> str:
 def build_qa_prompt(
     question: str,
     chunks: list[dict],
-    memory_context: str = "",
     web_sourced: bool = False,
 ) -> str:
     if not chunks:
@@ -205,8 +204,7 @@ class RAGService:
                         chunks = chunks + web_chunks
                         web_sourced = False  # 混合结果仍以 KB 为主
 
-        prompt = build_qa_prompt(question, chunks, memory_context=memory_context,
-                                 web_sourced=web_sourced)
+        prompt = build_qa_prompt(question, chunks, web_sourced=web_sourced)
 
         # Build messages with single system message (Anthropic compatible)
         messages = []

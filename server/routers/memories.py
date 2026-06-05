@@ -8,9 +8,10 @@ from server.services.llm import LLMAdapter
 router = APIRouter(prefix="/api/v1/memories", tags=["memories"])
 
 
-def _get_mgr() -> MemoryManager:
+def _get_mgr(with_llm: bool = False) -> MemoryManager:
     config = AppConfig().get_all()
-    return MemoryManager(config=config, llm=LLMAdapter(config))
+    llm = LLMAdapter(config) if with_llm else None
+    return MemoryManager(config=config, llm=llm)
 
 
 # ====== 被动记忆（API 直存）======
@@ -90,8 +91,9 @@ def observe_endpoint(body: dict):
             raise HTTPException(status_code=404, detail="会话不存在")
         messages = [{"role": m.role, "content": m.content} for m in conv.messages]
 
-    mgr = _get_mgr()
+    mgr = _get_mgr(with_llm=True)
     count = mgr.observe(messages, conversation_id)
+    return {"code": "OK", "data": {"new_memories": count}}
     return {"code": "OK", "data": {"new_memories": count}}
 
 
