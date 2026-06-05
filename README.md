@@ -9,37 +9,50 @@ Vue 3 (CDN)
     │ HTTP / SSE
     ▼
 FastAPI 单进程
-  ├─ 路由层：文档 / 会话 / 对话 / 配置 / 任务
-  ├─ 服务层：解析 → 切块 → Embedding → 检索 → RAG 编排
+  ├─ 路由层：文档 / 会话 / 对话 / 配置 / 任务 / 搜索 / 记忆
+  ├─ 服务层：解析 → 切块 → Embedding → 混合检索 → Reranker 精排 → RAG 编排
   ├─ Worker 层：后台线程池消费 Job 队列（扫描 / 索引）
-  └─ 存储层：SQLite (元数据 + 任务队列) + ChromaDB (向量)
+  └─ 存储层：SQLite (元数据 + FTS5 全文索引) + ChromaDB (向量)
     │ OpenAI 兼容 API
     ▼
 MLX / Ollama / DeepSeek / OpenAI / 自定义 API
 ```
 
 - **后端**：Python 3.12+ / FastAPI / SQLAlchemy / ChromaDB
-- **前端**：Vue 3 CDN + Inter 字体，暗色/亮色自动切换
+- **前端**：Vue 3 CDN，暗色/亮色自动切换
 - **AI 引擎**：支持 MLX、Ollama、OpenAI、Claude、DeepSeek 及任意兼容 API
 - **平台**：macOS Apple Silicon
 
 ## 主要功能
 
+### 文档处理
 - **文档管理**：支持 PDF / Word / Excel / PowerPoint / MOBI / Markdown / TXT
-- **SHA256 去重**：上传时自动检测重复文件，相同内容直接返回已有记录
+- **SHA256 去重**：上传时自动检测重复文件
 - **批量导入**：选择本地目录，递归扫描并自动导入所有文档
-- **扫描件 OCR**：Tesseract 离线 OCR + 多模态模型（Ollama/MLX）并行识别
+- **扫描件 OCR**：Tesseract 离线 OCR + 多模态模型并行识别
 - **两阶段处理**：快速扫描（秒级预览）→ 后台全文索引（OCR + 向量化）
-- **Markdown 生成**：每份文档自动生成 index.md，源文件归档保留
-- **知识问答**：自然语言提问，AI 基于知识库回答，带来源引用
-- **流式输出**：SSE 实时流式返回
-- **任务进度**：可视化进度条，实时显示处理状态
+
+### 知识检索
+- **混合搜索**：FTS5 关键词 + 向量语义搜索 + RRF 融合
+- **Reranker 精排**：BGE-Reranker 对召回结果二次排序，大幅提升准确率
+- **Embedding 模型**：独立配置 embedding 服务，支持本地/云端模型
+- **网络搜索**：Tavily 互联网搜索，知识库不足时自动补充
+- **查询扩展**：自动生成搜索变体，提升召回覆盖面
+- **对话历史**：同一次对话保留上下文，追问理解更准确
+
+### 知识管理
 - **标签系统**：为文档自由打标签，侧边栏按标签筛选，支持批量打标
 - **分类管理**：文档互斥分类，快速归类筛选
 - **虚拟集合**：手动创建文档收藏夹，跨文件夹组织文档
 - **文件夹浏览**：目录导入自动记录物理路径，侧边栏树形浏览
+- **记忆系统**：对话自动摘要记忆，关键信息持久保存
 - **批量操作**：多选文档批量打标签、改分类、删除
-- **多模型配置**：对话模型 / OCR 模型独立配置，支持自定义 Base URL
+
+### 用户体验
+- **流式输出**：SSE 实时流式返回
+- **任务进度**：可视化进度条，实时显示处理状态
+- **自定义确认弹窗**：删除等操作使用应用内弹窗，不弹系统对话框
+- **多模型配置**：对话/Embedding/Reranker/OCR 模型独立配置
 - **暗色模式**：跟随系统自动切换
 
 ## 环境要求
@@ -64,6 +77,14 @@ python server/main.py
 
 浏览器打开 `http://localhost:8000`，在设置页面配置模型即可使用。
 
+### 重建向量索引
+
+当更换 embedding 模型（输出维度变化）后，需要重建 ChromaDB 向量：
+
+```bash
+python scripts/reembed.py
+```
+
 ## API 概览
 
 所有接口前缀 `/api/v1`
@@ -77,7 +98,7 @@ python server/main.py
 | `GET` | `/documents/{id}` | 文档详情 |
 | `DELETE` | `/documents/{id}` | 删除文档 |
 | `GET` | `/jobs` | 任务列表 |
-| `GET` | `/jobs/stats` | 任务统计（pending/running/completed/failed） |
+| `GET` | `/jobs/stats` | 任务统计 |
 | `POST` | `/jobs/{id}/retry` | 重试失败任务 |
 
 ### 对话
@@ -86,18 +107,32 @@ python server/main.py
 |------|------|------|
 | `POST` | `/conversations` | 创建会话 |
 | `GET` | `/conversations` | 会话列表 |
-| `GET` | `/conversations/{id}` | 会话详情 |
+| `GET` | `/conversations/{id}` | 会话详情（含消息） |
 | `PUT` | `/conversations/{id}` | 重命名会话 |
+| `DELETE` | `/conversations/{id}` | 删除会话 |
+| `POST` | `/conversations/batch-delete` | 批量删除 |
 | `POST` | `/chat/ask` | 同步问答 |
 | `POST` | `/chat/stream` | 流式问答 (SSE) |
+| `DELETE` | `/conversations/{id}/messages/{mid}` | 删除消息 |
 
-### 系统
+### 搜索 & 记忆
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/search` | 知识库搜索 |
+| `GET` | `/memories` | 记忆列表 |
+| `POST` | `/memories/remember` | 手动添加记忆 |
+| `DELETE` | `/memories/{id}` | 删除记忆 |
+
+### 系统配置
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `GET` | `/config` | 获取配置 |
 | `PUT` | `/config` | 更新配置 |
 | `GET` | `/config/models` | 可用模型 |
+| `GET` | `/config/embedding-test` | Embedding 连接测试 |
+| `GET` | `/config/reranker-test` | Reranker 连接测试 |
 | `GET` | `/health` | 健康检查 |
 
 ## 项目结构
@@ -105,34 +140,49 @@ python server/main.py
 ```
 server/
 ├── main.py              # 应用入口
-├── database.py          # 数据库连接 + 迁移
-├── config.py            # KV 配置系统
+├── database.py          # 数据库连接 + 迁移（含 FTS5 全文索引）
+├── config.py            # KV 配置系统（含 Embedding/Reranker/Web Search 配置）
 ├── models/
 │   ├── base.py          # ORM 基类
 │   ├── document.py      # Document / DocumentChunk
 │   ├── conversation.py  # Conversation / Message
-│   └── job.py           # Job（任务队列）
+│   ├── job.py           # Job（任务队列）
+│   ├── tag.py           # Tag
+│   └── collection.py    # Collection
 ├── routers/
 │   ├── documents.py     # 文档管理 API
 │   ├── conversations.py # 会话管理 API
-│   ├── chat.py          # 问答 + SSE 流式 API
-│   ├── config.py        # 配置管理 API
-│   └── jobs.py          # 任务状态 API
+│   ├── chat.py          # 问答 + SSE 流式 + 对话摘要
+│   ├── config.py        # 配置管理 + 模型测试端点
+│   ├── jobs.py          # 任务状态 API
+│   ├── search.py        # 知识库搜索 API
+│   ├── memories.py      # 记忆管理 API
+│   ├── tags.py          # 标签 API
+│   └── collections.py   # 集合 API
 ├── services/
 │   ├── parser.py        # 统一文档解析
 │   ├── formats/         # 格式解析器（pdf/docx/xlsx/pptx/mobi）
-│   ├── scanner.py       # 快速扫描器（标题/预览）
-│   ├── chunker.py       # 文本切块
-│   ├── embedder.py      # Embedding 服务
-│   ├── retriever.py     # 向量检索
-│   ├── llm.py           # LLM 适配器（支持 OpenAI/Anthropic 格式）
-│   ├── rag.py           # RAG 编排
+│   ├── scanner.py       # 快速扫描器
+│   ├── chunker.py       # 文本切块（含结构感知切块）
+│   ├── embedder.py      # Embedding 服务（支持独立/跟随模式）
+│   ├── reranker.py      # Reranker 精排服务（BGE 模板格式）
+│   ├── retriever.py     # 检索编排（查询扩展 + 混合搜索 + 精排 + 上下文扩展）
+│   ├── search.py        # 混合搜索（FTS5 + 向量 + RRF + MMR）
+│   ├── llm.py           # LLM 适配器（OpenAI/Anthropic 格式）
+│   ├── rag.py           # RAG 编排（KB 搜索 + 网络搜索 + prompt 构建）
+│   ├── memory.py        # 记忆业务逻辑（去重/合并/摘要）
+│   ├── memory_store.py  # ChromaDB 记忆存储
+│   ├── web_search.py    # Tavily 网络搜索客户端
 │   ├── pipeline.py      # 文档处理管道
 │   └── worker.py        # 后台 Worker 线程池
 ├── vector/
-│   └── store.py         # ChromaDB 封装
-└── templates/
-    └── index.html       # 前端 SPA（Vue 3）
+│   └── store.py         # ChromaDB 向量存储封装
+├── templates/
+│   └── index.html       # 前端 SPA（Vue 3）
+└── tests/               # 测试（190+ 用例）
+scripts/
+├── reindex.py           # 全量重建索引（重新解析 + 切块 + 向量化）
+└── reembed.py           # 仅重建向量（复用已有 chunks）
 ```
 
 ## 数据存储
@@ -140,8 +190,8 @@ server/
 ```
 data/
 ├── files/<doc_id>/   # 源文件 + index.md
-├── chroma/           # ChromaDB 向量数据
-└── app.db            # SQLite（元数据 + 任务队列）
+├── chroma/           # ChromaDB 向量数据（knowledge_base + memories 两个 collection）
+└── app.db            # SQLite（元数据 + 任务队列 + FTS5 全文索引 + 配置）
 ```
 
 备份/迁移只需复制整个 `data/` 目录。
@@ -150,4 +200,5 @@ data/
 
 ```bash
 python -m pytest server/tests/ -v
-# 128 tests
+# 190+ tests
+```

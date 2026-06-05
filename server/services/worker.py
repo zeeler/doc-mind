@@ -175,6 +175,7 @@ def _execute_job(job: Job):
             # 调用索引管道
             from server.services.pipeline import index_document
             index_document(job.document_id, text, config)
+            s.refresh(doc)  # index_document 在独立 session 中更新了 chunk_count
 
             doc.status = "done"
             job.progress = 100

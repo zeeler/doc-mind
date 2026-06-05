@@ -1,13 +1,17 @@
 """ChromaDB 记忆存储封装。"""
 
 import uuid
-from server.vector.store import _get_client
+from server.vector.store import get_client
 
 
 class MemoryStore:
     def __init__(self, persist_dir: str):
-        self.client = _get_client(persist_dir)
-        self.collection = self.client.get_or_create_collection(name="memories")
+        self.client = get_client(persist_dir)
+        # 显式指定 cosine 空间，确保 distance 在 [0,2] 范围内
+        self.collection = self.client.get_or_create_collection(
+            name="memories",
+            metadata={"hnsw:space": "cosine"},
+        )
 
     def add(self, mem_id: str | None, content: str, metadata: dict) -> str:
         mid = mem_id or f"mem-{uuid.uuid4().hex[:12]}"
@@ -30,7 +34,8 @@ class MemoryStore:
                 "id": ids_list[i],
                 "content": docs_list[i] if i < len(docs_list) else "",
                 "metadata": metas_list[i] if i < len(metas_list) else {},
-                "score": 1.0 - distances_list[i] if i < len(distances_list) else 0.0,
+                # cosine distance ∈ [0,2], 归一化到 [0,1]: score = 1 - distance/2
+                "score": max(0.0, 1.0 - distances_list[i] / 2.0) if i < len(distances_list) else 0.0,
             })
         return hits
 

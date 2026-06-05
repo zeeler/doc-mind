@@ -36,6 +36,7 @@ DEFAULTS = {
     "ocr_engine": "tesseract",       # "tesseract" | "ollama" — OCR 引擎
     "ocr_ollama_model": "llama3.2-vision:11b",
     "ocr_ollama_base_url": "http://localhost:11434/v1",
+    "ocr_max_workers": "2",
     "chunk_size": "800",
     "chunk_overlap": "100",
     "retrieval_top_k": "15",
@@ -54,6 +55,11 @@ DEFAULTS = {
     "embedding_model": "",
     "embedding_api_base": "",
     "embedding_api_key": "",
+    "reranker_enabled": "false",
+    "reranker_model": "",
+    "reranker_api_base": "",
+    "reranker_api_key": "",
+    "reranker_top_k": "3",
 }
 
 
@@ -66,6 +72,15 @@ EMBEDDING_CONFIG_KEYS = (
 def has_embedding_model(config: dict) -> bool:
     """判断配置中是否启用了外部 embedding 模型。"""
     return config.get("embedding_enabled") == "true" or any(config.get(k) for k in EMBEDDING_CONFIG_KEYS)
+
+
+def has_reranker_model(config: dict) -> bool:
+    """判断配置中是否启用了 Reranker 模型。"""
+    return (
+        config.get("reranker_enabled") == "true"
+        and bool(config.get("reranker_model", "").strip())
+        and bool(config.get("reranker_api_base", "").strip())
+    )
 
 
 class AppConfig:

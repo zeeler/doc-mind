@@ -17,6 +17,23 @@ from server.vector.store import VectorStore
 logger = logging.getLogger("knowledge-base")
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
+
+def _get_conversation_history(session: Session, conversation_id: str, limit: int = 6) -> list[dict]:
+    """获取当前对话的最近 N 条消息作为上下文历史。"""
+    from server.models.conversation import Message
+    recent = (
+        session.query(Message)
+        .filter(Message.conversation_id == conversation_id)
+        .order_by(Message.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    # 按时间正序返回
+    return [
+        {"role": m.role, "content": m.content}
+        for m in reversed(recent)
+    ]
+
 _rag_service_cache: RAGService | None = None
 _rag_cache_key: tuple | None = None
 _rag_cache_lock = threading.Lock()
@@ -50,8 +67,7 @@ def _get_rag_service(data_dir):
         return _rag_service_cache
     with _rag_cache_lock:
         if _rag_service_cache is None or cache_key != _rag_cache_key:
-            store = VectorStore(persist_dir=str(data_dir / "chroma"))
-            retriever = Retriever(vector_store=store, config=config)
+            retriever = Retriever(config=config)
             _rag_service_cache = RAGService(retriever=retriever, config=config)
             _rag_cache_key = cache_key
     return _rag_service_cache
@@ -82,7 +98,8 @@ def chat_ask(body: dict, session: Session = Depends(get_session)):
 
     try:
         rag = _get_rag_service(DATA_DIR)
-        result = rag.ask_sync(question)
+        history = _get_conversation_history(session, conversation_id)
+        result = rag.ask_sync(question, history=history)
     except Exception as e:
         logger.error(f"LLM 调用失败: {e}", exc_info=True)
         session.commit()
@@ -97,6 +114,15 @@ def chat_ask(body: dict, session: Session = Depends(get_session)):
     )
     session.add(assistant_msg)
     session.commit()
+
+    # 后台异步生成对话摘要记忆
+    def _summarize_bg():
+        try:
+            from server.services.memory import summarize_conversation
+            summarize_conversation(conversation_id)
+        except Exception as e:
+            logger.warning(f"对话摘要后台任务失败: {e}")
+    threading.Thread(target=_summarize_bg, daemon=True).start()
 
     return {
         "code": "OK",
@@ -134,6 +160,7 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
 
     try:
         rag = _get_rag_service(DATA_DIR)
+        history = _get_conversation_history(session, conversation_id)
     except Exception as e:
         logger.error(f"RAG 服务初始化失败: {e}", exc_info=True)
         raise HTTPException(status_code=502, detail=f"RAG 服务初始化失败: {str(e)}")
@@ -143,7 +170,7 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
         citations = []
         try:
             yield {"event": "meta", "data": json.dumps({"conversation_id": conversation_id}, ensure_ascii=False)}
-            async for chunk in rag.ask_stream(question):
+            async for chunk in rag.ask_stream(question, history=history):
                 if chunk["type"] == "token":
                     full_answer += chunk["content"]
                     yield {"data": json.dumps({"type": "token", "content": chunk["content"]}, ensure_ascii=False)}
@@ -168,6 +195,14 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
                     )
                     s.add(assistant_msg)
                     s.commit()
+                # 后台异步生成对话摘要
+                def _summarize_bg():
+                    try:
+                        from server.services.memory import summarize_conversation
+                        summarize_conversation(conversation_id)
+                    except Exception as e:
+                        logger.warning(f"对话摘要后台任务失败: {e}")
+                threading.Thread(target=_summarize_bg, daemon=True).start()
         yield {"event": "done", "data": "{}"}
 
     return EventSourceResponse(event_stream())

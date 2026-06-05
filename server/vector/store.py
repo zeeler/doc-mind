@@ -20,6 +20,11 @@ def _get_client(persist_dir: str) -> chromadb.PersistentClient:
         return _clients[persist_dir]
 
 
+def get_client(persist_dir: str) -> chromadb.PersistentClient:
+    """公开接口，供 memory_store 等模块使用。"""
+    return _get_client(persist_dir)
+
+
 class VectorStore:
     def __init__(self, persist_dir: str, collection_name: str = "knowledge_base"):
         self.client = _get_client(persist_dir)

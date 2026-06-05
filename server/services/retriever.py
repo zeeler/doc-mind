@@ -32,10 +32,11 @@ def _cn_num_to_arabic(chapter_str: str) -> str:
 
 
 class Retriever:
-    def __init__(self, vector_store, config: dict):
+    def __init__(self, config: dict, vector_store=None):
         self.top_k = int(config.get("retrieval_top_k", "15"))
         self.config = config
         self.search_service = get_search_service(data_dir=DATA_DIR, top_k=self.top_k)
+        # vector_store 参数保留用于向后兼容，不再强制要求
 
     def _expand_query(self, query: str) -> list[str]:
         """查询扩展：针对宽泛问题生成搜索变体，提升覆盖面。
@@ -67,11 +68,16 @@ class Retriever:
                 if p and len(p) > 2 and p not in queries:
                     queries.append(p)
 
-        # 模式3: "总结"/"概述"/"介绍" — 提取主题词单独搜索
-        m = re.match(r"(总结|概述|介绍|讲讲)(.+?)的?(要点|内容|方面)?$", query)
+        # 模式3: "总结"/"概述"/"介绍"/"讲讲" — 提取主题词
+        # 先清除常见填充词，再匹配
+        cleaned = re.sub(r'(一下|帮我|来说|来讲|看看|帮我看看)', '', query)
+        m = re.match(r"(总结|概述|介绍|讲讲|说说)(.+?)(?:的?(?:要点|内容|方面|核心))?$", cleaned)
+        if not m:
+            # 补充模式: "X讲了什么" / "X说了什么" / "X写了什么"
+            m = re.match(r"(.+?)(?:讲了什么|说了什么|写了什么|介绍了什么|主要内容|相关内容)$", cleaned)
         if m:
-            topic = m.group(2).strip()
-            if topic and topic not in queries:
+            topic = m.group(2).strip() if len(m.groups()) >= 2 and m.group(2) else m.group(1).strip()
+            if topic and topic not in queries and len(topic) > 1:
                 queries.append(topic)
 
         # 模式4: "书名第N章..." → 提取章节编号，同时尝试中阿两种格式
@@ -184,10 +190,39 @@ class Retriever:
         # 按分数重新排序
         all_results.sort(key=lambda x: x.get("score", 0.0), reverse=True)
 
+        # Reranker 精排：对 Top-N 候选结果重新打分排序
+        from server.config import has_reranker_model
+        reranker_top_k = int(self.config.get("reranker_top_k", "5"))
+        if has_reranker_model(self.config) and all_results:
+            try:
+                from server.services.reranker import Reranker
+                reranker = Reranker(self.config)
+                if reranker.enabled:
+                    # 取召回分数最高的候选供 reranker 精排
+                    rerank_candidates_count = min(
+                        max(reranker_top_k * 2, 6),
+                        len(all_results),
+                    )
+                    candidates = all_results[:rerank_candidates_count]
+                    # 用 reranker 精排
+                    reranked = reranker.rerank_chunks(
+                        query, candidates, top_k=reranker_top_k
+                    )
+                    if reranked is not None:
+                        all_results = reranked
+                        logger.info(
+                            "Reranker 精排: %d 候选 → %d 结果",
+                            rerank_candidates_count, len(all_results),
+                        )
+                    else:
+                        logger.info("Reranker 不可用，使用原始排序")
+            except Exception as e:
+                logger.warning("Reranker 精排失败，使用原始排序: %s", e)
+
         # 上下文扩展：对 top 结果获取相邻 chunk
         context_window = int(self.config.get("retrieval_context_window", "2"))
         if context_window > 0 and all_results:
-            top_results = all_results[:max(3, self.top_k // 2)]
+            top_results = all_results[:max(3, reranker_top_k if has_reranker_model(self.config) else self.top_k // 2)]
             expanded = self.search_service.expand_context(
                 top_results, window=context_window
             )

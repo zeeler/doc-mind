@@ -98,6 +98,103 @@ class TestTaskListIntegration:
         detail = client.get(f"/api/v1/conversations/{conv_id}")
         assert detail.json()["data"]["title"] == "新会话"
 
+    # ---- 回归测试：对话重命名 bug ----
+
+    def test_rename_persists_after_reload(self, client):
+        """Bug: 改名后刷新列表，标题又变回去。"""
+        resp = client.post("/api/v1/conversations", json={})
+        conv_id = resp.json()["data"]["id"]
+
+        # 改名
+        client.put(f"/api/v1/conversations/{conv_id}", json={"title": "新标题"})
+
+        # 模拟页面刷新：重新获取列表
+        list1 = client.get("/api/v1/conversations")
+        updated1 = [d for d in list1.json()["data"] if d["id"] == conv_id][0]
+        assert updated1["title"] == "新标题"
+
+        # 再次"刷新"
+        list2 = client.get("/api/v1/conversations")
+        updated2 = [d for d in list2.json()["data"] if d["id"] == conv_id][0]
+        assert updated2["title"] == "新标题"
+
+    def test_rename_idempotent(self, client):
+        """Bug: @blur + @keydown.enter 双重触发导致重复调用。验证重复请求不影响结果。"""
+        resp = client.post("/api/v1/conversations", json={})
+        conv_id = resp.json()["data"]["id"]
+
+        # 模拟双重触发：连续两次 PUT
+        client.put(f"/api/v1/conversations/{conv_id}", json={"title": "最终标题"})
+        client.put(f"/api/v1/conversations/{conv_id}", json={"title": "最终标题"})
+
+        detail = client.get(f"/api/v1/conversations/{conv_id}")
+        assert detail.json()["data"]["title"] == "最终标题"
+
+    def test_rename_conversation_list_sorted(self, client):
+        """Bug: 改名后 loadConversations 可能覆盖列表排序导致 UI 错位。"""
+        # 创建多个会话并改名
+        r1 = client.post("/api/v1/conversations", json={"title": "A会话"})
+        r2 = client.post("/api/v1/conversations", json={"title": "B会话"})
+
+        client.put(f"/api/v1/conversations/{r1.json()['data']['id']}", json={"title": "Z会话"})
+
+        # 列表应包含改名后的标题
+        list_data = client.get("/api/v1/conversations").json()["data"]
+        titles = [d["title"] for d in list_data]
+        assert "Z会话" in titles
+        assert "B会话" in titles
+
+    def test_rename_with_special_characters(self, client):
+        """改名支持 emoji 和特殊字符。"""
+        resp = client.post("/api/v1/conversations", json={})
+        conv_id = resp.json()["data"]["id"]
+
+        special_title = "测试 🚀 会员运营 & 数据分析"
+        client.put(f"/api/v1/conversations/{conv_id}", json={"title": special_title})
+
+        detail = client.get(f"/api/v1/conversations/{conv_id}")
+        assert detail.json()["data"]["title"] == special_title
+
+
+class TestFrontendTemplateRequirements:
+    """前端模板必需变量回归检查 — 防止 return 语句遗漏变量导致功能失效。"""
+
+    def test_rename_variables_in_template(self):
+        """Bug: editingId / editTitle 从 setup() return 语句中遗漏，导致改名无反应。"""
+        template_path = __import__('pathlib').Path(__file__).resolve().parent.parent.parent / "templates" / "index.html"
+        html = template_path.read_text()
+        import re
+
+        # 提取 setup() 的 return 语句（跨两行，以分号结束）
+        match = re.search(r'return \{([^;]+);', html)
+        assert match, "未找到 return 语句"
+        returned = match.group(1)
+
+        # 改名必需变量
+        required = ["editingId", "editTitle", "renameStart", "renameDone", "convMenuId", "toggleConvMenu"]
+        for var in required:
+            assert var in returned, (
+                f"'{var}' 不在 setup() return 语句中！前端改名功能将失效。\n"
+                f"请检查 server/templates/index.html 的 return {...} 是否包含此变量。"
+            )
+
+    def test_all_v_model_variables_returned(self):
+        """模板中用到的关键 ref 变量都应在 return 中。"""
+        template_path = __import__('pathlib').Path(__file__).resolve().parent.parent.parent / "templates" / "index.html"
+        html = template_path.read_text()
+        import re
+
+        # 提取 return 语句中的所有标识符
+        match = re.search(r'return \{([^;]+);', html)
+        assert match, "未找到 return 语句"
+        returned = match.group(1)
+        returned_vars = set(re.findall(r'([a-zA-Z_]\w+)', returned))
+
+        # 改名相关的关键变量
+        rename_vars = ["editingId", "editTitle", "renameStart", "renameDone", "convMenuId", "toggleConvMenu"]
+        for var in rename_vars:
+            assert var in returned_vars, f"'{var}' 应在 return 中"
+
 
 class TestClickTaskFlow:
     """模拟点击任务 → 查看历史聊天记录的完整链路。"""

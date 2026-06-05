@@ -165,6 +165,23 @@ body {
 .task-menu-dropdown button.danger { color: var(--danger); }
 .task-menu-dropdown button.danger:hover { background: var(--danger-bg); }
 .task-empty { text-align: center; padding: 40px 16px; color: var(--text-tertiary); font-size: 12px; }
+/* 自定义确认弹窗 */
+.confirm-overlay { position: fixed; inset: 0; z-index: 999; background: rgba(0,0,0,.15); }
+.confirm-popover {
+  position: fixed; z-index: 1000;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.15);
+  padding: 16px; min-width: 240px; max-width: 300px;
+}
+.confirm-msg { font: 13px/1.6 var(--sans); color: var(--text); margin-bottom: 14px; white-space: pre-line; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.confirm-actions button {
+  padding: 6px 16px; border-radius: 6px; font: 12px var(--sans);
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer;
+}
+.confirm-actions button:hover { background: var(--bg-hover); }
+.confirm-actions button.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+.confirm-actions button.danger:hover { background: var(--danger-hover, #dc2626); }
 .sidebar-footer {
   border-top: 1px solid var(--border-light);
   padding: 8px 10px;
@@ -573,17 +590,17 @@ body {
       <div v-for="c in conversations" :key="c.id" @click="convBatchMode?toggleConvSelect(c.id):openTask(c.id)" @dblclick="!convBatchMode&&renameStart(c)" :class="['task-item',{active:currentConv===c.id,selected:convSelected.has(c.id)}]" style="position:relative">
         <input v-if="convBatchMode" type="checkbox" :checked="convSelected.has(c.id)" @click.stop="toggleConvSelect(c.id)" style="width:14px;height:14px;accent-color:var(--amber);flex-shrink:0">
         <span class="task-title" v-if="editingId!==c.id">{{ c.title }}</span>
-        <input v-else v-model="editTitle" @blur="renameDone(c.id)" @keydown.enter="renameDone(c.id)" @keydown.escape="editingId=null" @click.stop>
+        <input v-else v-model="editTitle" @blur="renameDone(c.id)" @keydown.enter.prevent="renameDone(c.id)" @keydown.escape="editingId=null" @click.stop>
         <button v-if="!convBatchMode" class="task-menu-btn" @click.stop="toggleConvMenu(c.id)" title="更多">⋯</button>
         <div v-if="convMenuId===c.id" class="task-menu-dropdown" @click.stop>
           <button @click="renameStart(c);convMenuId=null">✏️ 改名</button>
-          <button class="danger" @click="deleteConv(c.id);convMenuId=null">🗑 删除</button>
+          <button class="danger" @click="deleteConv(c.id,$event);convMenuId=null">🗑 删除</button>
         </div>
       </div>
     </div>
     <div v-if="convBatchMode&&convSelected.size>0" style="padding:6px 10px;border-top:1px solid var(--border-light);display:flex;align-items:center;gap:8px;background:var(--card)">
       <span style="font:500 12px var(--sans);color:var(--text)">已选 {{ convSelected.size }} 个</span>
-      <button @click="batchDeleteConvs" style="margin-left:auto;padding:4px 10px;border:1px solid var(--danger);border-radius:4px;background:var(--card);color:var(--danger);cursor:pointer;font:11px var(--sans)">🗑 删除</button>
+      <button @click="batchDeleteConvs($event)" style="margin-left:auto;padding:4px 10px;border:1px solid var(--danger);border-radius:4px;background:var(--card);color:var(--danger);cursor:pointer;font:11px var(--sans)">🗑 删除</button>
     </div>
     <div class="sidebar-footer">
       <button @click="page='docs'" :class="{'nav-active':page==='docs'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8"/></svg>文档管理</button>
@@ -614,7 +631,7 @@ body {
                 <button v-if="m.role==='assistant'" @click="rememberMessage(m, currentConv)" title="保存到记忆">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
                 </button>
-                <button class="danger" @click="deleteMsg(m.id)" title="删除">
+                <button class="danger" @click="deleteMsg(m.id,$event)" title="删除">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                 </button>
               </div>
@@ -752,7 +769,7 @@ body {
               <button @click="openTagPicker(d,$event)" title="打标签">🏷</button>
               <button @click="openCollectPicker(d,$event)" title="加集合">📂</button>
               <button @click="openCategoryEdit(d,$event)" title="改分类">📋</button>
-              <button class="doc-del" @click="delDoc(d.id)">删除</button>
+              <button class="doc-del" @click="delDoc(d.id,$event)">删除</button>
             </div>
             <div v-if="tagPickerDoc===d" class="tag-picker" @click.stop>
               <input v-model="tagSearch" @keydown.enter.prevent="addTagToDoc(d,tagSearch)" @keydown.escape="closeTagPicker" placeholder="输入标签名回车...">
@@ -778,7 +795,7 @@ body {
           <button @click="batchRetry">🔄 重试</button>
           <button @click="batchTag">🏷 打标签</button>
           <button @click="batchCategorize">📋 改分类</button>
-          <button class="danger" @click="batchDelete">🗑 删除</button>
+          <button class="danger" @click="batchDelete($event)">🗑 删除</button>
         </div>
         <!-- Batch modals -->
         <div v-if="batchTagPrompt" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;z-index:50;box-shadow:var(--shadow-lg);min-width:300px">
@@ -854,6 +871,23 @@ body {
         </template>
         <div v-if="embeddingOn && config.embedding_model" class="hint">✓ 向量搜索已启用，知识库检索质量将显著提升</div>
         <div v-if="embeddingOn && !config.embedding_model" class="hint" style="color:var(--danger)">请填写模型名称和 API 信息</div>
+        <button v-if="embeddingOn" class="btn btn-ghost" @click="testEmbedding">{{ testingEmbedding ? '测试中...' : '测试连接' }}</button>
+        <div v-if="embeddingResult" :class="embeddingResult.ok?'result-ok':'result-err'">{{ embeddingResult.msg }}</div>
+      </div>
+      <div class="page-card">
+        <h3>Reranker 模型（结果精排）</h3>
+        <div class="desc">对 Embedding 召回的候选结果进行语义精排，大幅提升检索准确度</div>
+        <label class="check-lbl"><input type="checkbox" v-model="rerankerOn"> 启用 Reranker 精排</label>
+        <template v-if="rerankerOn">
+          <div class="field"><label>模型名称</label><input v-model="config.reranker_model" placeholder="例如: BAAI/bge-reranker-v2-m3"></div>
+          <div class="field"><label>API Base URL</label><input v-model="config.reranker_api_base" placeholder="例如: https://api.siliconflow.cn/v1"></div>
+          <div class="field"><label>API Key（可选）</label><input v-model="config.reranker_api_key" type="password" placeholder="留空使用无鉴权模式"></div>
+          <div class="field"><label>精排结果数</label><input v-model="config.reranker_top_k" type="number" min="1" max="20"></div>
+        </template>
+        <div v-if="rerankerOn && config.reranker_model" class="hint">✓ 精排已启用，检索结果将更精准</div>
+        <div v-if="rerankerOn && !config.reranker_model" class="hint" style="color:var(--danger)">请填写模型名称和 API 信息</div>
+        <button v-if="rerankerOn" class="btn btn-ghost" @click="testReranker">{{ testingReranker ? '测试中...' : '测试连接' }}</button>
+        <div v-if="rerankerResult" :class="rerankerResult.ok?'result-ok':'result-err'">{{ rerankerResult.msg }}</div>
       </div>
       <div class="page-card">
         <h3>网络搜索（Tavily）</h3>
@@ -867,6 +901,7 @@ body {
       </div>
       <button class="btn btn-primary" @click="saveConfig" style="padding:13px">保存配置</button>
       <div v-if="saved" class="result-ok" style="text-align:center;margin-top:10px;font-family:var(--sans)">✓ 已保存</div>
+      <div v-if="saveError" class="result-err" style="text-align:center;margin-top:10px;font-family:var(--sans)">{{ saveError }}</div>
     </div>
 
     <!-- Memories -->
@@ -879,12 +914,21 @@ body {
           <span style="font:11px var(--sans);color:var(--amber);background:var(--amber-light);padding:2px 8px;border-radius:99px;border:1px solid var(--amber-ring)">{{ m.type }}</span>
           <div style="font:13px/1.6 var(--sans);color:var(--text);margin-top:8px;word-break:break-word">{{ m.content }}</div>
         </div>
-        <button @click="deleteMemory(m.id)" style="color:var(--danger);font:12px var(--sans);cursor:pointer;background:none;border:none;flex-shrink:0">删除</button>
+        <button @click="deleteMemory(m.id,$event)" style="color:var(--danger);font:12px var(--sans);cursor:pointer;background:none;border:none;flex-shrink:0">删除</button>
+      </div>
+    </div>
+  </div>
+  <!-- 自定义确认弹窗 -->
+  <div v-if="confirmShow" class="confirm-overlay" @click="confirmCancel()">
+    <div class="confirm-popover" :style="{left:confirmX+'px',top:confirmY+'px'}" @click.stop>
+      <div class="confirm-msg">{{ confirmMsg }}</div>
+      <div class="confirm-actions">
+        <button @click="confirmCancel()">取消</button>
+        <button class="danger" @click="confirmOk()">确定删除</button>
       </div>
     </div>
   </div>
 </div>
-
 <script>
 const { createApp, ref, reactive, computed, nextTick, onMounted, watch } = Vue;
 
@@ -918,10 +962,23 @@ createApp({
     const embeddingOn = ref(false);
     const webSearchOn = ref(false);
     const saved = ref(false);
+    const saveError = ref('');
+    const testingEmbedding = ref(false);
+    const embeddingResult = ref(null);
+    const rerankerOn = ref(false);
+    const testingReranker = ref(false);
+    const rerankerResult = ref(null);
     const chatResult = ref(null);
     const ocrResult = ref(null);
     const editingId = ref(null);
     const editTitle = ref('');
+    const confirmShow = ref(false);
+    const confirmMsg = ref('');
+    const confirmX = ref(0);
+    const confirmY = ref(0);
+    let confirmResolve = null;
+    function confirmOk() { if (confirmResolve) { confirmResolve(true); confirmResolve = null; } confirmShow.value = false; }
+    function confirmCancel() { if (confirmResolve) { confirmResolve(false); confirmResolve = null; } confirmShow.value = false; }
     const testingChat = ref(false);
     const testingOcr = ref(false);
     const msgBox = ref(null);
@@ -968,8 +1025,8 @@ createApp({
       catch(e) { console.error(e); }
     }
     function renameStart(c) { editingId.value = c.id; editTitle.value = c.title; nextTick(()=>{const i=document.querySelector('.task-item input');if(i){i.focus();i.select();}}); }
-    async function deleteConv(id) {
-      if (!confirm('确定删除这个对话？对话中的消息也会被删除。')) return;
+    async function deleteConv(id, evt) {
+      try { if (!await showConfirm('确定删除这个对话？\n对话中的消息也会被删除。', evt)) return; } catch(_) { return; }
       try {
         await fetch('/api/v1/conversations/' + id, {method: 'DELETE'});
         if (currentConv.value === id) {
@@ -981,14 +1038,24 @@ createApp({
       } catch(e) { console.error('删除失败:', e); alert('删除失败: ' + e.message); }
     }
     function toggleConvMenu(id) { convMenuId.value = convMenuId.value === id ? null : id; }
+    function showConfirm(msg, e) {
+      return new Promise(resolve => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        confirmResolve = resolve;
+        confirmMsg.value = msg;
+        confirmX.value = rect.left;
+        confirmY.value = rect.bottom + 4;
+        confirmShow.value = true;
+      });
+    }
     function toggleConvSelect(id) {
       const s = new Set(convSelected.value);
       if (s.has(id)) s.delete(id); else s.add(id);
       convSelected.value = s;
     }
-    async function batchDeleteConvs() {
+    async function batchDeleteConvs(evt) {
       const ids = [...convSelected.value];
-      if (!confirm(`确定删除选中的 ${ids.length} 个对话？`)) return;
+      try { if (!await showConfirm(`确定删除选中的 ${ids.length} 个对话？`, evt)) return; } catch(_) { return; }
       try {
         await api('/api/v1/conversations/batch-delete', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});
         ids.forEach(id => { if (currentConv.value === id) { currentConv.value = null; messages.value = []; } });
@@ -998,10 +1065,13 @@ createApp({
       } catch(e) { console.error('批量删除失败:', e); alert('删除失败: ' + e.message); }
     }
     async function renameDone(id) {
+      if (!editingId.value) return;  // 防止 blur + enter 双重触发
       const t = editTitle.value.trim(); editingId.value = null;
       if (!t) return;
-      await api('/api/v1/conversations/'+id, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t})});
-      await loadConversations();
+      try {
+        await api('/api/v1/conversations/'+id, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t})});
+        await loadConversations();
+      } catch(e) { editingId.value = id; editTitle.value = t; console.error('改名失败:', e); }
     }
     function scrollBottom() { const el=msgBox.value; if(el) el.scrollTop=el.scrollHeight; }
 
@@ -1051,7 +1121,7 @@ createApp({
     async function retryFailedJobs() { try { const d = await api('/api/v1/jobs/retry-failed', {method:'POST'}); alert('已重试 ' + d.data.retried + ' 个任务'); await loadJobStats(); } catch(e) { console.error(e); } }
     async function uploadFile(e) { const f=e.target.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);await fetch('/api/v1/documents/upload',{method:'POST',body:fd});uploading.value=false;await loadDocuments(); }
     function uploadDrop(e) { const f=e.dataTransfer.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);fetch('/api/v1/documents/upload',{method:'POST',body:fd}).then(()=>{uploading.value=false;loadDocuments()}); }
-    async function delDoc(id) { if(!confirm('确定删除？'))return;await fetch('/api/v1/documents/'+id,{method:'DELETE'});await Promise.all([loadDocuments(),loadJobStats(),loadTags(),loadFolders()]); }
+    async function delDoc(id, evt) { try { if(!await showConfirm('确定删除这个文档？',evt))return; } catch(_){return;} await fetch('/api/v1/documents/'+id,{method:'DELETE'});await Promise.all([loadDocuments(),loadJobStats(),loadTags(),loadFolders()]); }
     async function retryDoc(id) {
       retryingIds.add(id);
       try {
@@ -1092,8 +1162,10 @@ createApp({
         dirResult.value = msg; if (ok > 0) setTimeout(() => loadDocuments(), 500);
       } catch(e) { dirProcessing.value = false; if (e.name !== 'AbortError') dirResult.value = '目录选择失败: ' + e.message; }
     }
-    async function loadConfig() { try { const d=await api('/api/v1/config'); config.value=d.data||{}; ocrOn.value=config.value.ocr_enabled!=='false'; embeddingOn.value=config.value.embedding_enabled==='true'; webSearchOn.value=config.value.web_search_enabled==='true'; } catch(e) {} }
-    async function saveConfig() { config.value.ocr_enabled=ocrOn.value?'true':'false';config.value.embedding_enabled=embeddingOn.value?'true':'false';config.value.web_search_enabled=webSearchOn.value?'true':'false';await api('/api/v1/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config.value)});saved.value=true;setTimeout(()=>saved.value=false,2000); }
+    async function loadConfig() { try { const d=await api('/api/v1/config'); config.value=d.data||{}; ocrOn.value=config.value.ocr_enabled!=='false'; embeddingOn.value=config.value.embedding_enabled==='true'; rerankerOn.value=config.value.reranker_enabled==='true'; webSearchOn.value=config.value.web_search_enabled==='true'; } catch(e) {} }
+    async function saveConfig() { saveError.value=''; config.value.ocr_enabled=ocrOn.value?'true':'false';config.value.embedding_enabled=embeddingOn.value?'true':'false';config.value.reranker_enabled=rerankerOn.value?'true':'false';config.value.web_search_enabled=webSearchOn.value?'true':'false'; try { await api('/api/v1/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config.value)}); saved.value=true;setTimeout(()=>saved.value=false,2000); } catch(e) { saveError.value='✗ 保存失败: '+e.message; } }
+    async function testEmbedding() { testingEmbedding.value=true;embeddingResult.value=null; try { const d=await api('/api/v1/config/embedding-test'); embeddingResult.value={ok:true,msg:'✓ 连接成功，模型: '+d.data.model+'，维度: '+d.data.dimension}; } catch(e) { embeddingResult.value={ok:false,msg:'✗ '+e.message}; } testingEmbedding.value=false; }
+    async function testReranker() { testingReranker.value=true;rerankerResult.value=null; try { const d=await api('/api/v1/config/reranker-test'); rerankerResult.value={ok:true,msg:'✓ 连接成功，模型: '+d.data.model}; } catch(e) { rerankerResult.value={ok:false,msg:'✗ '+e.message}; } testingReranker.value=false; }
     async function testChat() { testingChat.value=true;chatResult.value=null;try{const cr=await api('/api/v1/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const res=await fetch('/api/v1/chat/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:cr.data.id,question:'你好'})});const d=await res.json();chatResult.value=d.data&&d.data.answer?{ok:true,msg:'✓ '+d.data.answer.slice(0,60)+'...'}:{ok:false,msg:'✗ '+(d.detail||res.statusText)}}catch(e){chatResult.value={ok:false,msg:'✗ '+e.message}}testingChat.value=false; }
     async function testOcr() { testingOcr.value=true;ocrResult.value=null;if(config.value.ocr_engine!=='ollama'){ocrResult.value={ok:true,msg:'✓ Tesseract 就绪'};testingOcr.value=false;return}try{const b=(config.value.ocr_ollama_base_url||'http://localhost:11434/v1').replace(/\/+$/,'');const res=await fetch(b+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:config.value.ocr_ollama_model||'minicpm-v:8b',messages:[{role:'user',content:'OK'}],max_tokens:10})});if(res.ok)ocrResult.value={ok:true,msg:'✓ API 正常'};else{const e=await res.text();ocrResult.value={ok:false,msg:'✗ '+res.status+': '+e.slice(0,100)}}}catch(e){ocrResult.value={ok:false,msg:'✗ '+e.message}}testingOcr.value=false; }
     const copyId = ref(null);
@@ -1119,8 +1191,8 @@ createApp({
     function statusColor(s) { if(s==='done')return'var(--success)';if(s==='failed')return'var(--danger)';if(s==='pending')return'var(--text-tertiary)';return'var(--info)'; }
     async function loadMemories() { try { const d = await api('/api/v1/memories'); memoriesList.value = d.data || []; } catch(e) { console.error(e); } }
     async function rememberMessage(msg, convId) { try { await api('/api/v1/memories/remember', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:convId, message_id:msg.id})}); } catch(e) { console.error(e); } }
-    async function deleteMessage(msgId) { if (!confirm('确定删除这条消息？')) return; try { await fetch('/api/v1/conversations/'+currentConv.value+'/messages/'+msgId, {method:'DELETE'}); messages.value = messages.value.filter(m => m.id !== msgId); } catch(e) { console.error('删除消息失败:', e); alert('删除失败: ' + e.message); } }
-    async function deleteMemory(id) { if (!confirm('删除这条记忆？')) return; await fetch('/api/v1/memories/' + id, {method: 'DELETE'}); await loadMemories(); }
+    async function deleteMessage(msgId, evt) { try { if (!await showConfirm('确定删除这条消息？', evt)) return; } catch(_){return;} try { await fetch('/api/v1/conversations/'+currentConv.value+'/messages/'+msgId, {method:'DELETE'}); messages.value = messages.value.filter(m => m.id !== msgId); } catch(e) { console.error('删除消息失败:', e); alert('删除失败: ' + e.message); } }
+    async function deleteMemory(id, evt) { try { if (!await showConfirm('确定删除这条记忆？', evt)) return; } catch(_){return;} await fetch('/api/v1/memories/' + id, {method: 'DELETE'}); await loadMemories(); }
     async function loadTags() { try { const d = await api('/api/v1/tags'); allTags.value = d.data || []; } catch(e) { console.error(e); } }
     async function loadCollections() { try { const d = await api('/api/v1/collections'); allCollections.value = d.data || []; } catch(e) { console.error(e); } }
     async function loadFolders() {
@@ -1160,7 +1232,7 @@ createApp({
       } catch(e) { alert('✗ 请求失败: ' + e.message + '\n请确认服务器已重启'); }
       ids.forEach(id => retryingIds.delete(id)); selectedIds.value = new Set(); await loadDocuments(); await loadJobStats();
     }
-    async function batchDelete() { if (!confirm(`确定删除选中的 ${selectedIds.value.size} 个文档？`)) return; await api('/api/v1/documents/batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: [...selectedIds.value], action: 'delete'})}); selectedIds.value = new Set(); await Promise.all([loadDocuments(),loadTags(),loadFolders()]); }
+    async function batchDelete(evt) { try { if (!await showConfirm(`确定删除选中的 ${selectedIds.value.size} 个文档？`, evt)) return; } catch(_){return;} await api('/api/v1/documents/batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: [...selectedIds.value], action: 'delete'})}); selectedIds.value = new Set(); await Promise.all([loadDocuments(),loadTags(),loadFolders()]); }
     function toggleSection(name) { sections[name] = !sections[name]; }
     function dedupBy(arr, keyFn) { const seen = new Set(); return (arr||[]).filter(item => { const k = keyFn(item); if (!k || seen.has(k)) return false; seen.add(k); return true; }); }
     function uniqueTags(tags) { return dedupBy(tags, t => t.id); }
@@ -1173,10 +1245,10 @@ createApp({
       else { if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } }
     });
 
-    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,embeddingOn,webSearchOn,saved,chatResult,ocrResult,editingId,editTitle,testingChat,testingOcr,msgBox,inputEl,memoriesList,
+    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,embeddingOn,rerankerOn,webSearchOn,saved,saveError,chatResult,ocrResult,editingId,editTitle,confirmShow,confirmMsg,confirmX,confirmY,embeddingResult,rerankerResult,testingChat,testingOcr,testingEmbedding,testingReranker,msgBox,inputEl,memoriesList,
       batchMode, selectedIds, allTags, allCollections, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, collectPickerDoc, categoryEditDoc, editCategoryName, showNewCollection, newCollectionName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
       loadTags, loadCollections, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCollectPicker, toggleDocCollection, createCollection, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
-      newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,testChat,testOcr,loadMemories,rememberMessage,deleteMsg:deleteMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,
+      newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,showConfirm,confirmOk,confirmCancel,testChat,testOcr,testEmbedding,testReranker,loadMemories,rememberMessage,deleteMsg:deleteMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,
       batchRetry, uniqueTags, uniqueCitations };
   }
 }).mount('#app');

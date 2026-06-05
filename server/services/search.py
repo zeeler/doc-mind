@@ -86,6 +86,8 @@ class SearchService:
         self.data_dir = data_dir
         self.top_k = top_k
         self._vector_store = None
+        self._embedder = None
+        self._embedder_config_key = None
 
     @property
     def vector_store(self):
@@ -93,16 +95,30 @@ class SearchService:
             self._vector_store = VectorStore(persist_dir=str(self.data_dir / "chroma"))
         return self._vector_store
 
-
-    def _get_query_embedding(self, query: str) -> list[list[float]] | None:
-        """使用配置的 embedding 模型编码查询向量；无配置时返回 None。"""
+    def _get_embedder(self):
+        """获取缓存的 Embedder 实例，配置变更时自动重建。"""
         from server.config import AppConfig, has_embedding_model
         config = AppConfig().get_all()
         if not has_embedding_model(config):
             return None
-        try:
+        # 用关键配置项组成缓存 key
+        cache_key = (
+            config.get("embedding_model", ""),
+            config.get("embedding_api_base", ""),
+            config.get("embedding_api_key", ""),
+        )
+        if self._embedder is None or self._embedder_config_key != cache_key:
             from server.services.embedder import Embedder
-            embedder = Embedder(config)
+            self._embedder = Embedder(config)
+            self._embedder_config_key = cache_key
+        return self._embedder
+
+    def _get_query_embedding(self, query: str) -> list[list[float]] | None:
+        """使用配置的 embedding 模型编码查询向量；无配置时返回 None。"""
+        embedder = self._get_embedder()
+        if embedder is None:
+            return None
+        try:
             return embedder.embed([query])
         except Exception as e:
             logger.warning(f"查询 embedding 失败，回退 ChromaDB 内置: {e}")
@@ -343,22 +359,30 @@ class SearchService:
         else:
             # 纯 FTS5 模式：添加 match_type 和占位 score
             merged = []
-            for r in keyword_results[:k]:
+            for i, r in enumerate(keyword_results[:k]):
                 merged.append({
                     **r,
-                    "score": round(1.0 / (1 + keyword_results.index(r)), 4),
+                    "score": round(1.0 / (1 + i), 4),
                     "match_type": "keyword",
                 })
 
-        # MMR 多样性重排序
-        if config and config.get("retrieval_enable_mmr", "true") == "true" and len(merged) > k:
+        # 维度不匹配检测：向量搜索失败时发出明确警告
+        if config and has_embedding_model(config) and not vector_results:
+            logger.warning(
+                "向量搜索返回 0 结果！可能 embedding 模型维度变化，需要运行 scripts/reembed.py 重建索引"
+            )
+
+        # 先过滤纯目录 chunk 和垃圾内容，避免 MMR 选到它们
+        merged = [r for r in merged if not _is_toc_chunk(r.get("content", ""))]
+        merged = [r for r in merged if not _is_junk_chunk(r.get("content", ""))]
+
+        # MMR 多样性重排序（启用 Reranker 时跳过，由 Reranker 精排替代）
+        from server.config import has_reranker_model
+        skip_mmr = config and has_reranker_model(config) if config else False
+        if config and config.get("retrieval_enable_mmr", "true") == "true" and len(merged) > k and not skip_mmr:
             lambda_val = float(config.get("retrieval_mmr_lambda", "0.7"))
             candidate_pool = merged[:min(len(merged), k * 3)]
             merged = self._mmr_rerank(candidate_pool, query, config, k, lambda_val)
-
-        # 过滤纯目录 chunk 和垃圾内容（公众号、ISBN、推荐语列表等）
-        merged = [r for r in merged if not _is_toc_chunk(r.get("content", ""))]
-        merged = [r for r in merged if not _is_junk_chunk(r.get("content", ""))]
 
         for r in merged:
             r["excerpt"] = highlight(r["content"], query)
