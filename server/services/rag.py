@@ -4,58 +4,43 @@ import asyncio
 import logging
 from typing import AsyncIterator
 from server.services.llm import LLMAdapter
-from server.services.memory import search_memories
 from server.services.web_search import WebSearchClient
 
 logger = logging.getLogger("knowledge-base")
 
 
-def _build_memory_section(memories: list[dict] | None) -> str:
-    if not memories:
-        return ""
-    parts = [f"- {m['content']}" for m in memories[:3]]
-    return (f"\n## 相关记忆\n" + "\n".join(parts) + "\n") if parts else ""
-
-
-def _build_history_section(history: list[dict] | None) -> str:
-    """将对话历史格式化为 prompt 上下文。"""
+def _build_history_text(history: list[dict] | None) -> str:
+    """将对话历史格式化为单段文本，注入 system message。"""
     if not history:
         return ""
     parts = []
-    for h in history[-6:]:  # 最近 6 轮对话
+    for h in history[-6:]:
         role = "用户" if h["role"] == "user" else "助手"
         parts.append(f"{role}：{h['content']}")
     if parts:
-        return "\n## 对话历史\n" + "\n".join(parts) + "\n"
+        return "## 对话历史\n" + "\n".join(parts)
     return ""
 
 
 def build_qa_prompt(
     question: str,
     chunks: list[dict],
-    memories: list[dict] | None = None,
+    memory_context: str = "",
     web_sourced: bool = False,
-    history: list[dict] | None = None,
 ) -> str:
-    memory_section = _build_memory_section(memories)
-    history_section = _build_history_section(history)
-
     if not chunks:
         return (
-            f"{history_section}"
             f"## 用户问题\n{question}\n\n"
-            f"{memory_section}"
             f"知识库中未找到相关内容。请基于你自身的知识如实回答，"
             f"并在回答末尾注明：\n"
             f"> 📚 *以上回答基于模型自身知识，未引用知识库文档。*"
         )
-
     if web_sourced:
-        return _build_web_prompt(question, chunks, memory_section, history_section)
-    return _build_kb_prompt(question, chunks, memory_section, history_section)
+        return _build_web_prompt(question, chunks)
+    return _build_kb_prompt(question, chunks)
 
 
-def _build_kb_prompt(question: str, chunks: list[dict], memory_section: str, history_section: str = "") -> str:
+def _build_kb_prompt(question: str, chunks: list[dict]) -> str:
     doc_titles = list(dict.fromkeys(c["document_title"] for c in chunks if c.get("document_title")))
 
     context_parts = []
@@ -71,10 +56,7 @@ def _build_kb_prompt(question: str, chunks: list[dict], memory_section: str, his
         titles_str = "、".join(doc_titles[:3])
         doc_hint = f"\n以上参考资料来自你的知识库文档：{titles_str}。这些是用户已上传的个人文档内容。"
 
-    return f"""你是一个知识库助手。请根据以下参考资料回答用户问题。
-
-{history_section}{memory_section}
-## 参考资料
+    return f"""## 参考资料
 {context}{doc_hint}
 
 ## 要求
@@ -93,7 +75,7 @@ def _build_kb_prompt(question: str, chunks: list[dict], memory_section: str, his
 {question}"""
 
 
-def _build_web_prompt(question: str, chunks: list[dict], memory_section: str, history_section: str = "") -> str:
+def _build_web_prompt(question: str, chunks: list[dict]) -> str:
     context_parts = []
     doc_titles = []
     for i, chunk in enumerate(chunks, 1):
@@ -110,10 +92,7 @@ def _build_web_prompt(question: str, chunks: list[dict], memory_section: str, hi
     context = "\n\n".join(context_parts)
     titles_str = "、".join(list(dict.fromkeys(doc_titles))[:3]) if doc_titles else "互联网"
 
-    return f"""你是一个知识库助手。以下内容来自互联网实时搜索结果，请结合这些信息回答用户问题。
-
-{history_section}{memory_section}
-## 互联网搜索结果
+    return f"""## 互联网搜索结果
 {context}
 
 ## 要求
@@ -207,7 +186,8 @@ class RAGService:
         good = [s for s in scores if s > 0.15]
         return len(good) < 2
 
-    def ask_sync(self, question: str, history: list[dict] | None = None) -> dict:
+    def ask_sync(self, question: str, history: list[dict] | None = None,
+                 memory_context: str = "") -> dict:
         chunks = self.retriever.retrieve(question)
         web_sourced = False
 
@@ -225,16 +205,27 @@ class RAGService:
                         chunks = chunks + web_chunks
                         web_sourced = False  # 混合结果仍以 KB 为主
 
-        memories = search_memories(question, top_k=3)
-        prompt = build_qa_prompt(question, chunks, memories, web_sourced=web_sourced, history=history)
-        result = self.llm.chat(
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-        )
+        prompt = build_qa_prompt(question, chunks, memory_context=memory_context,
+                                 web_sourced=web_sourced)
+
+        # Build messages with single system message (Anthropic compatible)
+        messages = []
+        system_parts = ["你是一个知识库助手。请根据参考资料回答用户问题。使用中文回答。"]
+        if history:
+            history_text = _build_history_text(history)
+            if history_text:
+                system_parts.append(history_text)
+        if memory_context:
+            system_parts.append(memory_context)
+        messages.append({"role": "system", "content": "\n\n".join(system_parts)})
+        messages.append({"role": "user", "content": prompt})
+
+        result = self.llm.chat(messages=messages, temperature=0.3)
         citations = format_citations(chunks, web_sourced=web_sourced)
         return {"answer": result["content"], "citations": citations}
 
-    async def ask_stream(self, question: str, history: list[dict] | None = None) -> AsyncIterator[dict]:
+    async def ask_stream(self, question: str, history: list[dict] | None = None,
+                         memory_context: str = "") -> AsyncIterator[dict]:
         loop = asyncio.get_running_loop()
         chunks = await loop.run_in_executor(None, self.retriever.retrieve, question)
         web_sourced = False
@@ -251,11 +242,19 @@ class RAGService:
                         chunks = chunks + web_chunks
                         web_sourced = False
 
-        memories = await loop.run_in_executor(None, search_memories, question, 3)
-        prompt = build_qa_prompt(question, chunks, memories, web_sourced=web_sourced, history=history)
-        async for chunk in self.llm.chat_stream(
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-        ):
+        prompt = build_qa_prompt(question, chunks, web_sourced=web_sourced)
+
+        messages = []
+        system_parts = ["你是一个知识库助手。请根据参考资料回答用户问题。使用中文回答。"]
+        if history:
+            history_text = _build_history_text(history)
+            if history_text:
+                system_parts.append(history_text)
+        if memory_context:
+            system_parts.append(memory_context)
+        messages.append({"role": "system", "content": "\n\n".join(system_parts)})
+        messages.append({"role": "user", "content": prompt})
+
+        async for chunk in self.llm.chat_stream(messages=messages, temperature=0.3):
             yield chunk
         yield {"type": "citations", "data": format_citations(chunks, web_sourced=web_sourced)}

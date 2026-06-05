@@ -99,7 +99,21 @@ def chat_ask(body: dict, session: Session = Depends(get_session)):
     try:
         rag = _get_rag_service(DATA_DIR)
         history = _get_conversation_history(session, conversation_id)
-        result = rag.ask_sync(question, history=history)
+
+        # === 记忆召回 ===
+        memory_context = ""
+        try:
+            from server.config import AppConfig as Cfg
+            cfg = Cfg().get_all()
+            if cfg.get("memory_enabled", "true") == "true":
+                from server.services.memory_manager import MemoryManager
+                from server.services.llm import LLMAdapter
+                mem_mgr = MemoryManager(config=cfg, llm=LLMAdapter(cfg))
+                memory_context = mem_mgr.recall_as_context(question, conv_id=conversation_id)
+        except Exception as e:
+            logger.warning(f"记忆召回失败: {e}")
+
+        result = rag.ask_sync(question, history=history, memory_context=memory_context)
     except Exception as e:
         logger.error(f"LLM 调用失败: {e}", exc_info=True)
         session.commit()
@@ -115,14 +129,35 @@ def chat_ask(body: dict, session: Session = Depends(get_session)):
     session.add(assistant_msg)
     session.commit()
 
-    # 后台异步生成对话摘要记忆
-    def _summarize_bg():
+    # 后台异步：主动记忆分析
+    def _observe_bg():
         try:
-            from server.services.memory import summarize_conversation
-            summarize_conversation(conversation_id)
+            from server.config import AppConfig as Cfg
+            cfg = Cfg().get_all()
+            if cfg.get("memory_enabled", "true") != "true":
+                return
+            if cfg.get("memory_auto_observe", "true") != "true":
+                return
+            observe_interval = int(cfg.get("memory_observe_interval", "3"))
+            from server.database import get_session_ctx as ctx
+            from server.models.conversation import Message as Msg
+            with ctx() as s:
+                msg_count = s.query(Msg).filter(
+                    Msg.conversation_id == conversation_id
+                ).count()
+            if msg_count % observe_interval != 0:
+                return
+            from server.services.memory_manager import MemoryManager
+            from server.services.llm import LLMAdapter
+            mem_mgr = MemoryManager(config=cfg, llm=LLMAdapter(cfg))
+            recent = history + [
+                {"role": "user", "content": question},
+                {"role": "assistant", "content": result["answer"]},
+            ]
+            mem_mgr.observe(recent, conversation_id)
         except Exception as e:
-            logger.warning(f"对话摘要后台任务失败: {e}")
-    threading.Thread(target=_summarize_bg, daemon=True).start()
+            logger.warning(f"主动记忆后台任务失败: {e}")
+    threading.Thread(target=_observe_bg, daemon=True).start()
 
     return {
         "code": "OK",
@@ -161,6 +196,19 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
     try:
         rag = _get_rag_service(DATA_DIR)
         history = _get_conversation_history(session, conversation_id)
+
+        # === 记忆召回 ===
+        memory_context = ""
+        try:
+            from server.config import AppConfig as Cfg
+            cfg = Cfg().get_all()
+            if cfg.get("memory_enabled", "true") == "true":
+                from server.services.memory_manager import MemoryManager
+                from server.services.llm import LLMAdapter
+                mem_mgr = MemoryManager(config=cfg, llm=LLMAdapter(cfg))
+                memory_context = mem_mgr.recall_as_context(question, conv_id=conversation_id)
+        except Exception as e:
+            logger.warning(f"记忆召回失败: {e}")
     except Exception as e:
         logger.error(f"RAG 服务初始化失败: {e}", exc_info=True)
         raise HTTPException(status_code=502, detail=f"RAG 服务初始化失败: {str(e)}")
@@ -170,7 +218,7 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
         citations = []
         try:
             yield {"event": "meta", "data": json.dumps({"conversation_id": conversation_id}, ensure_ascii=False)}
-            async for chunk in rag.ask_stream(question, history=history):
+            async for chunk in rag.ask_stream(question, history=history, memory_context=memory_context):
                 if chunk["type"] == "token":
                     full_answer += chunk["content"]
                     yield {"data": json.dumps({"type": "token", "content": chunk["content"]}, ensure_ascii=False)}
@@ -195,14 +243,35 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
                     )
                     s.add(assistant_msg)
                     s.commit()
-                # 后台异步生成对话摘要
-                def _summarize_bg():
+                # 后台异步：主动记忆分析
+                def _observe_bg():
                     try:
-                        from server.services.memory import summarize_conversation
-                        summarize_conversation(conversation_id)
+                        from server.config import AppConfig as Cfg
+                        cfg = Cfg().get_all()
+                        if cfg.get("memory_enabled", "true") != "true":
+                            return
+                        if cfg.get("memory_auto_observe", "true") != "true":
+                            return
+                        observe_interval = int(cfg.get("memory_observe_interval", "3"))
+                        from server.database import get_session_ctx as ctx
+                        from server.models.conversation import Message as Msg
+                        with ctx() as s:
+                            msg_count = s.query(Msg).filter(
+                                Msg.conversation_id == conversation_id
+                            ).count()
+                        if msg_count % observe_interval != 0:
+                            return
+                        from server.services.memory_manager import MemoryManager
+                        from server.services.llm import LLMAdapter
+                        mem_mgr = MemoryManager(config=cfg, llm=LLMAdapter(cfg))
+                        recent = history + [
+                            {"role": "user", "content": question},
+                            {"role": "assistant", "content": full_answer},
+                        ]
+                        mem_mgr.observe(recent, conversation_id)
                     except Exception as e:
-                        logger.warning(f"对话摘要后台任务失败: {e}")
-                threading.Thread(target=_summarize_bg, daemon=True).start()
+                        logger.warning(f"主动记忆后台任务失败: {e}")
+                threading.Thread(target=_observe_bg, daemon=True).start()
         yield {"event": "done", "data": "{}"}
 
     return EventSourceResponse(event_stream())

@@ -43,7 +43,7 @@ class TestRAGService:
             {"content": "内容 E", "document_title": "文档4", "url": "http://e"},
         ]
         # 不应抛出异常（特别是 KeyError: slice 错误）
-        prompt = _build_web_prompt("测试问题", chunks, "")
+        prompt = _build_web_prompt("测试问题", chunks)
         assert "测试问题" in prompt
         assert "文档1" in prompt
         # 标题去重后只取前 3 个（文档1、文档2、文档3）
@@ -57,7 +57,7 @@ class TestRAGService:
             {"content": "内容 C", "document_title": "文档3", "chunk_id": "c3", "chunk_no": 3},
             {"content": "内容 D", "document_title": "文档4", "chunk_id": "c4", "chunk_no": 4},
         ]
-        prompt = _build_kb_prompt("测试问题", chunks, "")
+        prompt = _build_kb_prompt("测试问题", chunks)
         assert "测试问题" in prompt
         assert "文档1" in prompt
 
