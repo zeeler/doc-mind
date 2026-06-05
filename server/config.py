@@ -60,6 +60,18 @@ DEFAULTS = {
     "reranker_api_base": "",
     "reranker_api_key": "",
     "reranker_top_k": "3",
+    # 记忆系统配置
+    "memory_enabled": "true",
+    "memory_auto_observe": "true",
+    "memory_observe_interval": "3",
+    "memory_recall_top_k": "5",
+    "memory_dedup_threshold": "0.85",
+    "memory_export_auto": "true",
+    "memory_export_dir": "",
+    "memory_consolidate_auto": "true",
+    "memory_max_per_recall": "5",
+    "memory_session_idle_timeout": "30",
+    "memory_session_expire_days": "30",
 }
 
 
