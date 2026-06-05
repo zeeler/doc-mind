@@ -71,7 +71,7 @@ class MemoryManager:
         global_mems = self.store.search(query, top_k=fetch_k, scope="global")
         session_mems = []
         if conv_id:
-            session_mems = self.store.search(query, top_k=fetch_k // 2)
+            session_mems = self.store.search(query, top_k=fetch_k // 2, scope="session")
 
         # 合并去重
         seen = set()
@@ -280,7 +280,10 @@ class MemoryManager:
             return {"pairs": pairs, "total_pairs": len(pairs), "expired_candidates": expired}
 
         # 执行合并
+        deleted_ids = set()
         for pair in pairs:
+            if pair["id_1"] in deleted_ids or pair["id_2"] in deleted_ids:
+                continue
             try:
                 mem1 = next((m for m in all_mems if m["id"] == pair["id_1"]), None)
                 mem2 = next((m for m in all_mems if m["id"] == pair["id_2"]), None)
@@ -299,6 +302,7 @@ class MemoryManager:
                 new_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
                 self.store.update(keeper["id"], merged_content, new_meta)
                 self.store.delete(removed["id"])
+                deleted_ids.add(removed["id"])
                 merged_count += 1
             except Exception as e:
                 logger.warning(f"合并记忆失败 {pair['id_1']}+{pair['id_2']}: {e}")
