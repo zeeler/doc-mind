@@ -50,11 +50,13 @@
 ```
 用户提问 → recall(问题) → 搜索全局+会话记忆 → 拼入上下文
        → LLM 生成回答
-       → observe(本轮消息) → LLM 检测信号
-         → 有信号: 提取要点 → 概括 → 存入 ChromaDB
-         → 无信号: 跳过
-       → 检测到 "记住XXX": memorize(XXX) → 直接存储
-       → (会话结束) 兜底 summarize → 存入
+       → observe(本轮消息) → 一次 LLM 调用同时完成:
+          ① 信号检测 (has_signal?)
+          ② 信息提取 (items: [...])
+          ③ 被动记忆意图检测 ("记住XXX" → manual 类型)
+         → has_signal=true 或 有 manual items → 去重 + 存入 ChromaDB
+         → has_signal=false 且无 manual items → 跳过
+       → (会话空闲超时) 兜底 → 对该会话剩余未分析消息做 observe
 ```
 
 ## 数据模型
@@ -68,6 +70,7 @@
     "source_conv_id": "uuid-xxx",           # 来源会话（session级必有）
     "count": 3,                              # 被合并/强化次数
     "importance": 0.8,                       # 重要性评分 0-1
+    "expires_at": "2026-09-05T00:00:00Z",   # 过期时间（session级默认30天，global无过期）
     "created_at": "2026-06-05T10:00:00Z",
     "updated_at": "2026-06-05T12:00:00Z",
 }
@@ -110,36 +113,41 @@ class MemoryManager:
 
 ## 核心流程详解
 
-### 1. observe() 主动记忆
+### 1. observe() 主动记忆（含被动记忆检测）
 
 ```
 本轮对话消息
     │
     ▼
-┌─────────────────────────────┐
-│ ① 信号检测 (LLM prompt)      │
-│   判断对话是否包含需要跨会话   │
-│   保留的重要信息              │
-│   返回: {has_signal, items}  │
-└───────────┬─────────────────┘
-            │ has_signal=false → 跳过
-            ▼ has_signal=true
-┌─────────────────────────────┐
-│ ② 信息提取 + 概括 (LLM)      │
-│   对每条 item:               │
-│   - 提取核心内容（≤200字）    │
-│   - 分类到四种记忆类型        │
-│   - 判断作用域: global/      │
-│     session                  │
-│   - 评估重要性: 0-1          │
-└───────────┬─────────────────┘
-            │
-            ▼
-┌─────────────────────────────┐
-│ ③ 去重 + 存储 (MemoryStore)  │
-│   相似度 ≥ 0.85 → 合并强化    │
-│   相似度 < 0.85 → 新增        │
-└─────────────────────────────┘
+┌─────────────────────────────────────┐
+│ ① 单次 LLM 调用（信号检测+提取+意图） │
+│   Prompt: "分析以下对话，完成三项任务： │
+│   任务A: 是否包含需要跨会话保留的信息？ │
+│   任务B: 如果是，提取+概括+分类       │
+│   任务C: 用户是否明确要求记住某事？    │
+│                                     │
+│   返回 JSON:                         │
+│   {                                 │
+│     "has_signal": true|false,       │
+│     "items": [                      │
+│       {                             │
+│         "content": "概括内容≤200字",  │
+│         "type": "preference|         │
+│           conclusion|fact|manual",  │
+│         "scope": "global|session",  │
+│         "importance": 0.8           │
+│       }                             │
+│     ]                               │
+│   }"                                │
+└─────────────┬───────────────────────┘
+              │ has_signal=false && items为空 → 跳过
+              ▼ 否则
+┌─────────────────────────────────────┐
+│ ② 去重 + 存储 (MemoryStore)          │
+│   每条 item:                         │
+│   相似度 ≥ 0.85 → 合并强化 count+1    │
+│   相似度 < 0.85 → 新增               │
+└─────────────────────────────────────┘
 ```
 
 **信号检测的关键触发场景**：
@@ -147,6 +155,11 @@ class MemoryManager:
 - 做出决策/结论（"我们决定..."、"最终方案是..."）
 - 陈述可复用的事实（"项目用的是..."、"API 地址是..."）
 - 表达长期目标（"我想实现..."、"目标是..."）
+- **被动记忆请求**（"记住 XXX"、"别忘了 XXX"）→ type=manual
+
+**observe 触发频率**：由 `memory_observe_interval` 控制，默认每 3 轮对话触发一次（累计收集 3 轮消息后一次性分析），而非每轮触发。
+
+**会话结束兜底**：同一会话超过 30 分钟无新消息，且该会话有 ≥2 条未被 observe 的消息时，后台线程对剩余消息执行 observe。替换现有的 `summarize_conversation()` 函数。
 
 ### 2. recall() 记忆注入
 
@@ -154,50 +167,77 @@ class MemoryManager:
 用户当前问题
     │
     ▼
-┌─────────────────────────────┐
-│ ① 搜索 ChromaDB              │
-│   - global 记忆: 始终搜索     │
-│   - 当前会话级记忆: 搜索      │
-│   返回 top_k=10 候选          │
-└─────────────┬───────────────┘
+┌─────────────────────────────────┐
+│ ① 搜索 ChromaDB                  │
+│   - global 记忆: 始终搜索         │
+│   - 当前会话级记忆: 搜索          │
+│   - 过滤已过期的记忆              │
+│   返回 top_k=10 候选              │
+└─────────────┬───────────────────┘
               │
               ▼
-┌─────────────────────────────┐
-│ ② 排序                       │
-│   score = α·similarity       │
-│         + β·importance       │
-│         + γ·recency_bonus    │
-│   取 top 5                   │
-└─────────────┬───────────────┘
+┌─────────────────────────────────┐
+│ ② 排序（加权分数）               │
+│   score = 0.5 × similarity       │
+│         + 0.3 × importance       │
+│         + 0.2 × recency_bonus    │
+│                                  │
+│   recency_bonus =                │
+│     1 / (1 + days_since_update)  │
+│                                  │
+│   取 top_k=5                     │
+└─────────────┬───────────────────┘
               │
               ▼
-┌─────────────────────────────┐
-│ ③ 分流注入                   │
-│   全局稳定记忆                │
-│     → system prompt 前缀     │
-│   会话结论                    │
-│     → 上下文消息              │
-└─────────────────────────────┘
+┌─────────────────────────────────┐
+│ ③ 合并为单条 system message      │
+│   所有记忆拼入一个 system prompt  │
+│   前缀（兼容 Anthropic API）:     │
+│   "## 用户历史信息               │
+│    - [偏好] ...                  │
+│    - [事实] ...                  │
+│   ## 相关讨论结论                │
+│    - ..."                        │
+└─────────────────────────────────┘
 ```
 
-注入后的 messages 结构：
+注入后的 messages 结构（单条 system message，兼容 Anthropic）：
 
 ```python
+memory_context = "## 用户历史信息\n- 偏好: ...\n- 事实: ...\n## 相关讨论结论\n- ..."
 messages = [
-    {"role": "system", "content": system_prompt + "\n## 用户历史信息\n- ..."},
-    {"role": "system", "content": "## 上次讨论结论\n- ..."},
+    {"role": "system", "content": system_prompt + "\n\n" + memory_context},
     *history,          # 最近 N 条对话
     {"role": "user", "content": question},
 ]
 ```
 
-### 3. memorize() 被动记忆
+### 3. memorize() 被动记忆（API 调用）
 
-用户在对话中说"记住 XXX"、"别忘了 XXX"、"帮我记一下 XXX"时触发。使用 LLM 做意图检测（非关键词匹配），识别到"要求记忆"意图后，提取核心内容 → LLM 概括 → 去重存储。与 observe() 的区别：被动记忆跳过信号检测步骤，直接进入提取+存储流程。
+当通过 API `POST /api/v1/memories/remember` 直接存储时使用，跳过 LLM 分析。对话中的被动记忆请求（"记住 XXX"）由 `observe()` 的信号检测 prompt 统一识别（type=manual），不单独调用 memorize。
+
+```python
+def memorize(self, content: str, mem_type: str = "manual",
+             scope: str = "global", metadata: dict | None = None) -> str:
+    """被动记忆：API 调用，直接存储已概括的内容。返回记忆 ID。"""
+    # 1. 去重检查
+    # 2. 存入 ChromaDB（不经过 LLM）
+    # 3. 增量导出 md
+```
 
 ### 4. consolidate() 记忆合并
 
-定期运行（会话结束时），对 ChromaDB 中所有记忆两两比较相似度，≥0.85 的合并为一条概括性记忆。
+使用 ChromaDB 原生查询预筛选，避免 O(n²)：
+
+```
+对每条记忆（或最近更新的 N 条记忆）:
+  → store.search(memory.content, top_k=3)
+  → 对返回的候选对，计算相似度
+  → 相似度 ≥ 0.85 → 合并（保留 importance 最高的，合并内容，count 累加）
+  → 相似度 < 0.85 → 跳过
+```
+
+同时清理 `expires_at < now()` 的过期记忆。
 
 ## Markdown 导出
 
@@ -244,6 +284,20 @@ data/memories/
 2. 合并/更新记忆 → 重写该条所在段落
 3. 删除记忆 → 从 md 中移除对应行
 
+### 并发安全
+
+使用 `threading.Lock` 按文件路径加锁，确保多个请求同时写入同一 md 文件时不会交错损坏：
+
+```python
+class MemoryMDExporter:
+    def __init__(self):
+        self._locks: dict[str, threading.Lock] = {}  # file_path → Lock
+
+    def _write_file(self, path: Path, content: str):
+        with self._get_lock(path):
+            path.write_text(content, encoding="utf-8")
+```
+
 ## API 设计
 
 ### 端点列表
@@ -270,7 +324,11 @@ POST /api/v1/memories/observe
 POST /api/v1/memories/consolidate
   合并相似记忆
   Request:  {} 或 {"dry_run": true}
-  Response: {"code": "OK", "data": {"merged": 5, "deleted": 5}}
+  Response (正常): {"code": "OK", "data": {"merged": 5, "deleted": 3, "expired_cleaned": 2}}
+  Response (dry_run): {"code": "OK", "data": {"pairs": [
+      {"id_1": "mem-aaa", "id_2": "mem-bbb", "content_1": "...", "content_2": "...", "score": 0.91},
+      {"id_1": "mem-ccc", "id_2": "mem-ddd", "content_1": "...", "content_2": "...", "score": 0.88}
+    ], "total_pairs": 2, "expired_candidates": 3}}
 
 POST /api/v1/memories/export
   全量导出 md 文件
@@ -288,14 +346,16 @@ GET /api/v1/memories/export
 
 ```python
 "memory_enabled": "true",              # 是否启用记忆系统
-"memory_auto_observe": "true",         # 是否自动分析每轮对话
-"memory_observe_interval": "1",        # 每隔 N 轮对话触发一次 observe
+"memory_auto_observe": "true",         # 是否自动分析对话（关闭后仅手动/API触发）
+"memory_observe_interval": "3",        # 每隔 N 轮对话触发一次 observe（≥2）
 "memory_recall_top_k": "5",            # 每次对话注入的记忆数
-"memory_dedup_threshold": "0.85",      # 去重相似度阈值
+"memory_dedup_threshold": "0.85",      # 去重相似度阈值（依赖 cosine 距离）
 "memory_export_auto": "true",          # 是否自动增量导出 md
 "memory_export_dir": "",               # 导出目录（空=默认 data/memories/）
 "memory_consolidate_auto": "true",     # 是否自动定期合并
 "memory_max_per_recall": "5",          # 单次召回最大记忆数
+"memory_session_idle_timeout": "30",   # 会话空闲超时（分钟），触发兜底 observe
+"memory_session_expire_days": "30",    # 会话级记忆过期天数（global 记忆永不过期）
 ```
 
 ## 文件变更清单
@@ -340,13 +400,13 @@ test_dedup_on_store                — 存入重复记忆时合并而非新增
 
 ## 实施计划
 
-| 阶段 | 内容 | 依赖 |
-|------|------|------|
-| Phase 1 | MemoryStore 增强（scope + importance） | 无 |
-| Phase 2 | MemoryManager 核心（recall + memorize） | Phase 1 |
-| Phase 3 | MemoryManager.observe() 主动记忆 | Phase 2 |
-| Phase 4 | chat.py 集成（recall 注入 + observe 触发） | Phase 2, 3 |
-| Phase 5 | MemoryMDExporter 导出 | Phase 1 |
-| Phase 6 | consolidate() 记忆合并 | Phase 2 |
-| Phase 7 | API 端点更新 + 新增 | Phase 2-6 |
-| Phase 8 | 测试 | Phase 1-7 |
+| 阶段 | 内容 | 关键修复/要点 |
+|------|------|-------------|
+| Phase 1 | MemoryStore 增强 | **修复 #1**: 显式设置 `hnsw:space: "cosine"` 确保去重阈值有效；增加 scope/importance/expires_at 字段；过期记忆过滤 |
+| Phase 2 | MemoryManager 核心（recall + memorize） | **修复 #4**: recall 排序权重 α=0.5, β=0.3, γ=0.2；**修复 #5**: 单条 system message 兼容 Anthropic；memorize 为 API 直存模式 |
+| Phase 3 | MemoryManager.observe() | **修复 #8**: 单次 LLM 调用完成信号检测+提取+被动记忆意图检测；**修复 #6**: 替换 summarize_conversation；**修复 #12**: 被动记忆意图合入 observe prompt；**修复 #2**: 每 3 轮触发；**修复 #7**: 会话空闲 30min 兜底 |
+| Phase 4 | chat.py 集成 | **修复 #5**: 注入时合并为单条 system message；recall 注入 + observe 触发 |
+| Phase 5 | MemoryMDExporter | **修复 #9**: 按文件路径加 threading.Lock |
+| Phase 6 | consolidate() | **修复 #3**: ChromaDB query top-3 预筛选替代 O(n²)；**修复 #10**: 清理过期记忆 |
+| Phase 7 | API 端点更新 | **修复 #11**: dry_run 返回 pairs 详情 |
+| Phase 8 | 测试 | 覆盖所有修复点的关键测试用例 |
