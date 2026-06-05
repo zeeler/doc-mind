@@ -14,7 +14,7 @@ class MemoryStore:
             metadata={"hnsw:space": "cosine"},
         )
 
-    def add(self, mem_id: str | None, content: str, metadata: dict) -> str:
+    def add(self, mem_id: str | None, content: str, metadata: dict, expire_days: int = 30) -> str:
         mid = mem_id or f"mem-{uuid.uuid4().hex[:12]}"
         now = datetime.now(timezone.utc).isoformat()
         meta = {
@@ -26,9 +26,9 @@ class MemoryStore:
             "created_at": metadata.get("created_at", now),
             "updated_at": metadata.get("updated_at", now),
         }
-        # session 级记忆设置 30 天过期
+        # session 级记忆设置过期
         if meta["scope"] == "session" and not metadata.get("expires_at"):
-            expires = datetime.now(timezone.utc) + timedelta(days=30)
+            expires = datetime.now(timezone.utc) + timedelta(days=expire_days)
             meta["expires_at"] = expires.isoformat()
         elif metadata.get("expires_at"):
             meta["expires_at"] = metadata["expires_at"]
@@ -48,9 +48,11 @@ class MemoryStore:
         where_filter = None
         if scope:
             where_filter = {"scope": scope}
+        # 过期过滤时多取一倍，补偿过滤后数量不足
+        fetch_k = top_k * 2 if exclude_expired else top_k
         results = self.collection.query(
             query_texts=[query],
-            n_results=top_k,
+            n_results=fetch_k,
             where=where_filter,
         )
         hits = []
@@ -72,13 +74,15 @@ class MemoryStore:
                 # cosine distance ∈ [0,2], 归一化到 [0,1]: score = 1 - distance/2
                 "score": max(0.0, 1.0 - distances_list[i] / 2.0) if i < len(distances_list) else 0.0,
             })
-        return hits
+        return hits[:top_k]
 
     def delete(self, mem_id: str) -> None:
         self.collection.delete(ids=[mem_id])
 
     def update(self, mem_id: str, content: str, metadata: dict) -> None:
-        self.collection.update(ids=[mem_id], documents=[content], metadatas=[metadata])
+        meta = dict(metadata)
+        meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+        self.collection.update(ids=[mem_id], documents=[content], metadatas=[meta])
 
     def count(self) -> int:
         return self.collection.count()
@@ -100,12 +104,9 @@ class MemoryStore:
 
     def delete_expired(self) -> int:
         """删除所有过期记忆，返回删除数。"""
-        all_mems = self.get_all(limit=10000)
         now = datetime.now(timezone.utc).isoformat()
-        expired_ids = [
-            m["id"] for m in all_mems
-            if m["metadata"].get("expires_at") and m["metadata"]["expires_at"] < now
-        ]
+        results = self.collection.get(where={"expires_at": {"$lt": now}})
+        expired_ids = results.get("ids", [])
         if expired_ids:
             self.collection.delete(ids=expired_ids)
         return len(expired_ids)

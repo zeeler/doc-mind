@@ -55,22 +55,20 @@ def search_memories(query: str, top_k: int = 5) -> list[dict]:
 def list_memories(mem_type: str = None, limit: int = 50) -> list[dict]:
     """列出记忆（按更新时间倒序）。"""
     store = _get_store()
-    results = store.collection.get(limit=limit)
-    memories = []
-    if not results.get("ids"):
-        return memories
-    for i in range(len(results["ids"])):
-        mem_type_val = results["metadatas"][i].get("type", "") if results.get("metadatas") else ""
-        if mem_type and mem_type_val != mem_type:
-            continue
-        memories.append({
-            "id": results["ids"][i],
-            "content": results["documents"][i] if results.get("documents") else "",
-            "type": mem_type_val,
-            "metadata": results["metadatas"][i] if results.get("metadatas") else {},
+    memories = store.get_all(limit=limit)
+    if mem_type:
+        memories = [m for m in memories if m["metadata"].get("type") == mem_type]
+    # 将 type 提升到顶层以保持 API 一致
+    result = []
+    for m in memories:
+        result.append({
+            "id": m["id"],
+            "content": m["content"],
+            "type": m["metadata"].get("type", ""),
+            "metadata": m["metadata"],
         })
-    memories.sort(key=lambda m: m["metadata"].get("updated_at", ""), reverse=True)
-    return memories[:limit]
+    result.sort(key=lambda m: m["metadata"].get("updated_at", ""), reverse=True)
+    return result[:limit]
 
 
 def delete_memory(mem_id: str) -> None:
