@@ -3,6 +3,7 @@
 import json
 import logging
 import threading
+import time
 import uuid
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
@@ -19,6 +20,9 @@ router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
 _cached_llm: 'LLMAdapter | None' = None
 _cached_llm_config_key: tuple | None = None
+
+_conv_last_observe: dict[str, float] = {}  # conv_id -> last_observe_timestamp
+_conv_observe_lock = threading.Lock()
 
 
 def _get_cached_llm(config: dict) -> 'LLMAdapter':
@@ -151,6 +155,29 @@ def chat_ask(body: dict, session: Session = Depends(get_session)):
                 return
             if cfg.get("memory_auto_observe", "true") != "true":
                 return
+
+            # === 会话空闲超时兜底 observe ===
+            idle_timeout = int(cfg.get("memory_session_idle_timeout", "30")) * 60
+            with _conv_observe_lock:
+                last_obs = _conv_last_observe.get(conversation_id, 0)
+            idle_secs = time.time() - last_obs
+            if idle_secs > idle_timeout:
+                from server.database import get_session_ctx as ctx
+                from server.models.conversation import Message as Msg
+                with ctx() as s:
+                    all_msgs = s.query(Msg).filter(
+                        Msg.conversation_id == conversation_id
+                    ).order_by(Msg.created_at.asc()).all()
+                    if len(all_msgs) >= 2:
+                        messages = [{"role": m.role, "content": m.content} for m in all_msgs]
+                        from server.services.memory_manager import MemoryManager
+                        mem_mgr = MemoryManager(config=cfg, llm=_get_cached_llm(cfg))
+                        mem_mgr.observe(messages, conversation_id)
+                with _conv_observe_lock:
+                    _conv_last_observe[conversation_id] = time.time()
+                return
+
+            # === 常规间隔检查 ===
             observe_interval = int(cfg.get("memory_observe_interval", "3"))
             from server.database import get_session_ctx as ctx
             from server.models.conversation import Message as Msg
@@ -167,6 +194,8 @@ def chat_ask(body: dict, session: Session = Depends(get_session)):
                 {"role": "assistant", "content": result["answer"]},
             ]
             mem_mgr.observe(recent, conversation_id)
+            with _conv_observe_lock:
+                _conv_last_observe[conversation_id] = time.time()
         except Exception as e:
             logger.warning(f"主动记忆后台任务失败: {e}")
     threading.Thread(target=_observe_bg, daemon=True).start()
@@ -264,6 +293,29 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
                             return
                         if cfg.get("memory_auto_observe", "true") != "true":
                             return
+
+                        # === 会话空闲超时兜底 observe ===
+                        idle_timeout = int(cfg.get("memory_session_idle_timeout", "30")) * 60
+                        with _conv_observe_lock:
+                            last_obs = _conv_last_observe.get(conversation_id, 0)
+                        idle_secs = time.time() - last_obs
+                        if idle_secs > idle_timeout:
+                            from server.database import get_session_ctx as ctx
+                            from server.models.conversation import Message as Msg
+                            with ctx() as s:
+                                all_msgs = s.query(Msg).filter(
+                                    Msg.conversation_id == conversation_id
+                                ).order_by(Msg.created_at.asc()).all()
+                                if len(all_msgs) >= 2:
+                                    messages = [{"role": m.role, "content": m.content} for m in all_msgs]
+                                    from server.services.memory_manager import MemoryManager
+                                    mem_mgr = MemoryManager(config=cfg, llm=_get_cached_llm(cfg))
+                                    mem_mgr.observe(messages, conversation_id)
+                            with _conv_observe_lock:
+                                _conv_last_observe[conversation_id] = time.time()
+                            return
+
+                        # === 常规间隔检查 ===
                         observe_interval = int(cfg.get("memory_observe_interval", "3"))
                         from server.database import get_session_ctx as ctx
                         from server.models.conversation import Message as Msg
@@ -280,6 +332,8 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
                             {"role": "assistant", "content": full_answer},
                         ]
                         mem_mgr.observe(recent, conversation_id)
+                        with _conv_observe_lock:
+                            _conv_last_observe[conversation_id] = time.time()
                     except Exception as e:
                         logger.warning(f"主动记忆后台任务失败: {e}")
                 threading.Thread(target=_observe_bg, daemon=True).start()
