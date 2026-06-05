@@ -118,3 +118,43 @@ def test_reranker():
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Reranker 连接测试失败: {str(e)}")
+
+
+@router.get("/vector-info")
+def get_vector_info():
+    """获取向量库信息（维度 + 最近重建时间 + 向量数量）。"""
+    import os
+    import time
+    from server.database import DATA_DIR
+    from server.vector.store import get_client
+
+    info = {"dimension": None, "last_reindex": None, "vector_count": 0}
+
+    try:
+        client = get_client(str(DATA_DIR / "chroma"))
+        col = client.get_collection("knowledge_base")
+        info["vector_count"] = col.count()
+
+        if info["vector_count"] > 0:
+            result = col.get(limit=1, include=["embeddings"])
+            embs = result.get("embeddings")
+            if embs is not None and len(embs) > 0:
+                info["dimension"] = len(embs[0])
+    except Exception:
+        pass
+
+    try:
+        chroma_dir = DATA_DIR / "chroma"
+        max_mtime = 0
+        for root, dirs, files in os.walk(chroma_dir):
+            for f in files:
+                fp = os.path.join(root, f)
+                mt = os.path.getmtime(fp)
+                if mt > max_mtime:
+                    max_mtime = mt
+        if max_mtime > 0:
+            info["last_reindex"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(max_mtime))
+    except Exception:
+        pass
+
+    return {"code": "OK", "data": info}

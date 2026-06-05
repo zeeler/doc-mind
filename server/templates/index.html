@@ -686,6 +686,13 @@ body {
           <span style="font:600 20px var(--serif);letter-spacing:.03em">文档管理</span>
           <button class="batch-toggle" :class="{on:batchMode}" @click="toggleBatchMode" style="margin-left:auto">{{ batchMode ? '退出批量' : '批量模式' }}</button>
         </div>
+        <div v-if="vectorInfo" style="display:flex;gap:18px;font:11px var(--sans);color:var(--text-secondary);margin-bottom:14px;padding:8px 14px;background:var(--bg-sidebar);border-radius:var(--radius-sm);align-items:center">
+          <span>向量维度 <b style="color:var(--text);font-weight:600">{{ vectorInfo.dimension || '—' }}</b></span>
+          <span style="color:var(--border)">|</span>
+          <span>向量数量 <b style="color:var(--text);font-weight:600">{{ vectorInfo.vector_count.toLocaleString() }}</b></span>
+          <span style="color:var(--border)">|</span>
+          <span>最近重建 <b style="color:var(--text);font-weight:600">{{ vectorInfo.last_reindex || '—' }}</b></span>
+        </div>
         <div class="upload-zone" @click="$refs.fileInput.click()" @dragover.prevent @drop.prevent="uploadDrop">
           <input type="file" ref="fileInput" @change="uploadFile" accept=".pdf,.docx,.md,.txt,.markdown" style="display:none">
           <p>{{ uploading ? '上传中...' : '拖拽文件到此处，或点击上传' }}</p>
@@ -961,6 +968,7 @@ createApp({
     const ocrOn = ref(true);
     const embeddingOn = ref(false);
     const webSearchOn = ref(false);
+    const vectorInfo = ref(null);
     const saved = ref(false);
     const saveError = ref('');
     const testingEmbedding = ref(false);
@@ -1238,17 +1246,18 @@ createApp({
     function uniqueTags(tags) { return dedupBy(tags, t => t.id); }
     function uniqueCitations(cits) { return dedupBy(cits, c => c.document_title || c.file_name); }
 
+    async function loadVectorInfo() { try { const r = await api('/api/v1/config/vector-info'); if (r.code === 'OK') vectorInfo.value = r.data; } catch {} }
     onMounted(() => { loadConversations(); loadConfig(); });
     watch(page, (v) => {
-      if (v === 'docs') { loadDocuments(); loadJobStats(); loadTags(); loadCollections(); loadFolders(); loadAllCategories(); if (!jobInterval) jobInterval = setInterval(() => { loadJobStats(); }, 3000); }
+      if (v === 'docs') { loadDocuments(); loadJobStats(); loadTags(); loadCollections(); loadFolders(); loadAllCategories(); loadVectorInfo(); if (!jobInterval) jobInterval = setInterval(() => { loadJobStats(); }, 3000); }
       else if (v === 'memories') { loadMemories(); if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } }
       else { if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } }
     });
 
-    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,embeddingOn,rerankerOn,webSearchOn,saved,saveError,chatResult,ocrResult,editingId,editTitle,confirmShow,confirmMsg,confirmX,confirmY,embeddingResult,rerankerResult,testingChat,testingOcr,testingEmbedding,testingReranker,msgBox,inputEl,memoriesList,
+    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,embeddingOn,rerankerOn,webSearchOn,vectorInfo,saved,saveError,chatResult,ocrResult,editingId,editTitle,confirmShow,confirmMsg,confirmX,confirmY,embeddingResult,rerankerResult,testingChat,testingOcr,testingEmbedding,testingReranker,msgBox,inputEl,memoriesList,
       batchMode, selectedIds, allTags, allCollections, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, collectPickerDoc, categoryEditDoc, editCategoryName, showNewCollection, newCollectionName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
       loadTags, loadCollections, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCollectPicker, toggleDocCollection, createCollection, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
-      newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,showConfirm,confirmOk,confirmCancel,testChat,testOcr,testEmbedding,testReranker,loadMemories,rememberMessage,deleteMsg:deleteMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,
+      newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,showConfirm,confirmOk,confirmCancel,testChat,testOcr,testEmbedding,testReranker,loadMemories,rememberMessage,deleteMsg:deleteMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,loadVectorInfo,
       batchRetry, uniqueTags, uniqueCitations };
   }
 }).mount('#app');
