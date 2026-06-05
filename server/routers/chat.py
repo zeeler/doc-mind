@@ -22,6 +22,7 @@ _cached_llm: 'LLMAdapter | None' = None
 _cached_llm_config_key: tuple | None = None
 
 _conv_last_observe: dict[str, float] = {}  # conv_id -> last_observe_timestamp
+_conv_observing: set[str] = set()  # conv_id 正在执行 observe，避免并发重复
 _conv_observe_lock = threading.Lock()
 _llm_cache_lock = threading.Lock()
 _observe_executor = None
@@ -89,6 +90,11 @@ def _recall_memory_context(question: str, conversation_id: str | None) -> str:
 def _run_observe_bg(conversation_id: str, history: list[dict], question: str,
                     answer_text: str) -> None:
     """后台异步：主动记忆分析（供 chat_ask 和 chat_stream 共用）。"""
+    # 防止同一会话的 observe 并发执行
+    with _conv_observe_lock:
+        if conversation_id in _conv_observing:
+            return
+        _conv_observing.add(conversation_id)
     try:
         from server.config import AppConfig as Cfg
         cfg = Cfg().get_all()
@@ -97,8 +103,7 @@ def _run_observe_bg(conversation_id: str, history: list[dict], question: str,
         if cfg.get("memory_auto_observe", "true") != "true":
             return
 
-        import time
-        idle_timeout = int(cfg.get("memory_session_idle_timeout", "30")) * 60
+        idle_timeout = int(cfg.get("memory_session_idle_timeout", "30")) * 60  # 转为秒
         with _conv_observe_lock:
             last_obs = _conv_last_observe.get(conversation_id, 0)
         idle_secs = time.time() - last_obs
@@ -110,6 +115,11 @@ def _run_observe_bg(conversation_id: str, history: list[dict], question: str,
                 all_msgs = s.query(Msg).filter(
                     Msg.conversation_id == conversation_id
                 ).order_by(Msg.created_at.asc()).all()
+                if not all_msgs:
+                    # 会话已删除，清理追踪状态
+                    with _conv_observe_lock:
+                        _conv_last_observe.pop(conversation_id, None)
+                    return
                 if len(all_msgs) >= 2:
                     from server.services.memory_manager import MemoryManager
                     messages = [{"role": m.role, "content": m.content} for m in all_msgs]
@@ -142,6 +152,9 @@ def _run_observe_bg(conversation_id: str, history: list[dict], question: str,
         import logging
         logger = logging.getLogger("knowledge-base")
         logger.warning(f"主动记忆后台任务失败: {e}")
+    finally:
+        with _conv_observe_lock:
+            _conv_observing.discard(conversation_id)
 
 
 _rag_service_cache: RAGService | None = None
