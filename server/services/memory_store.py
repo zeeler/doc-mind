@@ -29,7 +29,7 @@ class MemoryStore:
         # session 级记忆设置过期
         if meta["scope"] == "session" and not metadata.get("expires_at"):
             expires = datetime.now(timezone.utc) + timedelta(days=expire_days)
-            meta["expires_at"] = expires.isoformat()
+            meta["expires_at"] = expires.timestamp()
         elif metadata.get("expires_at"):
             meta["expires_at"] = metadata["expires_at"]
         # 合并自定义 metadata（保留额外字段）
@@ -56,7 +56,7 @@ class MemoryStore:
             where=where_filter,
         )
         hits = []
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(timezone.utc).timestamp()
         ids_list = results.get("ids", [[]])[0]
         docs_list = results.get("documents", [[]])[0]
         metas_list = results.get("metadatas", [[]])[0]
@@ -104,7 +104,7 @@ class MemoryStore:
 
     def delete_expired(self) -> int:
         """删除所有过期记忆，返回删除数。"""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(timezone.utc).timestamp()
         results = self.collection.get(where={"expires_at": {"$lt": now}})
         expired_ids = results.get("ids", [])
         if expired_ids:

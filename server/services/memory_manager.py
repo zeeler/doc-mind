@@ -325,7 +325,7 @@ class MemoryManager:
     def _count_expired(self) -> int:
         from datetime import datetime, timezone
         all_mems = self.store.get_all(limit=10000)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(timezone.utc).timestamp()
         return sum(
             1 for m in all_mems
             if m["metadata"].get("expires_at") and m["metadata"]["expires_at"] < now

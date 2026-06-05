@@ -1,4 +1,5 @@
-# server/tests/test_routers/test_memories.py
+"""记忆 API 端点集成测试。"""
+
 import pytest
 from fastapi.testclient import TestClient
 from server.main import app
@@ -20,18 +21,56 @@ def client(tmp_data_dir, monkeypatch):
     return TestClient(app)
 
 
-class TestMemoryRoutes:
-    def test_list_memories_empty(self, client):
-        response = client.get("/api/v1/memories")
-        assert response.status_code == 200
-        data = response.json()
+class TestMemoriesAPI:
+    def test_list_memories(self, client):
+        """列出记忆返回正确格式。"""
+        resp = client.get("/api/v1/memories")
+        assert resp.status_code == 200
+        data = resp.json()
         assert data["code"] == "OK"
         assert isinstance(data["data"], list)
 
-    def test_search_without_query(self, client):
-        response = client.get("/api/v1/memories/search")
-        assert response.status_code == 400
+    def test_search_memories_requires_query(self, client):
+        """搜索记忆需要 query 参数。"""
+        resp = client.get("/api/v1/memories/search")
+        assert resp.status_code == 400
 
-    def test_delete_nonexistent(self, client):
-        response = client.delete("/api/v1/memories/nonexistent")
-        assert response.status_code == 200
+    def test_search_memories(self, client):
+        """搜索记忆返回结果。"""
+        resp = client.get("/api/v1/memories/search?q=测试")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["code"] == "OK"
+
+    def test_observe_requires_conv_id(self, client):
+        """observe 需要 conversation_id。"""
+        resp = client.post("/api/v1/memories/observe", json={})
+        assert resp.status_code == 400
+
+    def test_consolidate_dry_run(self, client):
+        """consolidate dry_run 返回 pairs。"""
+        resp = client.post("/api/v1/memories/consolidate", json={"dry_run": True})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["code"] == "OK"
+        assert "pairs" in data["data"]
+
+    def test_consolidate_normal(self, client):
+        """consolidate 正常模式返回 merged。"""
+        resp = client.post("/api/v1/memories/consolidate", json={})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["code"] == "OK"
+        assert "merged" in data["data"]
+
+    def test_export_get_files(self, client):
+        """GET export 返回文件列表。"""
+        resp = client.get("/api/v1/memories/export")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["code"] == "OK"
+
+    def test_delete_nonexistent_memory(self, client):
+        """删除不存在的记忆不报错。"""
+        resp = client.delete("/api/v1/memories/nonexistent-id")
+        assert resp.status_code == 200
