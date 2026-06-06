@@ -98,125 +98,276 @@ my_agent1/
 └── uv.lock
 ```
 
-## 部署
+## 部署教程
+
+> ⚠️ **平台限制**：本项目当前仅在 **Apple M 系列处理器 + macOS** 上测试通过。MLX 框架是 Apple 官方推出的 Apple Silicon 机器学习框架，不支持 Intel Mac、Windows 或 Linux。如果你使用其他平台，可以将 LLM/Embedding/Reranker 替换为云端 API（OpenAI / Anthropic / 自定义）。
 
 ### 环境要求
 
-- Python ≥ 3.12
-- macOS（MLX 模型部署需 Apple Silicon）
+| 组件 | 要求 |
+|------|------|
+| 硬件 | Apple M1/M2/M3/M4 芯片（推荐 16GB+ 统一内存） |
+| 系统 | macOS 14.0 (Sonoma) 或更高 |
+| Python | ≥ 3.12 |
+| 磁盘 | ~20GB（含模型文件） |
+| 网络 | 模型首次下载需访问 HuggingFace（需国际网络） |
 
-### 1. 安装依赖
+### 第一步：安装 MLX 框架
+
+MLX 是 Apple 官方的机器学习框架，专为 Apple Silicon 优化。所有本地模型基于 MLX 运行。
 
 ```bash
-cd my_agent1
-pip install -r requirements.txt
-# 或使用 uv
-uv pip install -r requirements.txt
+# 安装 MLX 核心库
+pip install mlx mlx-lm mlx-vlm
+
+# 验证安装
+python -c "import mlx; print('MLX 已安装')"
 ```
 
-### 2. 部署 MLX 本地模型
-
-项目依赖本地 MLX 部署三个模型服务：
-
-#### 2.1 LLM 对话模型（MLX-LM Server）
+如果下载速度慢，可使用 HF 镜像：
 
 ```bash
-git clone https://github.com/ml-explore/mlx-examples
-cd mlx-examples/llm/mlx_lm
+export HF_ENDPOINT=https://hf-mirror.com
+```
 
-pip install -e .
+### 第二步：安装 Python 依赖
 
-# 启动 OpenAI 兼容 API（以 Qwen2.5-7B-Instruct-4bit 为例）
+```bash
+# 克隆项目
+git clone https://github.com/zeeler/doc-mind.git
+cd doc-mind
+
+# 创建虚拟环境（推荐）
+python3.12 -m venv .venv
+source .venv/bin/activate
+
+# 安装依赖
+pip install -r requirements.txt
+
+# 验证
+python -c "import fastapi, chromadb, sqlalchemy; print('依赖安装成功')"
+```
+
+`requirements.txt` 包含的依赖：FastAPI、ChromaDB（向量存储）、SQLAlchemy（ORM）、liteparse（PDF 解析）、python-docx/openpyxl/python-pptx/ebooklib（文档解析）、pytesseract（OCR）、httpx/sse-starlette 等。
+
+### 第三步：下载模型
+
+模型托管在 HuggingFace 的 `mlx-community` 组织下，这是社区维护的 MLX 格式量化模型集合。首次运行 MLX Server 时会自动下载，也可以提前下载到本地缓存：
+
+```bash
+# 国内用户设置镜像加速
+export HF_ENDPOINT=https://hf-mirror.com
+
+# 可选：手动预热下载（以 Qwen2.5-7B 为例）
+huggingface-cli download mlx-community/Qwen2.5-7B-Instruct-4bit
+```
+
+本项目需要的三组模型：
+
+| 用途 | 推荐模型 | 显存占用 | 说明 |
+|------|---------|---------|------|
+| 对话（Chat） | `mlx-community/Qwen2.5-7B-Instruct-4bit` | ~4.5GB | 中文对话能力优秀，4bit 量化 |
+| 向量（Embedding） | `mlx-community/bge-m3-4bit` | ~1.5GB | 多语言 embedding，1024 维 / 2560 维可选 |
+| 精排（Reranker） | `BAAI/bge-reranker-v2-m3` | ~1.5GB | 跨语言 reranker，快速重排序 |
+
+> **模型选型建议**：如果内存紧张（8GB Mac），对话模型可选 `Qwen2.5-1.5B-Instruct-4bit`（~1GB）或 `Qwen2.5-3B-Instruct-4bit`（~2GB），embedding 可选 `all-MiniLM-L6-v2-4bit`（~100MB）。
+
+### 第四步：启动本地模型服务
+
+需要启动 **三个** 独立服务进程（建议使用三个终端窗口）：
+
+#### 4.1 LLM 对话服务（端口 8080）
+
+```bash
 mlx_lm.server \
   --model mlx-community/Qwen2.5-7B-Instruct-4bit \
   --port 8080
 ```
 
-#### 2.2 Embedding 模型（MLX-LM Server）
+启动成功后访问 `http://localhost:8080/v1/models` 可查看模型信息。
+
+#### 4.2 Embedding 向量服务（端口 8081）
 
 ```bash
-# 独立 Embedding 服务（推荐，避免与对话模型竞争资源）
 mlx_lm.server \
   --model mlx-community/bge-m3-4bit \
   --port 8081
 ```
 
-支持的 embedding 模型：
-- `mlx-community/bge-m3-4bit`（多语言，推荐）
-- `mlx-community/bge-large-zh-v1.5-4bit`（中文优化）
-- `mlx-community/all-MiniLM-L6-v2-4bit`（轻量英文）
+> **注意**：Embedding 模型维度需与 ChromaDB 一致。如果更换了不同维度的模型，需运行 `python scripts/reembed.py` 重建向量。
 
-#### 2.3 Reranker 模型（Rapid-MLX vLLM）
+#### 4.3 Reranker 精排服务（端口 8082）
+
+Reranker 使用 Rapid-MLX 项目部署，提供 OpenAI 兼容的 Rerank API：
 
 ```bash
+# 先克隆 Rapid-MLX
 git clone https://github.com/raullenchai/Rapid-MLX
 cd Rapid-MLX
 pip install -r requirements.txt
 
-# 启动 Reranker 服务（BGE-Reranker v2-m3）
+# 启动 Reranker 服务
 python -m rapid_mlx.reranker_server \
   --model BAAI/bge-reranker-v2-m3 \
   --port 8082
 ```
 
-#### 2.4 OCR 多模态模型（可选，MLX VLM Server）
-
-仅当需要处理扫描件 PDF 时部署：
+验证服务是否正常：
 
 ```bash
-git clone https://github.com/raullenchai/Rapid-MLX
-cd Rapid-MLX
+curl http://localhost:8082/v1/rerank \
+  -H "Content-Type: application/json" \
+  -d '{"model":"bge-reranker-v2-m3","query":"测试","documents":["文档A","文档B"]}'
+```
 
-# 启动 VLM server（OpenAI 兼容接口）
+#### 4.4 OCR 多模态服务（可选，端口 11434）
+
+仅当需要处理**扫描件 PDF**（图片型 PDF，不含文字层）时才需要。普通文字型 PDF 不需要此服务。
+
+```bash
+cd Rapid-MLX
 python -m mlx_vlm.server \
   --model mlx-community/Qwen2-VL-2B-Instruct-4bit \
   --port 11434
 ```
 
-OCR 模型选型：
-
-| 模型 | 大小 | OCR 效果 | 速度 |
-|------|------|---------|------|
-| Florence-2-base | ~0.2B | 基础 OCR 足够 | 极快 |
-| Qwen2-VL-2B | ~2B | 中文 OCR 更好 | 快 |
-| Qwen2-VL-7B | ~7B | 复杂版面最佳 | 中等 |
-
-### 3. 启动服务
+### 第五步：启动知识库应用
 
 ```bash
+# 在项目根目录
 python server/main.py
 # 或
 uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-服务启动后访问 http://localhost:8000 进入 Web 界面。
+启动后访问 **http://localhost:8000** 进入 Web 界面。
 
-### 4. 初始配置
+首次启动会自动创建 `data/` 目录，包含：
+```
+data/
+├── app.db         # SQLite 数据库（文档索引、配置、会话、记忆）
+├── chroma/        # ChromaDB 向量存储
+├── files/         # 上传的原始文件
+└── memories/      # 记忆 Markdown 导出（可选）
+```
 
-首次启动后在 Web 界面「设置」中配置模型连接：
+数据目录可通过环境变量自定义：`KB_DATA_DIR=/path/to/data`
 
-**对话模型**（必填）：
-- Provider: `custom`
-- API Base: `http://localhost:8080/v1`
-- API Type: `openai`
-- Chat Model: `qwen2.5-7b-instruct-4bit`
+### 第六步：初始配置
 
-**Embedding 模型**（必填，用于向量搜索）：
-- 启用独立 Embedding: 开
-- Model: `bge-m3-4bit`
-- API Base: `http://localhost:8081/v1`
+打开 http://localhost:8000，点击导航栏「设置」，进行以下配置：
 
-**Reranker 模型**（推荐启用）：
-- 启用 Reranker: 开
-- Model: `bge-reranker-v2-m3`
-- API Base: `http://localhost:8082/v1`
+#### 对话模型配置
 
-**OCR 模型**（如需要处理扫描件 PDF）：
-- OCR 引擎: `ollama`
-- OCR 模型: `qwen2-vl-2b-instruct-4bit`
-- OCR Base URL: `http://localhost:11434/v1`
+| 配置项 | 值 |
+|--------|-----|
+| LLM Provider | `custom` |
+| API Type | `openai` |
+| API Base | `http://localhost:8080/v1` |
+| Chat Model | `qwen2.5-7b-instruct-4bit` |
 
-数据默认存储在项目根目录的 `data/` 文件夹中（可通过环境变量 `KB_DATA_DIR` 自定义）。
+点击「测试连接」验证。
+
+#### Embedding 模型配置
+
+| 配置项 | 值 |
+|--------|-----|
+| 启用独立 Embedding | 开 ✓ |
+| Embedding Model | `bge-m3-4bit` |
+| Embedding API Base | `http://localhost:8081/v1` |
+
+点击「测试连接」验证。
+
+#### Reranker 模型配置
+
+| 配置项 | 值 |
+|--------|-----|
+| 启用 Reranker | 开 ✓ |
+| Reranker Model | `bge-reranker-v2-m3` |
+| Reranker API Base | `http://localhost:8082/v1` |
+
+点击「测试连接」验证。
+
+#### OCR 配置（如需扫描件支持）
+
+| 配置项 | 值 |
+|--------|-----|
+| OCR 引擎 | `ollama` |
+| OCR 模型 | `qwen2-vl-2b-instruct-4bit` |
+| OCR Base URL | `http://localhost:11434/v1` |
+
+### 第七步：验证
+
+上传一个测试文档，创建对话测试问答：
+
+```bash
+# 用 curl 测试完整流程
+# 1. 上传文档
+curl -F "file=@test.txt" http://localhost:8000/api/v1/documents/upload
+
+# 2. 等待处理完成后创建会话
+curl -X POST http://localhost:8000/api/v1/conversations \
+  -H "Content-Type: application/json" \
+  -d '{"title":"测试"}'
+
+# 3. 提问（将 CONV_ID 替换为上一步返回的 id）
+curl -X POST http://localhost:8000/api/v1/chat/ask \
+  -H "Content-Type: application/json" \
+  -d '{"conversation_id":"CONV_ID","question":"总结一下这份文档"}'
+```
+
+预期返回带 `[1]`、`[2]` 等引用编号的回答。
+
+### 故障排查
+
+#### 模型服务无法启动
+
+```bash
+# 检查端口是否被占用
+lsof -i :8080
+lsof -i :8081
+lsof -i :8082
+
+# 如被占用，可更换端口启动
+mlx_lm.server --model ... --port 8090
+# 然后在设置中更新 API Base 的端口号
+```
+
+#### 内存不足 (OOM)
+
+Apple Silicon 的统一内存由 CPU 和 GPU 共享。同时运行三个模型（对话+Embedding+Reranker）约需要 8-10GB 内存。
+
+**优化方案**：
+- 对话模型换为更小的量化版本（如 3B 或 1.5B）
+- 关闭 Reranker（设置中禁用）
+- 关闭 Embedding 服务，改用 OpenAI API 的 embedding
+- Embedding 模型换为 `all-MiniLM-L6-v2-4bit`（~100MB）
+
+#### 文档解析失败
+
+- PDF 扫描件需要 OCR 服务（见第四步 4.4）
+- 确保 `pytesseract` 已安装：`brew install tesseract tesseract-lang`
+- 大文件（>100MB）处理较慢，请耐心等待后台任务完成
+
+#### 更换 Embedding 模型后搜索不准确
+
+```bash
+# 重建所有向量（必须执行）
+python scripts/reembed.py
+```
+
+该脚本会用新模型重新生成所有文档的向量并写入 ChromaDB。如果新模型维度不同，需先删除旧 collection：
+
+```bash
+python -c "
+from server.database import DATA_DIR
+from server.vector.store import get_client
+client = get_client(str(DATA_DIR / 'chroma'))
+client.delete_collection('knowledge_base')
+print('已删除旧 collection')
+"
+python scripts/reembed.py
+```
 
 ## 使用指南
 
