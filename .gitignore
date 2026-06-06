@@ -2,6 +2,7 @@ data/**
 !data/.gitkeep
 !data/files/.gitkeep
 !data/chroma/.gitkeep
+reviews/
 predocs/
 __pycache__/
 *.pyc
