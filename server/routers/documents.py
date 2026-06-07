@@ -6,7 +6,7 @@ import shutil
 import logging
 import threading
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Request
+from fastapi import APIRouter, UploadFile, File, Form, Body, HTTPException, Depends, Request
 from sqlalchemy.orm import Session
 from server.database import get_session, get_session_ctx, DATA_DIR, fts_delete_by_document_id
 from server.models.document import Document, DocumentChunk
@@ -147,6 +147,193 @@ async def upload_document(request: Request, file: UploadFile = File(...), folder
             "status": doc.status,
         },
     }
+
+
+@router.post("/import-url")
+def import_url(payload: dict = Body(...), session: Session = Depends(get_session)):
+    """导入 URL 作为资料：抓取、提取、创建记录、排队处理。"""
+    url = (payload.get("url") or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL 不能为空")
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="URL 必须以 http:// 或 https:// 开头")
+
+    folder_path = (payload.get("folder_path") or "").strip()
+
+    # SHA256(url) for dedup
+    import hashlib
+    checksum = hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+    existing = session.query(Document).filter(Document.checksum == checksum).first()
+    if existing:
+        return {
+            "code": "OK",
+            "message": "success",
+            "data": {
+                "id": existing.id, "title": existing.title,
+                "file_name": existing.file_name, "status": existing.status,
+                "duplicate": True,
+            },
+        }
+
+    from server.services.url_fetcher import fetch_url
+    result = fetch_url(url)
+    if result["error"]:
+        raise HTTPException(status_code=400, detail=f"获取 URL 失败: {result['error']}")
+
+    title = result["title"] or url
+    text_content = result["text_content"]
+    if not text_content or len(text_content.strip()) < 10:
+        raise HTTPException(status_code=400, detail="无法提取页面内容（内容过短）")
+
+    # Create document
+    import uuid as _uuid
+    doc_id = str(_uuid.uuid4())
+    file_dir = DATA_DIR / "files" / doc_id
+    file_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save extracted text as .md
+    safe_title = "".join(c for c in title if c.isalnum() or c in "._- ()（）")[:80]
+    file_name = f"{safe_title}.md" if safe_title else f"import_{doc_id[:8]}.md"
+    file_path = file_dir / file_name
+    file_path.write_text(text_content, encoding="utf-8")
+
+    doc = Document(
+        id=doc_id,
+        title=title[:500],
+        file_name=file_name,
+        file_type="url",
+        file_path=str(file_path),
+        file_size=len(text_content.encode("utf-8")),
+        checksum=checksum,
+        folder_path=folder_path,
+        status="pending",
+    )
+    session.add(doc)
+    session.commit()
+
+    create_jobs_for_document(doc_id)
+
+    return {
+        "code": "OK",
+        "message": "success",
+        "data": {
+            "id": doc.id, "title": doc.title,
+            "file_name": doc.file_name, "file_type": doc.file_type,
+            "status": doc.status,
+        },
+    }
+
+
+@router.post("/import-bookmarks")
+async def import_bookmarks(
+    file: UploadFile | None = None,
+    payload: dict | None = Body(None),
+    session: Session = Depends(get_session),
+):
+    """导入 Chrome 书签：上传 HTML 预览或批量导入 URL。
+
+    预览模式：上传 .html 文件，返回结构化预览
+    导入模式：传入 {"urls": [...], "folder_path": "..."}
+    """
+    from server.services.bookmark_parser import parse_bookmarks_html
+
+    # Preview mode: parse bookmark HTML file
+    if file:
+        content = await file.read()
+        bookmarks = parse_bookmarks_html(content.decode("utf-8", errors="replace"))
+
+        # Group by folder for preview
+        folders: dict[str, list[dict]] = {}
+        for bm in bookmarks:
+            fp = bm["folder_path"] or "根目录"
+            folders.setdefault(fp, []).append(bm)
+
+        return {
+            "code": "OK",
+            "message": "success",
+            "data": {
+                "total": len(bookmarks),
+                "folders": [
+                    {"path": fp, "count": len(items)}
+                    for fp, items in sorted(folders.items())
+                ],
+                "bookmarks": bookmarks,
+            },
+        }
+
+    # Import mode: batch import URLs
+    if payload:
+        urls = payload.get("urls") or []
+        folder_path = (payload.get("folder_path") or "书签导入").strip() or "书签导入"
+
+        if not urls:
+            raise HTTPException(status_code=400, detail="URLs 不能为空")
+
+        from server.services.url_fetcher import fetch_url
+
+        success = 0
+        fail = 0
+        skip = 0
+        failed_urls: list[dict] = []
+
+        for url in urls:
+            url = url.strip()
+            if not url:
+                continue
+
+            # Dedup
+            checksum = hashlib.sha256(url.encode("utf-8")).hexdigest()
+            existing = session.query(Document).filter(Document.checksum == checksum).first()
+            if existing:
+                skip += 1
+                continue
+
+            # Fetch
+            result = fetch_url(url)
+            if result["error"]:
+                fail += 1
+                failed_urls.append({"url": url, "reason": result["error"]})
+                continue
+
+            # Create document
+            doc_id = str(uuid.uuid4())
+            file_dir = DATA_DIR / "files" / doc_id
+            file_dir.mkdir(parents=True, exist_ok=True)
+
+            title = result["title"] or url
+            safe_title = "".join(c for c in title if c.isalnum() or c in "._- ()（）")[:80]
+            file_name = f"{safe_title}.md" if safe_title else f"import_{doc_id[:8]}.md"
+            file_path = file_dir / file_name
+            file_path.write_text(result["text_content"], encoding="utf-8")
+
+            doc = Document(
+                id=doc_id, title=title[:500], file_name=file_name,
+                file_type="url", file_path=str(file_path),
+                file_size=len(result["text_content"].encode("utf-8")),
+                checksum=checksum, folder_path=folder_path, status="pending",
+            )
+            session.add(doc)
+            session.flush()
+
+            create_jobs_for_document(doc_id)
+            success += 1
+
+        session.commit()
+
+        return {
+            "code": "OK",
+            "message": "success",
+            "data": {
+                "total": len(urls),
+                "success": success,
+                "fail": fail,
+                "skip": skip,
+                "failed_urls": failed_urls,
+            },
+        }
+
+    raise HTTPException(status_code=400, detail="请提供书签文件或 URLs 参数")
 
 
 @router.get("")
