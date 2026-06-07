@@ -114,15 +114,6 @@ class TestDocumentUpdate:
         response = client.put(f"/api/v1/documents/{doc_id}", json={"add_tags": ["python", "ai"]})
         assert response.status_code == 200
 
-    def test_add_to_collections(self, client, sample_txt):
-        with open(sample_txt, "rb") as f:
-            upload_resp = client.post("/api/v1/documents/upload", files={"file": ("test.txt", f, "text/plain")})
-        doc_id = upload_resp.json()["data"]["id"]
-        coll_resp = client.post("/api/v1/collections", json={"name": "测试集"})
-        coll_id = coll_resp.json()["data"]["id"]
-        response = client.put(f"/api/v1/documents/{doc_id}", json={"add_collections": [coll_id]})
-        assert response.status_code == 200
-
     def test_update_nonexistent_document(self, client):
         response = client.put("/api/v1/documents/nonexistent", json={"category": "x"})
         assert response.status_code == 404

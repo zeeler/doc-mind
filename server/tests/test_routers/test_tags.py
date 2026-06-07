@@ -14,7 +14,6 @@ def client(tmp_data_dir, monkeypatch):
     from server.models.base import Base
     from server.database import get_engine
     from server.models.tag import Tag  # noqa: F401
-    from server.models.collection import Collection  # noqa: F401
     Base.metadata.create_all(bind=get_engine())
     return TestClient(app)
 

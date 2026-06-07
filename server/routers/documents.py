@@ -7,14 +7,13 @@ import logging
 import threading
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Request
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 from server.database import get_session, get_session_ctx, DATA_DIR, fts_delete_by_document_id
 from server.models.document import Document, DocumentChunk
 from server.models.tag import Tag, document_tags
-from server.models.collection import Collection, collection_documents
 from server.models.job import Job
 from server.services.parser import SUPPORTED_TYPES
+from server.services.tag_utils import normalize_tag_name, get_or_create_tag, get_tag
 from server.services.search import get_search_service
 from server.services.worker import create_jobs_for_document
 
@@ -24,7 +23,6 @@ router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
 # 文件上传限制
 MAX_FILE_SIZE = 200 * 1024 * 1024  # 200MB
-MAX_TAG_NAME_LENGTH = 100
 
 # 去重检查锁：防止并发上传相同文件绕过 TOCTOU 检查
 _dedup_lock = threading.Lock()
@@ -33,31 +31,6 @@ _dedup_lock = threading.Lock()
 def _compute_sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
-
-def _normalize_tag_name(name: str) -> str:
-    """标准化标签名：去空白、截断至最大长度。"""
-    cleaned = name.strip()
-    return cleaned[:MAX_TAG_NAME_LENGTH] if cleaned else ""
-
-
-def _get_or_create_tag(session: Session, name: str) -> "Tag | None":
-    """获取或创建标签（大小写不敏感），name 必须已通过 _normalize_tag_name 处理。"""
-    if not name:
-        return None
-    normalized = name.lower()
-    tag_obj = session.query(Tag).filter(func.lower(Tag.name) == normalized).first()
-    if not tag_obj:
-        tag_obj = Tag(id=str(uuid.uuid4()), name=name)
-        session.add(tag_obj)
-        session.flush()
-    return tag_obj
-
-
-def _get_tag(session: Session, name: str) -> "Tag | None":
-    """按名称查找标签（大小写不敏感），name 必须已通过 _normalize_tag_name 处理。"""
-    if not name:
-        return None
-    return session.query(Tag).filter(func.lower(Tag.name) == name.lower()).first()
 
 
 def _cleanup_document_indices(doc_id: str) -> None:
@@ -183,7 +156,6 @@ def list_documents(
     folder: str | None = None,
     category: str | None = None,
     tag: str | None = None,
-    collection: str | None = None,
     status: str | None = None,
     search: str | None = None,
     session: Session = Depends(get_session),
@@ -207,8 +179,6 @@ def list_documents(
             q = q.filter(Document.title.ilike(f"%{search}%"))
     if tag:
         q = q.join(Document.tags).filter(Tag.name == tag)
-    if collection:
-        q = q.join(Document.collections).filter(Collection.id == collection)
 
     docs = q.order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
     return {
@@ -227,7 +197,6 @@ def list_documents(
                 "folder_path": d.folder_path,
                 "category": d.category,
                 "tags": list({t.id: {"id": t.id, "name": t.name} for t in d.tags}.values()),
-                "collections": list({c.id: {"id": c.id, "name": c.name} for c in d.collections}.values()),
                 "created_at": d.created_at.isoformat(),
             }
             for d in docs
@@ -251,7 +220,7 @@ def batch_operation(payload: dict, session: Session = Depends(get_session)):
     if not ids:
         raise HTTPException(status_code=400, detail="ids 不能为空")
 
-    valid_actions = {"delete", "retry", "tag", "untag", "categorize", "collect"}
+    valid_actions = {"delete", "retry", "tag", "untag", "categorize"}
     if action not in valid_actions:
         raise HTTPException(status_code=400, detail=f"不支持的操作类型: {action}")
 
@@ -277,34 +246,28 @@ def batch_operation(payload: dict, session: Session = Depends(get_session)):
                 # 对输入去重（按 lower 名），防止同一请求重复添加
                 seen_names: set[str] = set()
                 for tag_name in params.get("tags") or []:
-                    name = _normalize_tag_name(tag_name)
+                    name = normalize_tag_name(tag_name)
                     if not name:
                         continue
                     if name.lower() in seen_names:
                         continue
                     seen_names.add(name.lower())
-                    tag_obj = _get_or_create_tag(session, name)
+                    tag_obj = get_or_create_tag(session, name)
                     if tag_obj and tag_obj not in doc.tags:
                         doc.tags.append(tag_obj)
             elif action == "untag":
                 seen_names = set()
                 for tag_name in params.get("tags") or []:
-                    name = _normalize_tag_name(tag_name)
+                    name = normalize_tag_name(tag_name)
                     if not name:
                         continue
                     name_lower = name.lower()
                     if name_lower in seen_names:
                         continue
                     seen_names.add(name_lower)
-                    tag_obj = _get_tag(session, name)
+                    tag_obj = get_tag(session, name)
                     if tag_obj and tag_obj in doc.tags:
                         doc.tags.remove(tag_obj)
-            elif action == "collect":
-                coll_id = params.get("collection_id")
-                if coll_id:
-                    coll = session.get(Collection, coll_id)
-                    if coll and coll not in doc.collections:
-                        doc.collections.append(coll)
             elif action == "retry":
                 if doc.status in ("done", "failed"):
                     doc.status = "pending"
@@ -378,36 +341,26 @@ def update_document(doc_id: str, payload: dict, session: Session = Depends(get_s
 
     seen_add: set[str] = set()
     for tag_name in payload.get("add_tags") or []:
-        name = _normalize_tag_name(tag_name)
+        name = normalize_tag_name(tag_name)
         if not name or name.lower() in seen_add:
             continue
         seen_add.add(name.lower())
-        tag_obj = _get_or_create_tag(session, name)
+        tag_obj = get_or_create_tag(session, name)
         if tag_obj and tag_obj not in doc.tags:
             doc.tags.append(tag_obj)
 
     seen_remove: set[str] = set()
     for tag_name in payload.get("remove_tags") or []:
-        name = _normalize_tag_name(tag_name)
+        name = normalize_tag_name(tag_name)
         if not name:
             continue
         name_lower = name.lower()
         if name_lower in seen_remove:
             continue
         seen_remove.add(name_lower)
-        tag_obj = _get_tag(session, name)
+        tag_obj = get_tag(session, name)
         if tag_obj and tag_obj in doc.tags:
             doc.tags.remove(tag_obj)
-
-    for coll_id in payload.get("add_collections") or []:
-        coll = session.get(Collection, coll_id)
-        if coll and coll not in doc.collections:
-            doc.collections.append(coll)
-
-    for coll_id in payload.get("remove_collections") or []:
-        coll = session.get(Collection, coll_id)
-        if coll and coll in doc.collections:
-            doc.collections.remove(coll)
 
     session.commit()
     return {"code": "OK", "message": "success", "data": None}

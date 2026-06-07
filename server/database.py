@@ -79,7 +79,6 @@ def init_db():
     from server.models.conversation import Conversation, Message  # noqa: F401
     from server.models.job import Job  # noqa: F401
     from server.models.tag import Tag  # noqa: F401
-    from server.models.collection import Collection  # noqa: F401
     from server.config import AppConfigModel  # noqa: F401
     Base.metadata.create_all(bind=get_engine())
     _migrate(get_engine())
@@ -152,22 +151,6 @@ def _migrate(engine):
                 doc_id VARCHAR(36) NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
                 tag_id VARCHAR(36) NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
                 PRIMARY KEY (doc_id, tag_id)
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS collections (
-                id VARCHAR(36) PRIMARY KEY,
-                name VARCHAR(200) NOT NULL,
-                description TEXT,
-                created_at TIMESTAMP NOT NULL
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS collection_documents (
-                doc_id VARCHAR(36) NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-                collection_id VARCHAR(36) NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
-                added_at TIMESTAMP,
-                PRIMARY KEY (doc_id, collection_id)
             )
         """)
         conn.commit()

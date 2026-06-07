@@ -671,14 +671,6 @@ body {
             <div v-for="t in allTags" :key="t.id" class="item" :class="{active:filters.tag===t.name}" @click="filters.tag=filters.tag===t.name?'':t.name;loadDocuments()">{{ t.name }} <span class="count">{{ t.doc_count }}</span></div>
           </div>
         </div>
-        <div class="sidebar-section">
-          <h4 @click="toggleSection('collections')">📂 集合 <span>{{ sections.collections ? '▾' : '▸' }}</span></h4>
-          <div v-show="sections.collections">
-            <div v-for="c in allCollections" :key="c.id" class="item" :class="{active:filters.collection===c.id}" @click="filters.collection=filters.collection===c.id?'':c.id;loadDocuments()">{{ c.name }} <span class="count">{{ c.doc_count }}</span></div>
-            <div class="item" style="color:var(--amber);font-style:italic" @click="showNewCollection=true">+ 新建集合</div>
-            <div v-if="showNewCollection" style="padding:4px 8px"><input v-model="newCollectionName" @keydown.enter="createCollection" @keydown.escape="showNewCollection=false" placeholder="集合名" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font:12px var(--sans);background:var(--bg);color:var(--text);outline:none"></div>
-          </div>
-        </div>
       </aside>
       <main class="docs-main">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
@@ -774,7 +766,6 @@ body {
             <div class="doc-actions" v-if="!batchMode">
               <button @click="retryDoc(d.id)" :disabled="retryingIds.has(d.id)" :title="retryingIds.has(d.id)?'索引中...':'重新索引'">{{ retryingIds.has(d.id) ? '⏳' : '🔄' }}</button>
               <button @click="openTagPicker(d,$event)" title="打标签">🏷</button>
-              <button @click="openCollectPicker(d,$event)" title="加集合">📂</button>
               <button @click="openCategoryEdit(d,$event)" title="改分类">📋</button>
               <button class="doc-del" @click="delDoc(d.id,$event)">删除</button>
             </div>
@@ -783,12 +774,6 @@ body {
               <div v-for="t in filteredTags" :key="t.id" class="tag-option">
                 <input type="checkbox" :checked="d.tags&&d.tags.some(dt=>dt.id===t.id)" @change="toggleDocTag(d,t)">
                 <span>{{ t.name }}</span>
-              </div>
-            </div>
-            <div v-if="collectPickerDoc===d" class="tag-picker" @click.stop>
-              <div v-for="c in allCollections" :key="c.id" class="tag-option">
-                <input type="checkbox" :checked="d.collections&&d.collections.some(dc=>dc.id===c.id)" @change="toggleDocCollection(d,c)">
-                <span>{{ c.name }}</span>
               </div>
             </div>
             <div v-if="categoryEditDoc===d" class="tag-picker" @click.stop>
@@ -995,22 +980,18 @@ createApp({
     const batchMode = ref(false);
     const selectedIds = ref(new Set());
     const allTags = ref([]);
-    const allCollections = ref([]);
     const allCategories = ref([]);
     const folderTree = ref([]);
-    const filters = reactive({folder:'', category:'', tag:'', collection:'', status:'', search:''});
+    const filters = reactive({folder:'', category:'', tag:'', status:'', search:''});
     const searchResults = ref(null);
     const searchType = ref('chunks');
     const retryingIds = reactive(new Set());
-    const sections = reactive({folders:true, tags:true, collections:true});
+    const sections = reactive({folders:true, tags:true});
     const sidebarOpen = ref(false);
     const tagPickerDoc = ref(null);
     const tagSearch = ref('');
-    const collectPickerDoc = ref(null);
     const categoryEditDoc = ref(null);
     const editCategoryName = ref('');
-    const showNewCollection = ref(false);
-    const newCollectionName = ref('');
     const batchTagPrompt = ref(false);
     const batchCatPrompt = ref(false);
     const batchPromptInput = ref('');
@@ -1108,7 +1089,6 @@ createApp({
       if (filters.folder) params.set('folder', filters.folder);
       if (filters.category) params.set('category', filters.category);
       if (filters.tag) params.set('tag', filters.tag);
-      if (filters.collection) params.set('collection', filters.collection);
       if (filters.status) params.set('status', filters.status);
       if (filters.search) params.set('search', filters.search);
       const qs = params.toString();
@@ -1202,7 +1182,6 @@ createApp({
     async function deleteMessage(msgId, evt) { try { if (!await showConfirm('确定删除这条消息？', evt)) return; } catch(_){return;} try { await fetch('/api/v1/conversations/'+currentConv.value+'/messages/'+msgId, {method:'DELETE'}); messages.value = messages.value.filter(m => m.id !== msgId); } catch(e) { console.error('删除消息失败:', e); alert('删除失败: ' + e.message); } }
     async function deleteMemory(id, evt) { try { if (!await showConfirm('确定删除这条记忆？', evt)) return; } catch(_){return;} await fetch('/api/v1/memories/' + id, {method: 'DELETE'}); await loadMemories(); }
     async function loadTags() { try { const d = await api('/api/v1/tags'); allTags.value = d.data || []; } catch(e) { console.error(e); } }
-    async function loadCollections() { try { const d = await api('/api/v1/collections'); allCollections.value = d.data || []; } catch(e) { console.error(e); } }
     async function loadFolders() {
       try {
         const d = await api('/api/v1/documents/folders'); const paths = d.data || []; const tree = {};
@@ -1221,9 +1200,6 @@ createApp({
     async function addTagToDoc(doc, tagName) { const name = tagName.trim(); if (!name) return; await api('/api/v1/documents/' + doc.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({add_tags: [name]})}); tagSearch.value = ''; await loadDocuments(); await loadTags(); }
     async function toggleDocTag(doc, tag) { const has = doc.tags && doc.tags.some(t => t.id === tag.id); await api('/api/v1/documents/' + doc.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(has ? {remove_tags: [tag.name]} : {add_tags: [tag.name]})}); await loadDocuments(); await loadTags(); }
     const filteredTags = computed(() => { if (!tagSearch.value) return allTags.value; return allTags.value.filter(t => t.name.toLowerCase().includes(tagSearch.value.toLowerCase())); });
-    function openCollectPicker(doc, event) { collectPickerDoc.value = doc; }
-    async function toggleDocCollection(doc, coll) { const has = doc.collections && doc.collections.some(c => c.id === coll.id); await api('/api/v1/documents/' + doc.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(has ? {remove_collections: [coll.id]} : {add_collections: [coll.id]})}); await loadDocuments(); await loadCollections(); }
-    async function createCollection() { const name = newCollectionName.value.trim(); if (!name) return; await api('/api/v1/collections', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})}); newCollectionName.value = ''; showNewCollection.value = false; await loadCollections(); }
     function openCategoryEdit(doc, event) { categoryEditDoc.value = doc; editCategoryName.value = doc.category || ''; }
     async function saveDocCategory(doc) { const cat = editCategoryName.value.trim(); await api('/api/v1/documents/' + doc.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({category: cat})}); categoryEditDoc.value = null; await loadDocuments(); await loadAllCategories(); }
     function batchTag() { batchTagPrompt.value = true; batchPromptInput.value = ''; }
@@ -1249,14 +1225,14 @@ createApp({
     async function loadVectorInfo() { try { const r = await api('/api/v1/config/vector-info'); if (r.code === 'OK') vectorInfo.value = r.data; } catch {} }
     onMounted(() => { loadConversations(); loadConfig(); });
     watch(page, (v) => {
-      if (v === 'docs') { loadDocuments(); loadJobStats(); loadTags(); loadCollections(); loadFolders(); loadAllCategories(); loadVectorInfo(); if (!jobInterval) jobInterval = setInterval(() => { loadJobStats(); }, 3000); }
+      if (v === 'docs') { loadDocuments(); loadJobStats(); loadTags(); loadFolders(); loadAllCategories(); loadVectorInfo(); if (!jobInterval) jobInterval = setInterval(() => { loadJobStats(); }, 3000); }
       else if (v === 'memories') { loadMemories(); if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } }
       else { if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } }
     });
 
     return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,embeddingOn,rerankerOn,webSearchOn,vectorInfo,saved,saveError,chatResult,ocrResult,editingId,editTitle,confirmShow,confirmMsg,confirmX,confirmY,embeddingResult,rerankerResult,testingChat,testingOcr,testingEmbedding,testingReranker,msgBox,inputEl,memoriesList,
-      batchMode, selectedIds, allTags, allCollections, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, collectPickerDoc, categoryEditDoc, editCategoryName, showNewCollection, newCollectionName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
-      loadTags, loadCollections, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCollectPicker, toggleDocCollection, createCollection, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
+      batchMode, selectedIds, allTags, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, categoryEditDoc, editCategoryName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
+      loadTags, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
       newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,showConfirm,confirmOk,confirmCancel,testChat,testOcr,testEmbedding,testReranker,loadMemories,rememberMessage,deleteMsg:deleteMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,loadVectorInfo,
       batchRetry, uniqueTags, uniqueCitations };
   }

@@ -18,7 +18,6 @@ from server.models.document import Document, DocumentChunk  # noqa: F401
 from server.models.conversation import Conversation, Message  # noqa: F401
 from server.models.job import Job  # noqa: F401
 from server.models.tag import Tag  # noqa: F401
-from server.models.collection import Collection  # noqa: F401
 from server.config import AppConfigModel  # noqa: F401
 from server.routers.documents import router as documents_router
 from server.routers.conversations import router as conversations_router
@@ -28,7 +27,6 @@ from server.routers.jobs import router as jobs_router
 from server.routers.memories import router as memories_router
 from server.routers.search import router as search_router
 from server.routers.tags import router as tags_router
-from server.routers.collections import router as collections_router
 
 # 配置日志
 logging.basicConfig(
@@ -65,7 +63,6 @@ def _ensure_models_loaded():
     from server.models.conversation import Conversation, Message  # noqa: F811
     from server.config import AppConfigModel  # noqa: F811
     from server.models.tag import Tag  # noqa: F811
-    from server.models.collection import Collection  # noqa: F811
 
 
 app = FastAPI(title="知识库", version="0.1.0", lifespan=lifespan)
@@ -78,7 +75,6 @@ app.include_router(jobs_router)
 app.include_router(memories_router)
 app.include_router(search_router)
 app.include_router(tags_router)
-app.include_router(collections_router)
 
 @app.get("/api/v1/health")
 def health_check():

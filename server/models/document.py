@@ -6,7 +6,6 @@ from sqlalchemy import String, Integer, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from server.models.base import Base
 from server.models.tag import document_tags
-from server.models.collection import collection_documents
 
 
 class Document(Base):
@@ -35,9 +34,6 @@ class Document(Base):
 
     tags: Mapped[list["Tag"]] = relationship(
         "Tag", secondary=document_tags, back_populates="documents", lazy="selectin"
-    )
-    collections: Mapped[list["Collection"]] = relationship(
-        "Collection", secondary=collection_documents, back_populates="documents", lazy="selectin"
     )
 
 
