@@ -3,6 +3,7 @@
 import uuid
 import hashlib
 import shutil
+from sqlalchemy import func
 import logging
 import threading
 from pathlib import Path
@@ -305,6 +306,49 @@ async def import_bookmarks(
         }
 
     raise HTTPException(status_code=400, detail="请提供书签文件或 URLs 参数")
+
+
+@router.get("/stats")
+def get_document_stats(session: Session = Depends(get_session)):
+    """获取资料统计：按类型计数 + 任务摘要。"""
+    # File type counts
+    type_rows = session.query(
+        Document.file_type, func.count(Document.id)
+    ).group_by(Document.file_type).all()
+
+    type_labels = {
+        "pdf": "PDF", "docx": "Word", "xlsx": "Excel", "pptx": "PPT",
+        "mobi": "MOBI", "md": "Markdown", "txt": "TXT", "url": "网页",
+        "markdown": "Markdown",
+    }
+    file_types = {}
+    for ft, cnt in type_rows:
+        label = type_labels.get(ft, ft)
+        file_types[label] = file_types.get(label, 0) + cnt
+
+    total = sum(file_types.values())
+
+    # Job summary
+    from server.models.job import Job
+    job_rows = session.query(
+        Job.job_type, Job.status, func.count(Job.id)
+    ).filter(Job.job_type.in_(["quick_scan", "full_index"])).group_by(
+        Job.job_type, Job.status
+    ).all()
+
+    job_summary = {}
+    for jt, status, cnt in job_rows:
+        job_summary.setdefault(jt, {"completed": 0, "running": 0, "pending": 0, "failed": 0})
+        job_summary[jt][status] = cnt
+
+    return {
+        "code": "OK",
+        "data": {
+            "total": total,
+            "file_types": file_types,
+            "job_summary": job_summary,
+        },
+    }
 
 
 @router.get("")

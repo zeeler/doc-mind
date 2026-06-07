@@ -678,12 +678,24 @@ body {
           <span style="font:600 20px var(--serif);letter-spacing:.03em">资料管理</span>
           <button class="batch-toggle" :class="{on:batchMode}" @click="toggleBatchMode" style="margin-left:auto">{{ batchMode ? '退出批量' : '批量模式' }}</button>
         </div>
-        <div v-if="vectorInfo" style="display:flex;gap:18px;font:11px var(--sans);color:var(--text-secondary);margin-bottom:14px;padding:8px 14px;background:var(--bg-sidebar);border-radius:var(--radius-sm);align-items:center">
-          <span>向量维度 <b style="color:var(--text);font-weight:600">{{ vectorInfo.dimension || '—' }}</b></span>
-          <span style="color:var(--border)">|</span>
-          <span>向量数量 <b style="color:var(--text);font-weight:600">{{ vectorInfo.vector_count.toLocaleString() }}</b></span>
-          <span style="color:var(--border)">|</span>
-          <span>最近重建 <b style="color:var(--text);font-weight:600">{{ vectorInfo.last_reindex || '—' }}</b></span>
+        <div v-if="vectorInfo" style="margin-bottom:14px;padding:8px 14px;background:var(--bg-sidebar);border-radius:var(--radius-sm)">
+          <div style="display:flex;gap:18px;font:11px var(--sans);color:var(--text-secondary);align-items:center">
+            <span>向量维度 <b style="color:var(--text);font-weight:600">{{ vectorInfo.dimension || '—' }}</b></span>
+            <span style="color:var(--border)">|</span>
+            <span>向量数量 <b style="color:var(--text);font-weight:600">{{ vectorInfo.vector_count.toLocaleString() }}</b></span>
+            <span style="color:var(--border)">|</span>
+            <span>最近重建 <b style="color:var(--text);font-weight:600">{{ vectorInfo.last_reindex || '—' }}</b></span>
+          </div>
+          <div v-if="docStats" style="display:flex;gap:12px;font:11px var(--sans);color:var(--text-secondary);align-items:center;margin-top:6px;padding-top:6px;border-top:1px solid var(--border-light);flex-wrap:wrap">
+            <span v-if="docStats.job_summary?.quick_scan" :title="'扫描: 完成'+docStats.job_summary.quick_scan.completed+' 运行'+docStats.job_summary.quick_scan.running+' 等待'+docStats.job_summary.quick_scan.pending">🔍 扫描 {{ docStats.job_summary.quick_scan.completed }} 完成<span v-if="docStats.job_summary.quick_scan.running"> {{ docStats.job_summary.quick_scan.running }} 处理中</span></span>
+            <span v-if="docStats.job_summary?.full_index" :title="'索引: 完成'+docStats.job_summary.full_index.completed+' 运行'+docStats.job_summary.full_index.running+' 等待'+docStats.job_summary.full_index.pending">📑 索引 {{ docStats.job_summary.full_index.completed }} 完成<span v-if="docStats.job_summary.full_index.running"> {{ docStats.job_summary.full_index.running }} 处理中</span></span>
+            <span v-if="docStats.total > 0" style="color:var(--border)">|</span>
+            <span v-if="docStats.total > 0">资料总数 <b style="color:var(--text);font-weight:600">{{ docStats.total }}</b> 个</span>
+            <template v-for="(cnt, label) in docStats.file_types" :key="label">
+              <span style="color:var(--border)">·</span>
+              <span>{{ label }} <b style="color:var(--text);font-weight:600">{{ cnt }}</b> 个</span>
+            </template>
+          </div>
         </div>
         <div class="upload-zone" @click="$refs.fileInput.click()" @dragover.prevent @drop.prevent="uploadDrop">
           <input type="file" ref="fileInput" @change="uploadFile" accept=".pdf,.docx,.md,.txt,.markdown" style="display:none">
@@ -694,17 +706,7 @@ body {
           <button class="btn btn-ghost" @click="scanDirectory" style="flex:1;margin-top:0" :disabled="dirProcessing">{{ dirProcessing ? '扫描中 ('+dirProgress+')' : '选择本地目录' }}</button>
         </div>
         <div v-if="!dirProcessing && dirResult" style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">{{ dirResult }}</div>
-        <div v-if="jobStats" style="margin-bottom:14px">
-          <div v-for="(st, jt) in jobStats" :key="jt" style="display:flex;gap:8px;font:11px var(--sans);align-items:center;margin-bottom:3px;line-height:1.7">
-            <span style="color:var(--text-tertiary);min-width:65px;font-weight:500">{{ jt === 'quick_scan' ? '🔍 扫描' : '📑 索引' }}</span>
-            <span v-if="st.pending" style="color:var(--text-tertiary)">{{ st.pending }} 等待</span>
-            <span v-if="st.running" style="color:var(--info)">{{ st.running }} 处理中</span>
-            <span style="color:var(--text-secondary)">{{ st.completed || 0 }} 完成</span>
-            <span v-if="st.failed" style="color:var(--danger)">{{ st.failed }} 失败</span>
-          </div>
-          <button v-if="anyFailed||anyRunning" @click="retryFailedJobs" style="margin-top:6px;padding:3px 12px;font:11px var(--sans);border:1.5px solid var(--border);border-radius:99px;background:var(--card);color:var(--text-secondary);cursor:pointer">重试失败/卡住</button>
-        </div>
-        <div v-if="jobStats&&(totalPending||totalRunning)" style="margin-bottom:14px;height:3px;background:var(--bg-hover);border-radius:99px;overflow:hidden">
+        <div v-if="docStats&&(docStats.job_summary?.quick_scan?.running||docStats.job_summary?.full_index?.running)" style="margin-bottom:10px;height:3px;background:var(--bg-hover);border-radius:99px;overflow:hidden">
           <div :style="{width:jobPercent+'%',height:'100%',background:'var(--amber)',transition:'width .5s ease',borderRadius:'99px'}"></div>
         </div>
         <div class="docs-toolbar">
@@ -966,6 +968,7 @@ createApp({
     const embeddingOn = ref(false);
     const webSearchOn = ref(false);
     const vectorInfo = ref(null);
+    const docStats = ref(null);
     const saved = ref(false);
     const saveError = ref('');
     const testingEmbedding = ref(false);
@@ -1250,18 +1253,19 @@ createApp({
     function uniqueCitations(cits) { return dedupBy(cits, c => c.document_title || c.file_name); }
 
     async function loadVectorInfo() { try { const r = await api('/api/v1/config/vector-info'); if (r.code === 'OK') vectorInfo.value = r.data; } catch {} }
+    async function loadDocStats() { try { const r = await api('/api/v1/documents/stats'); if (r.code === 'OK') { docStats.value = r.data; const s = r.data.job_summary || {}; let done = 0; let all = 0; for (const jt of Object.values(s)) { done += jt.completed || 0; all += (jt.completed||0) + (jt.running||0) + (jt.pending||0) + (jt.failed||0); } jobPercent.value = all > 0 ? Math.round(done / all * 100) : 0; } } catch {} }
     onMounted(() => { loadConversations(); loadConfig(); });
     watch(page, (v) => {
-      if (v === 'docs') { loadDocuments(); loadJobStats(); loadTags(); loadFolders(); loadAllCategories(); loadVectorInfo(); if (!jobInterval) jobInterval = setInterval(() => { loadJobStats(); }, 3000); }
+      if (v === 'docs') { loadDocuments(); loadJobStats(); loadTags(); loadFolders(); loadAllCategories(); loadVectorInfo(); loadDocStats(); if (!jobInterval) jobInterval = setInterval(() => { loadJobStats(); loadDocStats(); }, 5000); }
       else if (v === 'memories') { loadMemories(); if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } }
       else { if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } }
     });
 
-    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,docsPage,docsTotal,PAGE_SIZE,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,embeddingOn,rerankerOn,webSearchOn,vectorInfo,saved,saveError,chatResult,ocrResult,editingId,editTitle,confirmShow,confirmMsg,confirmX,confirmY,embeddingResult,rerankerResult,testingChat,testingOcr,testingEmbedding,testingReranker,msgBox,inputEl,memoriesList,
+    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,docsPage,docsTotal,PAGE_SIZE,jobStats,jobPercent,docStats,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,embeddingOn,rerankerOn,webSearchOn,vectorInfo,saved,saveError,chatResult,ocrResult,editingId,editTitle,confirmShow,confirmMsg,confirmX,confirmY,embeddingResult,rerankerResult,testingChat,testingOcr,testingEmbedding,testingReranker,msgBox,inputEl,memoriesList,
       batchMode, selectedIds, allTags, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, categoryEditDoc, editCategoryName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
       loadTags, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
       newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,showConfirm,confirmOk,confirmCancel,testChat,testOcr,testEmbedding,testReranker,loadMemories,rememberMessage,deleteMsg:deleteMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,loadVectorInfo,
-      batchRetry, uniqueTags, uniqueCitations, retaggingIds, retagDoc, goPage };
+      batchRetry, uniqueTags, uniqueCitations, retaggingIds, retagDoc, goPage, loadDocStats };
   }
 }).mount('#app');
 </script>
