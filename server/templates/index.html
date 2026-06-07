@@ -442,17 +442,23 @@ body {
   border-right: 1px solid var(--border-light);
   padding: 16px 12px; background: var(--bg-sidebar);
   transition: width .2s ease, padding .2s ease;
+  position: relative;
 }
 .docs-sidebar.collapsed {
   width: 36px; padding: 0; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
 }
-.docs-sidebar-collapsed-btn {
-  font-size: 20px; color: var(--text-tertiary); cursor: pointer;
-  padding: 4px 2px; line-height: 1; user-select: none;
-  transition: color .15s;
+.docs-sidebar-toggle {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  font-size: 18px; color: var(--text-tertiary); cursor: pointer;
+  padding: 6px 2px; line-height: 1; user-select: none; z-index: 5;
+  transition: color .15s; background: var(--bg-sidebar);
 }
-.docs-sidebar-collapsed-btn:hover { color: var(--text); }
+.docs-sidebar.collapsed .docs-sidebar-toggle {
+  position: static; transform: none;
+  font-size: 20px; padding: 4px 2px;
+}
+.docs-sidebar-toggle:hover { color: var(--text); }
 .docs-sidebar h4 {
   font: 600 11px var(--sans); text-transform: uppercase;
   color: var(--text-tertiary); letter-spacing: .8px;
@@ -669,11 +675,8 @@ body {
     <!-- Docs -->
     <div v-if="page==='docs'" class="docs-layout">
       <aside class="docs-sidebar" :class="{open:sidebarOpen, collapsed:docsSidebarCollapsed}">
-        <div v-if="docsSidebarCollapsed" class="docs-sidebar-collapsed-btn" @click="docsSidebarCollapsed=false" title="展开侧栏">»</div>
-        <div v-show="!docsSidebarCollapsed" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <span style="font:600 11px var(--sans);color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px">筛选</span>
-          <button @click="docsSidebarCollapsed=true" title="收起侧栏" style="border:none;background:none;cursor:pointer;color:var(--text-tertiary);font-size:14px;padding:2px 6px">«</button>
-        </div>
+        <div v-if="docsSidebarCollapsed" class="docs-sidebar-toggle" @click="docsSidebarCollapsed=false" title="展开侧栏">»</div>
+        <div v-if="!docsSidebarCollapsed" class="docs-sidebar-toggle" @click="docsSidebarCollapsed=true" title="收起侧栏">«</div>
         <div v-show="!docsSidebarCollapsed" class="sidebar-section">
           <h4 @click="toggleSection('folders')">📁 目录浏览 <span>{{ sections.folders ? '▾' : '▸' }}</span></h4>
           <div v-show="sections.folders">
