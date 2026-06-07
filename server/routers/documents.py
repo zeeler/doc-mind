@@ -310,7 +310,7 @@ async def import_bookmarks(
 @router.get("")
 def list_documents(
     skip: int = 0,
-    limit: int = 50,
+    limit: int = 20,
     folder: str | None = None,
     category: str | None = None,
     tag: str | None = None,
@@ -338,6 +338,7 @@ def list_documents(
     if tag:
         q = q.join(Document.tags).filter(Tag.name == tag)
 
+    total = q.count()
     docs = q.order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
     return {
         "code": "OK",
@@ -359,6 +360,7 @@ def list_documents(
             }
             for d in docs
         ],
+        "total": total,
     }
 
 

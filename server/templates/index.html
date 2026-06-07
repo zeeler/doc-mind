@@ -603,7 +603,7 @@ body {
       <button @click="batchDeleteConvs($event)" style="margin-left:auto;padding:4px 10px;border:1px solid var(--danger);border-radius:4px;background:var(--card);color:var(--danger);cursor:pointer;font:11px var(--sans)">🗑 删除</button>
     </div>
     <div class="sidebar-footer">
-      <button @click="page='docs'" :class="{'nav-active':page==='docs'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8"/></svg>文档管理</button>
+      <button @click="page='docs'" :class="{'nav-active':page==='docs'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8"/></svg>资料管理</button>
       <button @click="page='settings'" :class="{'nav-active':page==='settings'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>设置</button>
       <button @click="page='memories'" :class="{'nav-active':page==='memories'}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2c-2.5 0-4.5 2-4.5 4.5v0c0 2.5 2 4.5 4.5 4.5s4.5-2 4.5-4.5v0c0-2.5-2-4.5-4.5-4.5z"/><path d="M7 14c-2.8 0-5 2.2-5 5v1c0 .6.4 1 1 1h18c.6 0 1-.4 1-1v-1c0-2.8-2.2-5-5-5"/></svg>记忆</button>
     </div>
@@ -675,7 +675,7 @@ body {
       <main class="docs-main">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
           <button class="page-back" @click="page='chat'" style="margin-bottom:0">← 返回对话</button>
-          <span style="font:600 20px var(--serif);letter-spacing:.03em">文档管理</span>
+          <span style="font:600 20px var(--serif);letter-spacing:.03em">资料管理</span>
           <button class="batch-toggle" :class="{on:batchMode}" @click="toggleBatchMode" style="margin-left:auto">{{ batchMode ? '退出批量' : '批量模式' }}</button>
         </div>
         <div v-if="vectorInfo" style="display:flex;gap:18px;font:11px var(--sans);color:var(--text-secondary);margin-bottom:14px;padding:8px 14px;background:var(--bg-sidebar);border-radius:var(--radius-sm);align-items:center">
@@ -781,7 +781,15 @@ body {
               <input v-model="editCategoryName" @keydown.enter.prevent="saveDocCategory(d)" @keydown.escape="categoryEditDoc=null" placeholder="分类名，留空清除">
             </div>
           </div>
-          <div v-if="documents.length===0" style="text-align:center;padding:48px;color:var(--text-tertiary);font-family:var(--sans)">暂无文档，上传或选择目录开始导入</div>
+          <div v-if="documents.length===0" style="text-align:center;padding:48px;color:var(--text-tertiary);font-family:var(--sans)">暂无资料，上传或选择目录开始导入</div>
+          <div v-if="docsTotal > PAGE_SIZE" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:16px;font:12px var(--sans)">
+            <button @click="goPage(1)" :disabled="docsPage===1" style="padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;color:var(--text-secondary)">首页</button>
+            <button @click="goPage(docsPage-1)" :disabled="docsPage===1" style="padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;color:var(--text-secondary)">‹</button>
+            <span style="color:var(--text-secondary);padding:0 8px">{{ docsPage }} / {{ Math.ceil(docsTotal / PAGE_SIZE) }}</span>
+            <button @click="goPage(docsPage+1)" :disabled="docsPage * PAGE_SIZE >= docsTotal" style="padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;color:var(--text-secondary)">›</button>
+            <button @click="goPage(Math.ceil(docsTotal / PAGE_SIZE))" :disabled="docsPage * PAGE_SIZE >= docsTotal" style="padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;color:var(--text-secondary)">末页</button>
+            <span style="color:var(--text-tertiary);margin-left:8px">共 {{ docsTotal }} 条</span>
+          </div>
         </div>
         <div v-if="batchMode&&selectedIds.size>0" class="batch-bar">
           <span class="selected-count">已选 {{ selectedIds.size }} 项</span>
@@ -939,6 +947,9 @@ createApp({
     const streamText = ref('');
     const streamErr = ref('');
     const documents = ref([]);
+    const docsPage = ref(1);
+    const docsTotal = ref(0);
+    const PAGE_SIZE = 20;
     const jobStats = ref(null);
     const jobPercent = ref(0);
     const totalPending = ref(0);
@@ -1093,8 +1104,10 @@ createApp({
       if (filters.tag) params.set('tag', filters.tag);
       if (filters.status) params.set('status', filters.status);
       if (filters.search) params.set('search', filters.search);
+      params.set('skip', (docsPage.value - 1) * PAGE_SIZE);
+      params.set('limit', PAGE_SIZE);
       const qs = params.toString();
-      try { const d = await api('/api/v1/documents' + (qs ? '?' + qs : '')); documents.value = d.data || []; } catch(e) { console.error(e); }
+      try { const d = await api('/api/v1/documents' + (qs ? '?' + qs : '')); documents.value = d.data || []; docsTotal.value = d.total || 0; } catch(e) { console.error(e); }
     }
     async function loadJobStats() {
       try {
@@ -1230,6 +1243,7 @@ createApp({
       ids.forEach(id => retryingIds.delete(id)); selectedIds.value = new Set(); await loadDocuments(); await loadJobStats();
     }
     async function batchDelete(evt) { try { if (!await showConfirm(`确定删除选中的 ${selectedIds.value.size} 个文档？`, evt)) return; } catch(_){return;} await api('/api/v1/documents/batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: [...selectedIds.value], action: 'delete'})}); selectedIds.value = new Set(); await Promise.all([loadDocuments(),loadTags(),loadFolders()]); }
+    function goPage(p) { docsPage.value = Math.max(1, Math.min(p, Math.ceil(docsTotal.value / PAGE_SIZE))); loadDocuments(); }
     function toggleSection(name) { sections[name] = !sections[name]; }
     function dedupBy(arr, keyFn) { const seen = new Set(); return (arr||[]).filter(item => { const k = keyFn(item); if (!k || seen.has(k)) return false; seen.add(k); return true; }); }
     function uniqueTags(tags) { return dedupBy(tags, t => t.id); }
@@ -1243,11 +1257,11 @@ createApp({
       else { if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } }
     });
 
-    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,embeddingOn,rerankerOn,webSearchOn,vectorInfo,saved,saveError,chatResult,ocrResult,editingId,editTitle,confirmShow,confirmMsg,confirmX,confirmY,embeddingResult,rerankerResult,testingChat,testingOcr,testingEmbedding,testingReranker,msgBox,inputEl,memoriesList,
+    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,docsPage,docsTotal,PAGE_SIZE,jobStats,jobPercent,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,embeddingOn,rerankerOn,webSearchOn,vectorInfo,saved,saveError,chatResult,ocrResult,editingId,editTitle,confirmShow,confirmMsg,confirmX,confirmY,embeddingResult,rerankerResult,testingChat,testingOcr,testingEmbedding,testingReranker,msgBox,inputEl,memoriesList,
       batchMode, selectedIds, allTags, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, categoryEditDoc, editCategoryName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
       loadTags, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
       newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,showConfirm,confirmOk,confirmCancel,testChat,testOcr,testEmbedding,testReranker,loadMemories,rememberMessage,deleteMsg:deleteMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,loadVectorInfo,
-      batchRetry, uniqueTags, uniqueCitations, retaggingIds, retagDoc };
+      batchRetry, uniqueTags, uniqueCitations, retaggingIds, retagDoc, goPage };
   }
 }).mount('#app');
 </script>
