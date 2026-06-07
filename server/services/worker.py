@@ -117,6 +117,94 @@ def _claim_job() -> Job | None:
     return None
 
 
+def _execute_bookmark_import(job, config):
+    """Background import of bookmarks from staging file."""
+    import json as _json
+    from server.database import get_session_ctx, DATA_DIR
+    from server.services.url_fetcher import fetch_url
+
+    staging_dir = DATA_DIR / "files" / f"_import_{job.id}"
+    urls_file = staging_dir / "urls.json"
+    if not urls_file.exists():
+        with get_session_ctx() as s:
+            j = s.get(Job, job.id)
+            if j:
+                j.status = "failed"
+                j.error_message = "导入文件不存在"
+                s.commit()
+        return
+
+    data = _json.loads(urls_file.read_text(encoding="utf-8"))
+    urls = data.get("urls", [])
+    folder_path = data.get("folder_path", "书签导入")
+
+    import hashlib as _hashlib
+    import uuid as _uuid
+
+    success = 0
+    fail = 0
+    skip = 0
+
+    for url in urls:
+        url = url.strip()
+        if not url:
+            continue
+
+        with get_session_ctx() as s:
+            # Dedup
+            checksum = _hashlib.sha256(url.encode("utf-8")).hexdigest()
+            existing = s.query(Document).filter(Document.checksum == checksum).first()
+            if existing:
+                skip += 1
+                continue
+
+            # Fetch
+            result = fetch_url(url)
+            if result["error"]:
+                fail += 1
+                continue
+
+            # Create document
+            doc_id = str(_uuid.uuid4())
+            file_dir = DATA_DIR / "files" / doc_id
+            file_dir.mkdir(parents=True, exist_ok=True)
+
+            title = result["title"] or url
+            safe_title = "".join(c for c in title if c.isalnum() or c in "._- ()（）")[:80]
+            file_name = f"{safe_title}.md" if safe_title else f"import_{doc_id[:8]}.md"
+            file_path = file_dir / file_name
+            file_path.write_text(result["text_content"], encoding="utf-8")
+
+            doc = Document(
+                id=doc_id, title=title[:500], file_name=file_name,
+                file_type="url", file_path=str(file_path),
+                file_size=len(result["text_content"].encode("utf-8")),
+                checksum=checksum, folder_path=folder_path, status="pending",
+            )
+            s.add(doc)
+            s.flush()
+
+            # Create processing jobs
+            from server.services.worker import create_jobs_for_document
+            create_jobs_for_document(doc_id)
+            s.commit()
+            success += 1
+
+    # Clean up staging
+    import shutil
+    shutil.rmtree(staging_dir, ignore_errors=True)
+
+    # Mark job done
+    with get_session_ctx() as s:
+        j = s.get(Job, job.id)
+        if j:
+            j.status = "done"
+            j.progress = 100
+            s.commit()
+
+    logger.info(f"书签导入完成: {success} 成功, {fail} 失败, {skip} 跳过")
+
+
 def _execute_job(job: Job):
     config = AppConfig().get_all()
     with get_session_ctx() as s:
@@ -191,6 +279,11 @@ def _execute_job(job: Job):
             job.finished_at = datetime.now(timezone.utc)
             s.commit()
             logger.info(f"全文索引完成: {doc.title} ({doc.chunk_count} chunks)")
+
+        elif job.job_type == "bookmark_import":
+            # Release session context before long-running bookmark import
+            s.commit()
+            _execute_bookmark_import(job, config)
 
 
 def create_jobs_for_document(doc_id: str):

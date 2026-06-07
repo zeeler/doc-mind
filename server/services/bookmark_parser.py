@@ -14,8 +14,8 @@ def parse_bookmarks_html(file_content: str) -> list[dict]:
     soup = BeautifulSoup(file_content, "html.parser")
     bookmarks = []
 
-    def walk_dl(dl_element, folder_path: str):
-        if not dl_element:
+    def walk_dl(dl_element, folder_path: str, depth: int = 0):
+        if not dl_element or depth > 20:
             return
         for dt in dl_element.find_all("dt", recursive=False):
             h3 = dt.find("h3")
@@ -24,8 +24,7 @@ def parse_bookmarks_html(file_content: str) -> list[dict]:
                 child_dl = dt.find("dl", recursive=False)
                 new_path = f"{folder_path}/{folder_name}" if folder_path else folder_name
                 if child_dl:
-                    walk_dl(child_dl, new_path)
-                continue
+                    walk_dl(child_dl, new_path, depth + 1)
 
             a_tag = dt.find("a")
             if a_tag and a_tag.get("href"):

@@ -164,53 +164,55 @@ def import_url(payload: dict = Body(...), session: Session = Depends(get_session
     import hashlib
     checksum = hashlib.sha256(url.encode("utf-8")).hexdigest()
 
-    existing = session.query(Document).filter(Document.checksum == checksum).first()
-    if existing:
-        return {
-            "code": "OK",
-            "message": "success",
-            "data": {
-                "id": existing.id, "title": existing.title,
-                "file_name": existing.file_name, "status": existing.status,
-                "duplicate": True,
-            },
-        }
+    # Use dedup lock (same as upload endpoint) to prevent TOCTOU race
+    with _dedup_lock:
+        existing = session.query(Document).filter(Document.checksum == checksum).first()
+        if existing:
+            return {
+                "code": "OK",
+                "message": "success",
+                "data": {
+                    "id": existing.id, "title": existing.title,
+                    "file_name": existing.file_name, "status": existing.status,
+                    "duplicate": True,
+                },
+            }
 
-    from server.services.url_fetcher import fetch_url
-    result = fetch_url(url)
-    if result["error"]:
-        raise HTTPException(status_code=400, detail=f"获取 URL 失败: {result['error']}")
+        from server.services.url_fetcher import fetch_url
+        result = fetch_url(url)
+        if result["error"]:
+            raise HTTPException(status_code=400, detail=f"获取 URL 失败: {result['error']}")
 
-    title = result["title"] or url
-    text_content = result["text_content"]
-    if not text_content or len(text_content.strip()) < 10:
-        raise HTTPException(status_code=400, detail="无法提取页面内容（内容过短）")
+        title = result["title"] or url
+        text_content = result["text_content"]
+        if not text_content or len(text_content.strip()) < 10:
+            raise HTTPException(status_code=400, detail="无法提取页面内容（内容过短）")
 
-    # Create document
-    import uuid as _uuid
-    doc_id = str(_uuid.uuid4())
-    file_dir = DATA_DIR / "files" / doc_id
-    file_dir.mkdir(parents=True, exist_ok=True)
+        # Create document
+        import uuid as _uuid
+        doc_id = str(_uuid.uuid4())
+        file_dir = DATA_DIR / "files" / doc_id
+        file_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save extracted text as .md
-    safe_title = "".join(c for c in title if c.isalnum() or c in "._- ()（）")[:80]
-    file_name = f"{safe_title}.md" if safe_title else f"import_{doc_id[:8]}.md"
-    file_path = file_dir / file_name
-    file_path.write_text(text_content, encoding="utf-8")
+        # Save extracted text as .md
+        safe_title = "".join(c for c in title if c.isalnum() or c in "._- ()（）")[:80]
+        file_name = f"{safe_title}.md" if safe_title else f"import_{doc_id[:8]}.md"
+        file_path = file_dir / file_name
+        file_path.write_text(text_content, encoding="utf-8")
 
-    doc = Document(
-        id=doc_id,
-        title=title[:500],
-        file_name=file_name,
-        file_type="url",
-        file_path=str(file_path),
-        file_size=len(text_content.encode("utf-8")),
-        checksum=checksum,
-        folder_path=folder_path,
-        status="pending",
-    )
-    session.add(doc)
-    session.commit()
+        doc = Document(
+            id=doc_id,
+            title=title[:500],
+            file_name=file_name,
+            file_type="url",
+            file_path=str(file_path),
+            file_size=len(text_content.encode("utf-8")),
+            checksum=checksum,
+            folder_path=folder_path,
+            status="pending",
+        )
+        session.add(doc)
+        session.commit()
 
     create_jobs_for_document(doc_id)
 
@@ -258,11 +260,10 @@ async def import_bookmarks(
                     {"path": fp, "count": len(items)}
                     for fp, items in sorted(folders.items())
                 ],
-                "bookmarks": bookmarks,
             },
         }
 
-    # Import mode: batch import URLs
+    # Import mode: create background job for batch import
     if payload:
         urls = payload.get("urls") or []
         folder_path = (payload.get("folder_path") or "书签导入").strip() or "书签导入"
@@ -270,66 +271,36 @@ async def import_bookmarks(
         if not urls:
             raise HTTPException(status_code=400, detail="URLs 不能为空")
 
-        from server.services.url_fetcher import fetch_url
+        import json as _json
+        # Store URLs + folder_path in a staging file for the worker
+        import uuid as _uuid
+        job_id = str(_uuid.uuid4())
+        staging_dir = DATA_DIR / "files" / f"_import_{job_id}"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        (staging_dir / "urls.json").write_text(
+            _json.dumps({"urls": urls, "folder_path": folder_path}, ensure_ascii=False),
+            encoding="utf-8"
+        )
 
-        success = 0
-        fail = 0
-        skip = 0
-        failed_urls: list[dict] = []
-
-        for url in urls:
-            url = url.strip()
-            if not url:
-                continue
-
-            # Dedup
-            checksum = hashlib.sha256(url.encode("utf-8")).hexdigest()
-            existing = session.query(Document).filter(Document.checksum == checksum).first()
-            if existing:
-                skip += 1
-                continue
-
-            # Fetch
-            result = fetch_url(url)
-            if result["error"]:
-                fail += 1
-                failed_urls.append({"url": url, "reason": result["error"]})
-                continue
-
-            # Create document
-            doc_id = str(uuid.uuid4())
-            file_dir = DATA_DIR / "files" / doc_id
-            file_dir.mkdir(parents=True, exist_ok=True)
-
-            title = result["title"] or url
-            safe_title = "".join(c for c in title if c.isalnum() or c in "._- ()（）")[:80]
-            file_name = f"{safe_title}.md" if safe_title else f"import_{doc_id[:8]}.md"
-            file_path = file_dir / file_name
-            file_path.write_text(result["text_content"], encoding="utf-8")
-
-            doc = Document(
-                id=doc_id, title=title[:500], file_name=file_name,
-                file_type="url", file_path=str(file_path),
-                file_size=len(result["text_content"].encode("utf-8")),
-                checksum=checksum, folder_path=folder_path, status="pending",
-            )
-            session.add(doc)
-            session.flush()
-
-            create_jobs_for_document(doc_id)
-            success += 1
-
+        # Create a single Job for background processing
+        from server.models.job import Job
+        job = Job(
+            id=job_id,
+            document_id="",  # no single document
+            job_type="bookmark_import",
+            priority=5,
+            status="pending",
+        )
+        session.add(job)
         session.commit()
 
         return {
             "code": "OK",
             "message": "success",
             "data": {
+                "job_id": job_id,
                 "total": len(urls),
-                "success": success,
-                "fail": fail,
-                "skip": skip,
-                "failed_urls": failed_urls,
+                "message": f"已创建后台导入任务，共 {len(urls)} 条书签",
             },
         }
 

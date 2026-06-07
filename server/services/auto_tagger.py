@@ -55,8 +55,10 @@ def auto_tag_document(doc_id: str, text: str, config: dict, session) -> list[str
 
     content = response.get("content", "")
     tag_names = []
+    import re as _re
     for line in content.strip().split("\n"):
-        line = line.strip().strip("-*0123456789. ").strip()
+        line = _re.sub(r'^[\d]+[\.\)、]\s*', '', line.strip()).strip()
+        line = line.strip("-*").strip()
         if line and 2 <= len(line) <= 6:
             name = normalize_tag_name(line)
             if name:
@@ -66,7 +68,6 @@ def auto_tag_document(doc_id: str, text: str, config: dict, session) -> list[str
                     tag_names.append(name)
 
     if tag_names:
-        session.commit()
         logger.info(f"auto_tag: doc={title[:30]}, tags={tag_names}")
 
     return tag_names
