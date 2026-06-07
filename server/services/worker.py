@@ -177,6 +177,14 @@ def _execute_job(job: Job):
             index_document(job.document_id, text, config)
             s.refresh(doc)  # index_document 在独立 session 中更新了 chunk_count
 
+            # Auto tagging
+            if config.get("auto_tag_enabled", "true") == "true":
+                try:
+                    from server.services.auto_tagger import auto_tag_document
+                    auto_tag_document(job.document_id, text, config, s)
+                except Exception as e:
+                    logger.warning(f"自动打标签失败: {e}")
+
             doc.status = "done"
             job.progress = 100
             job.status = "completed"

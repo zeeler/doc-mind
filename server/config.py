@@ -70,6 +70,7 @@ DEFAULTS = {
     "memory_export_dir": "",
     "memory_session_idle_timeout": "30",
     "memory_session_expire_days": "30",
+    "auto_tag_enabled": "true",
 }
 
 

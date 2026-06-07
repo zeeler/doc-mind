@@ -364,3 +364,53 @@ def update_document(doc_id: str, payload: dict, session: Session = Depends(get_s
 
     session.commit()
     return {"code": "OK", "message": "success", "data": None}
+
+
+@router.post("/{doc_id}/retag")
+def retag_document(doc_id: str, session: Session = Depends(get_session)):
+    """清除现有标签并重新自动生成。"""
+    doc = session.get(Document, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    from server.services.parser import parse_file
+    from server.services.auto_tagger import auto_tag_document
+    from server.config import AppConfig
+
+    config = AppConfig().get_all()
+
+    # Get text from file
+    text = ""
+    file_path = Path(doc.file_path)
+    if file_path.exists():
+        try:
+            text = parse_file(str(file_path), config)
+        except Exception:
+            pass
+
+    # Fallback to chunks
+    if not text:
+        from server.models.document import DocumentChunk
+        chunks = (
+            session.query(DocumentChunk)
+            .filter(DocumentChunk.document_id == doc_id)
+            .order_by(DocumentChunk.chunk_no)
+            .all()
+        )
+        text = "\n".join(c.content for c in chunks)
+
+    # Clear existing tags
+    doc.tags = []
+    session.flush()
+
+    # Auto-tag
+    new_tags = auto_tag_document(doc_id, text, config, session)
+
+    session.refresh(doc)
+    tags_out = list({t.id: {"id": t.id, "name": t.name} for t in doc.tags}.values())
+
+    return {
+        "code": "OK",
+        "message": "success",
+        "data": {"tags": tags_out},
+    }

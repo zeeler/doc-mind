@@ -765,6 +765,7 @@ body {
             </div>
             <div class="doc-actions" v-if="!batchMode">
               <button @click="retryDoc(d.id)" :disabled="retryingIds.has(d.id)" :title="retryingIds.has(d.id)?'索引中...':'重新索引'">{{ retryingIds.has(d.id) ? '⏳' : '🔄' }}</button>
+              <button @click="retagDoc(d,$event)" title="重新打标签" :disabled="retaggingIds.has(d.id)">{{ retaggingIds.has(d.id) ? '⏳' : '🏷️' }}</button>
               <button @click="openTagPicker(d,$event)" title="打标签">🏷</button>
               <button @click="openCategoryEdit(d,$event)" title="改分类">📋</button>
               <button class="doc-del" @click="delDoc(d.id,$event)">删除</button>
@@ -986,6 +987,7 @@ createApp({
     const searchResults = ref(null);
     const searchType = ref('chunks');
     const retryingIds = reactive(new Set());
+    const retaggingIds = reactive(new Set());
     const sections = reactive({folders:true, tags:true});
     const sidebarOpen = ref(false);
     const tagPickerDoc = ref(null);
@@ -1121,6 +1123,17 @@ createApp({
       } catch(e) { alert('✗ 请求失败: ' + e.message + '\n请确认服务器已重启'); }
       retryingIds.delete(id); await loadDocuments(); await loadJobStats();
     }
+    async function retagDoc(doc, event) {
+      retaggingIds.add(doc.id);
+      try {
+        const res = await fetch('/api/v1/documents/' + doc.id + '/retag', {method: 'POST'});
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        await loadDocuments();
+      } catch(e) {
+        alert('重新打标签失败: ' + e.message);
+      }
+      retaggingIds.delete(doc.id);
+    }
     async function scanDirectory() {
       if (!window.showDirectoryPicker) { alert('浏览器不支持目录选择，请使用 Chrome/Edge'); return; }
       const SUFFIXES = ['pdf','docx','xlsx','pptx','mobi','md','txt','markdown'];
@@ -1234,7 +1247,7 @@ createApp({
       batchMode, selectedIds, allTags, allCategories, folderTree, filters, sections, sidebarOpen, tagPickerDoc, tagSearch, categoryEditDoc, editCategoryName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
       loadTags, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
       newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,showConfirm,confirmOk,confirmCancel,testChat,testOcr,testEmbedding,testReranker,loadMemories,rememberMessage,deleteMsg:deleteMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,loadVectorInfo,
-      batchRetry, uniqueTags, uniqueCitations };
+      batchRetry, uniqueTags, uniqueCitations, retaggingIds, retagDoc };
   }
 }).mount('#app');
 </script>
