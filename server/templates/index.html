@@ -736,13 +736,15 @@ body {
             </template>
           </div>
         </div>
-        <div style="display:flex;gap:8px;margin-bottom:10px">
-          <div class="upload-zone" @click="$refs.fileInput.click()" @dragover.prevent @drop.prevent="uploadDrop" style="flex:1">
+        <div style="display:flex;gap:8px;margin-bottom:10px;min-height:120px">
+          <div class="upload-zone" @click="$refs.fileInput.click()" @dragover.prevent @drop.prevent="uploadDrop" style="flex:1;margin-bottom:0;padding:16px;display:flex;flex-direction:column;align-items:center;justify-content:center">
             <input type="file" ref="fileInput" @change="uploadFile" accept=".pdf,.docx,.md,.txt,.markdown" style="display:none">
             <p>{{ uploading ? '上传中...' : '拖拽文件到此处，或点击上传' }}</p>
             <span>支持 PDF / Word / Markdown / TXT</span>
           </div>
-          <button class="btn" @click="scanDirectory" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:1.5px dashed var(--border);border-radius:var(--radius);background:var(--card);cursor:pointer;padding:16px;font:13px var(--sans);color:var(--text-secondary)" :disabled="dirProcessing">
+          <button @click="scanDirectory" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:2px dashed var(--border);border-radius:var(--radius);background:var(--card);cursor:pointer;padding:16px;font:13px var(--sans);color:var(--text-secondary);transition:all .25s" :disabled="dirProcessing"
+            @mouseover="$event.target.style.borderColor='var(--amber)';$event.target.style.background='var(--amber-light)';$event.target.style.color='var(--amber)'"
+            @mouseleave="$event.target.style.borderColor='var(--border)';$event.target.style.background='var(--card)';$event.target.style.color='var(--text-secondary)'">
             <span style="font-size:18px">📁</span>
             <span>{{ dirProcessing ? '扫描中 ('+dirProgress+')' : '选择本地目录' }}</span>
           </button>
