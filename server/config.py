@@ -1,11 +1,18 @@
-"""配置管理 — KV 存储在 SQLite app_config 表中。"""
+"""配置管理 — KV 存储在 SQLite app_config 表中（含 TTL 内存缓存）。"""
 
-import json
+import threading
+import time
 from sqlalchemy import String, DateTime, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime, timezone
-from server.database import get_engine, get_session_ctx, DATA_DIR
+from server.database import get_session_ctx, DATA_DIR  # DATA_DIR 被测试 monkeypatch 引用
 from server.models.base import Base
+
+# 配置缓存（减少频繁 SQLite 查询）
+_cache: dict | None = None
+_cache_time: float = 0.0
+_cache_ttl: float = 5.0  # 5 秒 TTL
+_cache_lock = threading.Lock()
 
 
 class AppConfigModel(Base):
@@ -98,13 +105,10 @@ class AppConfig:
     """运行时配置，读写 app_config 表。"""
 
     def get(self, key: str) -> str:
-        with get_session_ctx() as session:
-            row = session.get(AppConfigModel, key)
-            if row is None:
-                return DEFAULTS.get(key, "")
-            return str(row.value.get("v", DEFAULTS.get(key, "")))
+        return self.get_all().get(key, "")
 
     def set(self, key: str, value: str) -> None:
+        global _cache, _cache_time
         with get_session_ctx() as session:
             row = session.get(AppConfigModel, key)
             if row is None:
@@ -114,11 +118,29 @@ class AppConfig:
                 row.value = {"v": value}
                 row.updated_at = datetime.now(timezone.utc)
             session.commit()
+        # 写入后立即失效缓存
+        with _cache_lock:
+            _cache = None
 
     def get_all(self) -> dict:
+        global _cache, _cache_time
+        now = time.time()
+        with _cache_lock:
+            if _cache is not None and (now - _cache_time) < _cache_ttl:
+                return dict(_cache)
         result = dict(DEFAULTS)
         with get_session_ctx() as session:
             rows = session.query(AppConfigModel).all()
             for row in rows:
                 result[row.key] = str(row.value.get("v", DEFAULTS.get(row.key, "")))
-        return result
+        with _cache_lock:
+            _cache = result
+            _cache_time = now
+        return dict(result)
+
+    @staticmethod
+    def invalidate_cache() -> None:
+        """强制失效配置缓存（测试用）。"""
+        global _cache
+        with _cache_lock:
+            _cache = None
