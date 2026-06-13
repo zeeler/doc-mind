@@ -736,13 +736,17 @@ body {
             </template>
           </div>
         </div>
-        <div class="upload-zone" @click="$refs.fileInput.click()" @dragover.prevent @drop.prevent="uploadDrop">
-          <input type="file" ref="fileInput" @change="uploadFile" accept=".pdf,.docx,.md,.txt,.markdown" style="display:none">
-          <p>{{ uploading ? '上传中...' : '拖拽文件到此处，或点击上传' }}</p>
-          <span>支持 PDF / Word / Markdown / TXT</span>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <div class="upload-zone" @click="$refs.fileInput.click()" @dragover.prevent @drop.prevent="uploadDrop" style="flex:1">
+            <input type="file" ref="fileInput" @change="uploadFile" accept=".pdf,.docx,.md,.txt,.markdown" style="display:none">
+            <p>{{ uploading ? '上传中...' : '拖拽文件到此处，或点击上传' }}</p>
+            <span>支持 PDF / Word / Markdown / TXT</span>
+          </div>
+          <button class="btn" @click="scanDirectory" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:1.5px dashed var(--border);border-radius:var(--radius);background:var(--card);cursor:pointer;padding:16px;font:13px var(--sans);color:var(--text-secondary)" :disabled="dirProcessing">
+            <span style="font-size:18px">📁</span>
+            <span>{{ dirProcessing ? '扫描中 ('+dirProgress+')' : '选择本地目录' }}</span>
+          </button>
         </div>
-        <div style="display:flex;gap:8px;margin-bottom:14px">
-          <button class="btn btn-ghost" @click="scanDirectory" style="flex:1;margin-top:0" :disabled="dirProcessing">{{ dirProcessing ? '扫描中 ('+dirProgress+')' : '选择本地目录' }}</button>
         <div v-if="!dirProcessing && dirResult" style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">{{ dirResult }}</div>
         <div v-if="docStats&&(docStats.job_summary?.quick_scan?.running||docStats.job_summary?.full_index?.running)" style="margin-bottom:10px;height:3px;background:var(--bg-hover);border-radius:99px;overflow:hidden">
           <div :style="{width:jobPercent+'%',height:'100%',background:'var(--amber)',transition:'width .5s ease',borderRadius:'99px'}"></div>
