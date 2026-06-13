@@ -14,10 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from server.database import init_db, get_engine
 from server.models.base import Base
-from server.models.document import Document, DocumentChunk  # noqa: F401
-from server.models.conversation import Conversation, Message  # noqa: F401
-from server.models.job import Job  # noqa: F401
-from server.models.tag import Tag  # noqa: F401
+from server.models import Document, DocumentChunk, Conversation, Message, Job, Tag  # noqa: F401
 from server.config import AppConfigModel  # noqa: F401
 from server.routers.documents import router as documents_router
 from server.routers.conversations import router as conversations_router
@@ -53,16 +50,16 @@ async def lifespan(app: FastAPI):
     logger.info("知识库服务已启动: http://localhost:8000")
     yield
     from server.services.worker import stop_workers
+    from server.services.observer import shutdown_observe_executor
     stop_workers()
     stop_stale_recovery()
+    shutdown_observe_executor()
 
 
 def _ensure_models_loaded():
     """确保所有 SQLAlchemy 模型在 create_all 前被导入。"""
-    from server.models.document import Document, DocumentChunk  # noqa: F811
-    from server.models.conversation import Conversation, Message  # noqa: F811
+    from server.models import Document, DocumentChunk, Conversation, Message, Tag  # noqa: F811
     from server.config import AppConfigModel  # noqa: F811
-    from server.models.tag import Tag  # noqa: F811
 
 
 app = FastAPI(title="知识库", version="0.1.0", lifespan=lifespan)

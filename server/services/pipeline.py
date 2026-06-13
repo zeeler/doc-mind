@@ -1,12 +1,9 @@
-"""文档处理管道 — 解析 → 切块 → embedding → 写入 ChromaDB。"""
+"""文档处理管道 — 切块 → embedding → 写入 ChromaDB。"""
 
-import time
 import uuid
 import logging
-from pathlib import Path
 from server.database import DATA_DIR, get_session_ctx, fts_insert, fts_delete_by_document_id
 from server.models.document import Document, DocumentChunk
-from server.services.parser import parse_file
 from server.services.chunker import chunk_text, estimate_tokens
 from server.config import has_embedding_model
 from server.services.embedder import Embedder
