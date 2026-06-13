@@ -1,13 +1,17 @@
-"""MemoryManager — 记忆系统统一编排层。"""
+"""MemoryManager — 记忆系统统一编排层（内置单例模式）。"""
 
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from server.services.memory_store import MemoryStore
 from server.database import DATA_DIR as _DEFAULT_DATA_DIR
 
 logger = logging.getLogger("knowledge-base")
+
+_manager_singleton: 'MemoryManager | None' = None
+_manager_singleton_lock = threading.Lock()
 
 
 class MemoryManager:
@@ -24,7 +28,7 @@ class MemoryManager:
         self._store: MemoryStore | None = None
         self._exporter = None  # MemoryMDExporter，延迟加载
         self._persist_dir = persist_dir or str(_DEFAULT_DATA_DIR / "chroma")
-        dedup_threshold = config.get("memory_dedup_threshold", "0.85")
+        dedup_threshold = config.get("memory_dedup_threshold", "0.80")
         self.dedup_threshold = float(dedup_threshold)
         self.recall_top_k = int(config.get("memory_recall_top_k", "5"))
         self.export_auto = config.get("memory_export_auto", "true") == "true"
@@ -337,6 +341,57 @@ class MemoryManager:
             if m["metadata"].get("expires_at") and m["metadata"]["expires_at"] < now
         )
 
+    # ============ list_memories() ============
+
+    def list_memories(self, mem_type: str | None = None, scope: str | None = None,
+                      limit: int = 50) -> list[dict]:
+        """列出记忆（按更新时间倒序），支持按类型和作用域过滤。"""
+        results = self.store.get_all(limit=limit * 2)
+        memories = []
+        if not results:
+            return memories
+        for mem in results:
+            mem_type_val = mem.get("metadata", {}).get("type", "")
+            mem_scope_val = mem.get("metadata", {}).get("scope", "")
+            if mem_type and mem_type_val != mem_type:
+                continue
+            if scope and mem_scope_val != scope:
+                continue
+            memories.append({
+                "id": mem["id"],
+                "content": mem["content"],
+                "type": mem_type_val,
+                "metadata": mem["metadata"],
+            })
+        memories.sort(key=lambda m: m["metadata"].get("updated_at", ""), reverse=True)
+        return memories[:limit]
+
+    # ============ delete_memory() ============
+
+    def delete_memory(self, mem_id: str) -> None:
+        """删除单条记忆。"""
+        try:
+            self.store.delete(mem_id)
+        except Exception as e:
+            logger.warning(f"删除记忆失败 {mem_id}: {e}")
+
+    # ============ summarize_conversation() ============
+
+    def summarize_conversation(self, conv_id: str) -> int:
+        """对一段对话生成摘要记忆（委托给 observe）。"""
+        from server.models.conversation import Conversation
+        from server.database import get_session_ctx
+        with get_session_ctx() as session:
+            conv = session.get(Conversation, conv_id)
+            if not conv:
+                return 0
+            messages = [{"role": m.role, "content": m.content} for m in conv.messages]
+
+        if len(messages) < 2:
+            return 0
+
+        return self.observe(messages, conv_id)
+
     # ============ export_md() ============
 
     def export_md(self, scope: str | None = None) -> Path:
@@ -346,3 +401,33 @@ class MemoryManager:
         if exp:
             return exp.full_export(memories, scope=scope)
         return self.export_dir
+
+    # ============ 单例管理 ============
+
+    @classmethod
+    def get_singleton(cls, llm=None) -> 'MemoryManager':
+        """获取全局单例（线程安全）。
+
+        仅在 llm=None 时使用单例；传 llm 时创建新实例（observe 需要 LLM）。
+        """
+        global _manager_singleton
+        if llm is not None:
+            from server.config import AppConfig
+            config = AppConfig().get_all()
+            return cls(config=config, llm=llm, persist_dir=str(_DEFAULT_DATA_DIR / "chroma"))
+        if _manager_singleton is None:
+            with _manager_singleton_lock:
+                if _manager_singleton is None:
+                    from server.config import AppConfig
+                    config = AppConfig().get_all()
+                    _manager_singleton = cls(
+                        config=config, llm=None,
+                        persist_dir=str(_DEFAULT_DATA_DIR / "chroma"),
+                    )
+        return _manager_singleton
+
+    @classmethod
+    def reset_singleton(cls) -> None:
+        """重置单例（仅测试用）。"""
+        global _manager_singleton
+        _manager_singleton = None

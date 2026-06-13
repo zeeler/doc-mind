@@ -18,29 +18,11 @@ from server.vector.store import VectorStore
 logger = logging.getLogger("knowledge-base")
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
-_cached_llm: 'LLMAdapter | None' = None
-_cached_llm_config_key: tuple | None = None
-
 _conv_last_observe: dict[str, float] = {}  # conv_id -> last_observe_timestamp
 _conv_observing: set[str] = set()  # conv_id 正在执行 observe，避免并发重复
 _conv_observe_lock = threading.Lock()
-_llm_cache_lock = threading.Lock()
 _observe_executor = None
 _observe_executor_lock = threading.Lock()
-
-
-def _get_cached_llm(config: dict):
-    global _cached_llm, _cached_llm_config_key
-    from server.services.llm import LLMAdapter
-    key = (config.get("llm_provider"), config.get("mlx_chat_model"), config.get("openai_chat_model"),
-           config.get("claude_chat_model"), config.get("custom_chat_model"))
-    if _cached_llm is not None and key == _cached_llm_config_key:
-        return _cached_llm
-    with _llm_cache_lock:
-        if _cached_llm is None or key != _cached_llm_config_key:
-            _cached_llm = LLMAdapter(config)
-            _cached_llm_config_key = key
-        return _cached_llm
 
 
 def _get_conversation_history(session: Session, conversation_id: str, limit: int = 6) -> list[dict]:
@@ -70,6 +52,14 @@ def _get_observe_executor():
     return _observe_executor
 
 
+def shutdown_observe_executor():
+    """应用退出时关闭 observe 线程池，避免 daemon 线程被强制终止。"""
+    global _observe_executor
+    if _observe_executor is not None:
+        _observe_executor.shutdown(wait=True)
+        _observe_executor = None
+
+
 def _recall_memory_context(question: str, conversation_id: str | None) -> str:
     """搜索相关记忆并返回可注入 system prompt 的文本。"""
     try:
@@ -78,7 +68,7 @@ def _recall_memory_context(question: str, conversation_id: str | None) -> str:
         if cfg.get("memory_enabled", "true") != "true":
             return ""
         from server.services.memory_manager import MemoryManager
-        mem_mgr = MemoryManager(config=cfg, llm=None)  # recall doesn't need LLM
+        mem_mgr = MemoryManager.get_singleton()
         return mem_mgr.recall_as_context(question, conv_id=conversation_id)
     except Exception as e:
         import logging
@@ -122,8 +112,9 @@ def _run_observe_bg(conversation_id: str, history: list[dict], question: str,
                     return
                 if len(all_msgs) >= 2:
                     from server.services.memory_manager import MemoryManager
+                    from server.services.registry import ServiceRegistry
                     messages = [{"role": m.role, "content": m.content} for m in all_msgs]
-                    mem_mgr = MemoryManager(config=cfg, llm=_get_cached_llm(cfg))
+                    mem_mgr = MemoryManager.get_singleton(llm=ServiceRegistry.get_singleton().get_llm())
                     mem_mgr.observe(messages, conversation_id)
             with _conv_observe_lock:
                 _conv_last_observe[conversation_id] = time.time()
@@ -140,7 +131,8 @@ def _run_observe_bg(conversation_id: str, history: list[dict], question: str,
             return
 
         from server.services.memory_manager import MemoryManager
-        mem_mgr = MemoryManager(config=cfg, llm=_get_cached_llm(cfg))
+        from server.services.registry import ServiceRegistry
+        mem_mgr = MemoryManager.get_singleton(llm=ServiceRegistry.get_singleton().get_llm())
         recent = history + [
             {"role": "user", "content": question},
             {"role": "assistant", "content": answer_text},
@@ -155,45 +147,6 @@ def _run_observe_bg(conversation_id: str, history: list[dict], question: str,
     finally:
         with _conv_observe_lock:
             _conv_observing.discard(conversation_id)
-
-
-_rag_service_cache: RAGService | None = None
-_rag_cache_key: tuple | None = None
-_rag_cache_lock = threading.Lock()
-
-
-def _get_rag_service(data_dir):
-    """获取缓存的 RAGService 实例，配置变化时重建（线程安全）。"""
-    global _rag_service_cache, _rag_cache_key
-    cfg = AppConfig()
-    config = cfg.get_all()
-    # 仅根据影响检索的配置项判断是否需要重建
-    cache_key = (
-        str(data_dir),
-        config.get("retrieval_top_k", "15"),
-        config.get("retrieval_enable_mmr", "true"),
-        config.get("retrieval_mmr_lambda", "0.7"),
-        config.get("retrieval_fetch_multiplier", "3"),
-        config.get("retrieval_enable_query_expansion", "false"),
-        config.get("retrieval_context_window", "2"),
-        config.get("retrieval_max_results", "50"),
-        config.get("web_search_enabled", "false"),
-        config.get("tavily_api_key", ""),
-        config.get("web_search_max_results", "5"),
-        config.get("embedding_enabled", "false"),
-        config.get("embedding_model", ""),
-        config.get("embedding_api_base", ""),
-        config.get("embedding_api_key", ""),
-    )
-    # 双重检查锁定模式避免并发重建
-    if _rag_service_cache is not None and cache_key == _rag_cache_key:
-        return _rag_service_cache
-    with _rag_cache_lock:
-        if _rag_service_cache is None or cache_key != _rag_cache_key:
-            retriever = Retriever(config=config)
-            _rag_service_cache = RAGService(retriever=retriever, config=config)
-            _rag_cache_key = cache_key
-    return _rag_service_cache
 
 
 @router.post("/ask")
@@ -220,7 +173,8 @@ def chat_ask(body: dict, session: Session = Depends(get_session)):
         conv.title = question[:50] + ("..." if len(question) > 50 else "")
 
     try:
-        rag = _get_rag_service(DATA_DIR)
+        from server.services.registry import ServiceRegistry
+        rag = ServiceRegistry.get_singleton().get_rag_service(DATA_DIR)
         history = _get_conversation_history(session, conversation_id)
 
         memory_context = _recall_memory_context(question, conversation_id)
@@ -278,7 +232,8 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
     session.commit()
 
     try:
-        rag = _get_rag_service(DATA_DIR)
+        from server.services.registry import ServiceRegistry
+        rag = ServiceRegistry.get_singleton().get_rag_service(DATA_DIR)
         history = _get_conversation_history(session, conversation_id)
 
         memory_context = _recall_memory_context(question, conversation_id)

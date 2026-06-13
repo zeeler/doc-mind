@@ -1,5 +1,6 @@
 """混合搜索服务 — FTS5 关键词 + ChromaDB 向量 + RRF 融合 + 高亮。"""
 
+import functools
 import re
 import sqlalchemy as sa
 import logging
@@ -96,22 +97,9 @@ class SearchService:
         return self._vector_store
 
     def _get_embedder(self):
-        """获取缓存的 Embedder 实例，配置变更时自动重建。"""
-        from server.config import AppConfig, has_embedding_model
-        config = AppConfig().get_all()
-        if not has_embedding_model(config):
-            return None
-        # 用关键配置项组成缓存 key
-        cache_key = (
-            config.get("embedding_model", ""),
-            config.get("embedding_api_base", ""),
-            config.get("embedding_api_key", ""),
-        )
-        if self._embedder is None or self._embedder_config_key != cache_key:
-            from server.services.embedder import Embedder
-            self._embedder = Embedder(config)
-            self._embedder_config_key = cache_key
-        return self._embedder
+        """获取缓存的 Embedder 实例，委托给 ServiceRegistry。"""
+        from server.services.registry import ServiceRegistry
+        return ServiceRegistry.get_singleton().get_embedder()
 
     def _get_query_embedding(self, query: str) -> list[list[float]] | None:
         """使用配置的 embedding 模型编码查询向量；无配置时返回 None。"""
@@ -503,12 +491,8 @@ class SearchService:
         return expanded
 
 
-_search_service_cache: dict[tuple, "SearchService"] = {}
-
-
-def get_search_service(data_dir: Path, top_k: int = 10) -> SearchService:
-    """获取缓存的 SearchService 实例，避免每次请求重建 VectorStore/ChromaDB 客户端。"""
-    key = (str(data_dir), top_k)
-    if key not in _search_service_cache:
-        _search_service_cache[key] = SearchService(data_dir=data_dir, top_k=top_k)
-    return _search_service_cache[key]
+@functools.lru_cache(maxsize=1)
+def get_search_service(data_dir: Path, top_k: int = 10) -> 'SearchService':
+    """获取缓存的 SearchService 实例（已弃用，请使用 ServiceRegistry）。"""
+    from server.services.registry import ServiceRegistry
+    return ServiceRegistry.get_singleton().get_search_service(data_dir, top_k)

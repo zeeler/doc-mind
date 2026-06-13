@@ -9,12 +9,12 @@ from server.main import app
 def client(tmp_data_dir, monkeypatch):
     monkeypatch.setattr("server.database.DATA_DIR", tmp_data_dir)
     monkeypatch.setattr("server.config.DATA_DIR", tmp_data_dir)
-    monkeypatch.setattr("server.services.memory.DATA_DIR", tmp_data_dir)
+    monkeypatch.setattr("server.services.memory_manager._DEFAULT_DATA_DIR", tmp_data_dir)
     monkeypatch.setattr("server.routers.documents.DATA_DIR", tmp_data_dir)
     from server.database import reset_engine
-    from server.services.memory import _reset_store
+    from server.services.memory_manager import MemoryManager
     reset_engine()
-    _reset_store()
+    MemoryManager.reset_singleton()
     from server.models.base import Base
     from server.database import get_engine
     Base.metadata.create_all(bind=get_engine())

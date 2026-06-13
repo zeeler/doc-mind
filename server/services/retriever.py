@@ -191,13 +191,13 @@ class Retriever:
         all_results.sort(key=lambda x: x.get("score", 0.0), reverse=True)
 
         # Reranker 精排：对 Top-N 候选结果重新打分排序
-        from server.config import has_reranker_model
+        from server.services.registry import ServiceRegistry
         reranker_top_k = int(self.config.get("reranker_top_k", "5"))
-        if has_reranker_model(self.config) and all_results:
+        reranker = None
+        if all_results:
             try:
-                from server.services.reranker import Reranker
-                reranker = Reranker(self.config)
-                if reranker.enabled:
+                reranker = ServiceRegistry.get_singleton().get_reranker()
+                if reranker and reranker.enabled:
                     # 取召回分数最高的候选供 reranker 精排
                     rerank_candidates_count = min(
                         max(reranker_top_k * 2, 6),
@@ -222,7 +222,7 @@ class Retriever:
         # 上下文扩展：对 top 结果获取相邻 chunk
         context_window = int(self.config.get("retrieval_context_window", "2"))
         if context_window > 0 and all_results:
-            top_results = all_results[:max(3, reranker_top_k if has_reranker_model(self.config) else self.top_k // 2)]
+            top_results = all_results[:max(3, reranker_top_k if (reranker and reranker.enabled) else self.top_k // 2)]
             expanded = self.search_service.expand_context(
                 top_results, window=context_window
             )

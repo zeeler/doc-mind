@@ -1,12 +1,12 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from server.services.pipeline import process_document
+from server.services.pipeline import index_document
 
 
 class TestPipeline:
     @patch("server.services.pipeline.VectorStore")
     @patch("server.services.pipeline.Embedder")
-    def test_process_document(self, MockEmbedder, MockStore, tmp_data_dir, monkeypatch, sample_txt):
+    def test_index_document(self, MockEmbedder, MockStore, tmp_data_dir, monkeypatch, sample_txt):
         monkeypatch.setattr("server.database.DATA_DIR", tmp_data_dir)
         monkeypatch.setattr("server.services.pipeline.DATA_DIR", tmp_data_dir)
         from server.database import reset_engine, get_session
@@ -38,7 +38,8 @@ class TestPipeline:
         mock_store = MagicMock()
         MockStore.return_value = mock_store
 
-        process_document("test-doc-1", config={})
+        sample_text = sample_txt.read_text(encoding="utf-8")
+        index_document("test-doc-1", sample_text, config={})
 
         with next(get_session()) as s:
             updated = s.get(Document, "test-doc-1")

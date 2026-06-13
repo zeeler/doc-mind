@@ -46,10 +46,8 @@ def remember_message(body: dict):
 
 @router.get("")
 def list_memories_endpoint(mem_type: str = None, scope: str = None, limit: int = 50):
-    from server.services import memory as mem
-    data = mem.list_memories(mem_type=mem_type, limit=limit)
-    if scope:
-        data = [m for m in data if m.get("metadata", {}).get("scope") == scope]
+    mgr = _get_mgr()
+    data = mgr.list_memories(mem_type=mem_type, scope=scope, limit=limit)
     return {"code": "OK", "data": data}
 
 
@@ -70,8 +68,8 @@ def search_memories_endpoint(q: str = "", scope: str = None, top_k: int = 5):
 
 @router.delete("/{mem_id}")
 def delete_memory_endpoint(mem_id: str):
-    from server.services import memory as mem
-    mem.delete_memory(mem_id)
+    mgr = _get_mgr()
+    mgr.delete_memory(mem_id)
     return {"code": "OK", "data": None}
 
 
