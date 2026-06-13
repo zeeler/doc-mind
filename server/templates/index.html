@@ -695,7 +695,27 @@ body {
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
           <button class="page-back" @click="page='chat'" style="margin-bottom:0">← 返回对话</button>
           <span style="font:600 20px var(--serif);letter-spacing:.03em">资料管理</span>
-          <button class="batch-toggle" :class="{on:batchMode}" @click="toggleBatchMode" style="margin-left:auto">{{ batchMode ? '退出批量' : '批量模式' }}</button>
+          <button class="batch-toggle" @click="autoTagUntagged" :disabled="autoTagging" style="margin-left:auto;margin-right:4px">{{ autoTagging ? '打标签中...' : '🏷 手动打标签' }}</button>
+          <button class="batch-toggle" :class="{on:batchMode}" @click="toggleBatchMode">{{ batchMode ? '退出批量' : '批量模式' }}</button>
+        </div>
+        <div class="docs-toolbar" style="margin-bottom:14px">
+          <input v-model="filters.search" @keydown.enter="searchDocs" placeholder="搜索文档内容... (回车搜索)">
+          <select v-model="searchType" style="max-width:100px">
+            <option value="chunks">片段</option>
+            <option value="documents">文档</option>
+          </select>
+          <button @click="searchDocs" style="padding:6px 12px;border:1.5px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;font:12px var(--sans);color:var(--text-secondary)">搜索</button>
+          <button v-if="searchResults!==null" @click="clearSearch" style="padding:6px 8px;border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-tertiary)">✕</button>
+          <select v-model="filters.status" @change="loadDocuments">
+            <option value="">全部状态</option>
+            <option value="pending">待处理</option>
+            <option value="done">已完成</option>
+            <option value="failed">失败</option>
+          </select>
+          <select v-model="filters.category" @change="loadDocuments">
+            <option value="">全部分类</option>
+            <option v-for="cat in allCategories" :key="cat" :value="cat">{{ cat }}</option>
+          </select>
         </div>
         <div v-if="vectorInfo" style="margin-bottom:14px;padding:8px 14px;background:var(--bg-sidebar);border-radius:var(--radius-sm)">
           <div style="display:flex;gap:18px;font:11px var(--sans);color:var(--text-secondary);align-items:center">
@@ -723,29 +743,9 @@ body {
         </div>
         <div style="display:flex;gap:8px;margin-bottom:14px">
           <button class="btn btn-ghost" @click="scanDirectory" style="flex:1;margin-top:0" :disabled="dirProcessing">{{ dirProcessing ? '扫描中 ('+dirProgress+')' : '选择本地目录' }}</button>
-        </div>
         <div v-if="!dirProcessing && dirResult" style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">{{ dirResult }}</div>
         <div v-if="docStats&&(docStats.job_summary?.quick_scan?.running||docStats.job_summary?.full_index?.running)" style="margin-bottom:10px;height:3px;background:var(--bg-hover);border-radius:99px;overflow:hidden">
           <div :style="{width:jobPercent+'%',height:'100%',background:'var(--amber)',transition:'width .5s ease',borderRadius:'99px'}"></div>
-        </div>
-        <div class="docs-toolbar">
-          <input v-model="filters.search" @keydown.enter="searchDocs" placeholder="搜索文档内容... (回车搜索)">
-          <select v-model="searchType" style="max-width:100px">
-            <option value="chunks">片段</option>
-            <option value="documents">文档</option>
-          </select>
-          <button @click="searchDocs" style="padding:6px 12px;border:1.5px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;font:12px var(--sans);color:var(--text-secondary)">搜索</button>
-          <button v-if="searchResults!==null" @click="clearSearch" style="padding:6px 8px;border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-tertiary)">✕</button>
-          <select v-model="filters.status" @change="loadDocuments">
-            <option value="">全部状态</option>
-            <option value="pending">待处理</option>
-            <option value="done">已完成</option>
-            <option value="failed">失败</option>
-          </select>
-          <select v-model="filters.category" @change="loadDocuments">
-            <option value="">全部分类</option>
-            <option v-for="cat in allCategories" :key="cat" :value="cat">{{ cat }}</option>
-          </select>
         </div>
         <div v-if="searchResults!==null" style="margin-bottom:14px">
           <div v-if="searchType==='chunks'">
@@ -776,7 +776,7 @@ body {
               <div class="doc-meta">
                 <span>{{ d.file_type }}</span>
                 <span>{{ fmtSize(d.file_size) }}</span>
-                <span :style="{color:statusColor(d.status)}">{{ statusText(d.status) }}</span>
+                <span v-if="d.file_type !== 'url'" :style="{color:statusColor(d.status)}">{{ statusText(d.status) }}</span>
                 <span>{{ d.chunk_count }} 块</span>
                 <span v-if="d.category" class="doc-category">{{ d.category }}</span>
               </div>
@@ -785,10 +785,7 @@ body {
               </div>
             </div>
             <div class="doc-actions" v-if="!batchMode">
-              <button @click="retryDoc(d.id)" :disabled="retryingIds.has(d.id)" :title="retryingIds.has(d.id)?'索引中...':'重新索引'">{{ retryingIds.has(d.id) ? '⏳' : '🔄' }}</button>
-              <button @click="retagDoc(d,$event)" title="重新打标签" :disabled="retaggingIds.has(d.id)">{{ retaggingIds.has(d.id) ? '⏳' : '🏷️' }}</button>
-              <button @click="openTagPicker(d,$event)" title="打标签">🏷</button>
-              <button @click="openCategoryEdit(d,$event)" title="改分类">📋</button>
+              <button v-if="d.file_type !== 'url'" @click="retryDoc(d.id)" :disabled="retryingIds.has(d.id)" :title="retryingIds.has(d.id)?'索引中...':'重新索引'">{{ retryingIds.has(d.id) ? '⏳' : '🔄' }}</button>
               <button class="doc-del" @click="delDoc(d.id,$event)">删除</button>
             </div>
             <div v-if="tagPickerDoc===d" class="tag-picker" @click.stop>
@@ -815,26 +812,7 @@ body {
         <div v-if="batchMode&&selectedIds.size>0" class="batch-bar">
           <span class="selected-count">已选 {{ selectedIds.size }} 项</span>
           <button @click="batchRetry">🔄 重试</button>
-          <button @click="batchTag">🏷 打标签</button>
-          <button @click="batchCategorize">📋 改分类</button>
           <button class="danger" @click="batchDelete($event)">🗑 删除</button>
-        </div>
-        <!-- Batch modals -->
-        <div v-if="batchTagPrompt" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;z-index:50;box-shadow:var(--shadow-lg);min-width:300px">
-          <h3 style="font:600 15px var(--serif);margin-bottom:14px">批量打标签</h3>
-          <input v-model="batchPromptInput" @keydown.enter.prevent="confirmBatchTag" @keydown.escape="batchTagPrompt=false" placeholder="输入标签名回车确认" style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:6px;font:13px var(--sans);color:var(--text);background:var(--bg);outline:none">
-          <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">
-            <button @click="batchTagPrompt=false" style="padding:7px 14px;border:1.5px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;font:12px var(--sans);color:var(--text-secondary)">取消</button>
-            <button @click="confirmBatchTag" style="padding:7px 14px;border:none;border-radius:6px;background:var(--amber);color:#fff;cursor:pointer;font:12px var(--sans)">确认</button>
-          </div>
-        </div>
-        <div v-if="batchCatPrompt" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;z-index:50;box-shadow:var(--shadow-lg);min-width:300px">
-          <h3 style="font:600 15px var(--serif);margin-bottom:14px">批量改分类</h3>
-          <input v-model="batchPromptInput" @keydown.enter.prevent="confirmBatchCat" @keydown.escape="batchCatPrompt=false" placeholder="输入分类名" style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:6px;font:13px var(--sans);color:var(--text);background:var(--bg);outline:none">
-          <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">
-            <button @click="batchCatPrompt=false" style="padding:7px 14px;border:1.5px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;font:12px var(--sans);color:var(--text-secondary)">取消</button>
-            <button @click="confirmBatchCat" style="padding:7px 14px;border:none;border-radius:6px;background:var(--amber);color:#fff;cursor:pointer;font:12px var(--sans)">确认</button>
-          </div>
         </div>
       </main>
     </div>
@@ -942,7 +920,7 @@ body {
   </div>
   <!-- 自定义确认弹窗 -->
   <div v-if="confirmShow" class="confirm-overlay" @click="confirmCancel()">
-    <div class="confirm-popover" :style="{left:confirmX+'px',top:confirmY+'px'}" @click.stop>
+    <div class="confirm-popover" :style="{right:confirmX+'px',top:confirmY+'px'}" @click.stop>
       <div class="confirm-msg">{{ confirmMsg }}</div>
       <div class="confirm-actions">
         <button @click="confirmCancel()">取消</button>
@@ -1028,9 +1006,7 @@ createApp({
     const tagSearch = ref('');
     const categoryEditDoc = ref(null);
     const editCategoryName = ref('');
-    const batchTagPrompt = ref(false);
-    const batchCatPrompt = ref(false);
-    const batchPromptInput = ref('');
+    const autoTagging = ref(false);
 
     const api = (url, opts={}) => fetch(url, opts).then(r => r.ok ? r.json() : r.json().then(e => {throw new Error(e.detail||r.statusText)}));
 
@@ -1068,8 +1044,8 @@ createApp({
         const rect = e.currentTarget.getBoundingClientRect();
         confirmResolve = resolve;
         confirmMsg.value = msg;
-        confirmX.value = rect.left;
-        confirmY.value = rect.bottom + 4;
+        confirmX.value = window.innerWidth - rect.left + 8;
+        confirmY.value = rect.top;
         confirmShow.value = true;
       });
     }
@@ -1266,6 +1242,16 @@ createApp({
       ids.forEach(id => retryingIds.delete(id)); selectedIds.value = new Set(); await loadDocuments(); await loadJobStats();
     }
     async function batchDelete(evt) { try { if (!await showConfirm(`确定删除选中的 ${selectedIds.value.size} 个文档？`, evt)) return; } catch(_){return;} await api('/api/v1/documents/batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: [...selectedIds.value], action: 'delete'})}); selectedIds.value = new Set(); await Promise.all([loadDocuments(),loadTags(),loadFolders()]); }
+    async function autoTagUntagged() {
+      autoTagging.value = true;
+      try {
+        const d = await api('/api/v1/documents/auto-tag-untagged', {method:'POST'});
+        alert(d.data.message);
+        await loadDocuments();
+        await loadTags();
+      } catch(e) { alert('手动打标签失败: ' + e.message); }
+      autoTagging.value = false;
+    }
     function goPage(p) { docsPage.value = Math.max(1, Math.min(p, Math.ceil(docsTotal.value / PAGE_SIZE))); loadDocuments(); }
     function toggleSection(name) { sections[name] = !sections[name]; }
     function dedupBy(arr, keyFn) { const seen = new Set(); return (arr||[]).filter(item => { const k = keyFn(item); if (!k || seen.has(k)) return false; seen.add(k); return true; }); }
@@ -1282,10 +1268,10 @@ createApp({
     });
 
     return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,docsPage,docsTotal,PAGE_SIZE,jobStats,jobPercent,docStats,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,embeddingOn,rerankerOn,webSearchOn,vectorInfo,saved,saveError,chatResult,ocrResult,editingId,editTitle,confirmShow,confirmMsg,confirmX,confirmY,embeddingResult,rerankerResult,testingChat,testingOcr,testingEmbedding,testingReranker,msgBox,inputEl,memoriesList,
-      batchMode, selectedIds, allTags, allCategories, folderTree, filters, sections, sidebarOpen, docsSidebarCollapsed, tagPickerDoc, tagSearch, categoryEditDoc, editCategoryName, batchTagPrompt, batchCatPrompt, batchPromptInput, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
-      loadTags, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCategoryEdit, saveDocCategory, batchTag, batchCategorize, confirmBatchTag, confirmBatchCat, batchDelete, toggleSection,
+      batchMode, selectedIds, allTags, allCategories, folderTree, filters, sections, sidebarOpen, docsSidebarCollapsed, tagPickerDoc, tagSearch, categoryEditDoc, editCategoryName, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
+      loadTags, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCategoryEdit, saveDocCategory, batchDelete, toggleSection,
       newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,showConfirm,confirmOk,confirmCancel,testChat,testOcr,testEmbedding,testReranker,loadMemories,rememberMessage,deleteMsg:deleteMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,loadVectorInfo,
-      batchRetry, uniqueTags, uniqueCitations, retaggingIds, retagDoc, goPage, loadDocStats };
+      batchRetry, uniqueTags, uniqueCitations, retaggingIds, retagDoc, goPage, loadDocStats, autoTagging, autoTagUntagged };
   }
 }).mount('#app');
 </script>
