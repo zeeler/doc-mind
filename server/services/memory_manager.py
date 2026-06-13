@@ -28,8 +28,7 @@ class MemoryManager:
         self._store: MemoryStore | None = None
         self._exporter = None  # MemoryMDExporter，延迟加载
         self._persist_dir = persist_dir or str(_DEFAULT_DATA_DIR / "chroma")
-        dedup_threshold = config.get("memory_dedup_threshold", "0.80")
-        self.dedup_threshold = float(dedup_threshold)
+        self.dedup_threshold = float(config.get("memory_dedup_threshold", "0.85"))
         self.recall_top_k = int(config.get("memory_recall_top_k", "5"))
         self.export_auto = config.get("memory_export_auto", "true") == "true"
         if export_dir is None:
@@ -374,23 +373,6 @@ class MemoryManager:
             self.store.delete(mem_id)
         except Exception as e:
             logger.warning(f"删除记忆失败 {mem_id}: {e}")
-
-    # ============ summarize_conversation() ============
-
-    def summarize_conversation(self, conv_id: str) -> int:
-        """对一段对话生成摘要记忆（委托给 observe）。"""
-        from server.models.conversation import Conversation
-        from server.database import get_session_ctx
-        with get_session_ctx() as session:
-            conv = session.get(Conversation, conv_id)
-            if not conv:
-                return 0
-            messages = [{"role": m.role, "content": m.content} for m in conv.messages]
-
-        if len(messages) < 2:
-            return 0
-
-        return self.observe(messages, conv_id)
 
     # ============ export_md() ============
 

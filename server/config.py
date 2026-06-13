@@ -108,7 +108,7 @@ class AppConfig:
         return self.get_all().get(key, "")
 
     def set(self, key: str, value: str) -> None:
-        global _cache, _cache_time
+        global _cache
         with get_session_ctx() as session:
             row = session.get(AppConfigModel, key)
             if row is None:

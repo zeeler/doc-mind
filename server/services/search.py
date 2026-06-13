@@ -1,6 +1,5 @@
 """混合搜索服务 — FTS5 关键词 + ChromaDB 向量 + RRF 融合 + 高亮。"""
 
-import functools
 import re
 import sqlalchemy as sa
 import logging
@@ -491,7 +490,6 @@ class SearchService:
         return expanded
 
 
-@functools.lru_cache(maxsize=1)
 def get_search_service(data_dir: Path, top_k: int = 10) -> 'SearchService':
     """获取缓存的 SearchService 实例（已弃用，请使用 ServiceRegistry）。"""
     from server.services.registry import ServiceRegistry

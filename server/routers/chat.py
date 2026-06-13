@@ -41,8 +41,6 @@ def _recall_memory_context(question: str, conversation_id: str | None) -> str:
         mem_mgr = MemoryManager.get_singleton()
         return mem_mgr.recall_as_context(question, conv_id=conversation_id)
     except Exception as e:
-        import logging
-        logger = logging.getLogger("knowledge-base")
         logger.warning(f"记忆召回失败: {e}")
         return ""
 
@@ -170,7 +168,8 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
                     )
                     s.add(assistant_msg)
                     s.commit()
-                _get_observe_executor().submit(_run_observe_bg, conversation_id, history, question, full_answer)
+                from server.services.observer import get_observe_executor, run_observe_bg
+                get_observe_executor().submit(run_observe_bg, conversation_id, history, question, full_answer)
         yield {"event": "done", "data": "{}"}
 
     return EventSourceResponse(event_stream())
