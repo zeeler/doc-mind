@@ -684,7 +684,7 @@ body {
             <div v-for="node in folderTree" :key="node.path" class="item folder-child" :class="{active:filters.folder===node.path}" @click="filters.folder=node.path;loadDocuments()">{{ node.name }} <span class="count">{{ node.count }}</span></div>
           </div>
         </div>
-        <div class="sidebar-section">
+        <div v-show="!docsSidebarCollapsed" class="sidebar-section">
           <h4 @click="toggleSection('tags')">🏷 标签 <span>{{ sections.tags ? '▾' : '▸' }}</span></h4>
           <div v-show="sections.tags">
             <div v-for="t in allTags" :key="t.id" class="item" :class="{active:filters.tag===t.name}" @click="filters.tag=filters.tag===t.name?'':t.name;loadDocuments()">{{ t.name }} <span class="count">{{ t.doc_count }}</span></div>
