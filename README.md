@@ -46,15 +46,14 @@
 my_agent1/
 ├── server/
 │   ├── main.py              # 应用入口，FastAPI lifespan
-│   ├── config.py            # 配置管理（SQLite 持久化）
+│   ├── config.py            # 配置管理（SQLite 持久化 + 5秒 TTL 缓存）
 │   ├── database.py          # 数据库连接、迁移、FTS5 索引
 │   ├── models/              # SQLAlchemy ORM 模型
 │   │   ├── base.py
 │   │   ├── document.py      # Document, DocumentChunk
 │   │   ├── conversation.py  # Conversation, Message
 │   │   ├── job.py           # Job（后台任务）
-│   │   ├── tag.py           # Tag
-│   │   └── collection.py    # Collection
+│   │   └── tag.py           # Tag
 │   ├── routers/             # FastAPI 路由
 │   │   ├── chat.py          # 问答（同步 + SSE 流式）
 │   │   ├── search.py        # 混合搜索 API
@@ -63,31 +62,33 @@ my_agent1/
 │   │   ├── memories.py      # 记忆管理
 │   │   ├── jobs.py          # 后台任务监控/重试
 │   │   ├── config.py        # 配置读写
-│   │   ├── tags.py          # 标签管理
-│   │   └── collections.py   # 集合管理
+│   │   └── tags.py          # 标签管理
 │   ├── services/            # 核心业务逻辑
+│   │   ├── registry.py      # 统一服务缓存（LLM/Embedder/Reranker 等）
+│   │   ├── observer.py      # 会话观察器（后台异步记忆提取）
+│   │   ├── memory_manager.py  # 记忆系统编排（内置单例）
+│   │   ├── memory_store.py  # ChromaDB 记忆存储
+│   │   ├── memory_md_exporter.py  # 记忆 Markdown 导出
 │   │   ├── rag.py           # RAG 编排（prompt 构建、LLM 调用）
 │   │   ├── retriever.py     # 检索服务（查询扩展、Reranker 精排、上下文扩展）
 │   │   ├── search.py        # 混合搜索（FTS5 + ChromaDB + RRF + MMR）
 │   │   ├── embedder.py      # Embedding 服务（独立/跟随 LLM 配置）
 │   │   ├── reranker.py      # Reranker 客户端
 │   │   ├── llm.py           # LLM 适配器（OpenAI/Anthropic 格式）
-│   │   ├── pipeline.py      # 文档处理管道（解析→切块→索引）
+│   │   ├── pipeline.py      # 文档处理管道（切块→embedding→ChromaDB）
 │   │   ├── chunker.py       # 文本智能切块（结构感知）
 │   │   ├── parser.py        # 多格式文档解析 + OCR
 │   │   ├── scanner.py       # 快速扫描（标题/页数/预览）
-│   │   ├── memory.py        # 记忆服务（去重/合并/摘要）
-│   │   ├── memory_store.py  # ChromaDB 记忆封装
+│   │   ├── auto_tagger.py   # LLM 自动打标签
+│   │   ├── tag_utils.py     # 标签工具
 │   │   ├── worker.py        # 后台任务 Worker 线程池
-│   │   ├── web_search.py    # Tavily 网络搜索
-│   │   └── formats/         # 特殊格式解析
-│   │       ├── mobi.py
-│   │       ├── pptx.py
-│   │       └── xlsx.py
+│   │   ├── bookmark_parser.py  # Chrome 书签解析
+│   │   ├── url_fetcher.py   # URL 抓取
+│   │   └── web_search.py    # Tavily 网络搜索
 │   ├── vector/
 │   │   └── store.py         # ChromaDB 向量存储封装
 │   └── templates/
-│       └── index.html       # 前端页面
+│       └── index.html       # Vue 3 单页前端
 ├── scripts/
 │   ├── reembed.py           # 重建 ChromaDB 向量（模型切换后）
 │   └── reindex.py           # 重建 FTS5 索引
