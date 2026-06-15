@@ -23,10 +23,17 @@ class TestJobModel:
 
     def test_job_defaults(self, tmp_data_dir, monkeypatch):
         monkeypatch.setattr("server.database.DATA_DIR", tmp_data_dir)
-        from server.database import reset_engine
+        from server.database import reset_engine, get_session_ctx
         reset_engine()
         Base.metadata.create_all(bind=get_engine())
-        j = Job(document_id="d1", job_type="quick_scan")
-        assert j.status == "pending"
+        with get_session_ctx() as s:
+            # 创建父文档满足外键约束
+            d = Document(id="d1", title="test", file_name="test.pdf", file_type="pdf", file_path="/tmp/test.pdf", file_size=1024)
+            s.add(d)
+            s.flush()
+            j = Job(document_id="d1", job_type="quick_scan")
+            s.add(j)
+            s.flush()
+            assert j.status == "pending"
         assert j.priority == 5
         assert j.progress == 0

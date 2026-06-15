@@ -3,9 +3,9 @@
 import uuid
 import hashlib
 import shutil
+import threading
 from sqlalchemy import func
 import logging
-import threading
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Form, Body, HTTPException, Depends, Request
 from sqlalchemy.orm import Session
@@ -228,86 +228,6 @@ def import_url(payload: dict = Body(...), session: Session = Depends(get_session
     }
 
 
-@router.post("/import-bookmarks")
-async def import_bookmarks(
-    file: UploadFile | None = None,
-    payload: dict | None = Body(None),
-    session: Session = Depends(get_session),
-):
-    """导入 Chrome 书签：上传 HTML 预览或批量导入 URL。
-
-    预览模式：上传 .html 文件，返回结构化预览
-    导入模式：传入 {"urls": [...], "folder_path": "..."}
-    """
-    from server.services.bookmark_parser import parse_bookmarks_html
-
-    # Preview mode: parse bookmark HTML file
-    if file:
-        content = await file.read()
-        bookmarks = parse_bookmarks_html(content.decode("utf-8", errors="replace"))
-
-        # Group by folder for preview
-        folders: dict[str, list[dict]] = {}
-        for bm in bookmarks:
-            fp = bm["folder_path"] or "根目录"
-            folders.setdefault(fp, []).append(bm)
-
-        return {
-            "code": "OK",
-            "message": "success",
-            "data": {
-                "total": len(bookmarks),
-                "folders": [
-                    {"path": fp, "count": len(items)}
-                    for fp, items in sorted(folders.items())
-                ],
-            },
-        }
-
-    # Import mode: create background job for batch import
-    if payload:
-        urls = payload.get("urls") or []
-        folder_path = (payload.get("folder_path") or "书签导入").strip() or "书签导入"
-
-        if not urls:
-            raise HTTPException(status_code=400, detail="URLs 不能为空")
-
-        import json as _json
-        # Store URLs + folder_path in a staging file for the worker
-        import uuid as _uuid
-        job_id = str(_uuid.uuid4())
-        staging_dir = DATA_DIR / "files" / f"_import_{job_id}"
-        staging_dir.mkdir(parents=True, exist_ok=True)
-        (staging_dir / "urls.json").write_text(
-            _json.dumps({"urls": urls, "folder_path": folder_path}, ensure_ascii=False),
-            encoding="utf-8"
-        )
-
-        # Create a single Job for background processing
-        from server.models.job import Job
-        job = Job(
-            id=job_id,
-            document_id="",  # no single document
-            job_type="bookmark_import",
-            priority=5,
-            status="pending",
-        )
-        session.add(job)
-        session.commit()
-
-        return {
-            "code": "OK",
-            "message": "success",
-            "data": {
-                "job_id": job_id,
-                "total": len(urls),
-                "message": f"已创建后台导入任务，共 {len(urls)} 条书签",
-            },
-        }
-
-    raise HTTPException(status_code=400, detail="请提供书签文件或 URLs 参数")
-
-
 @router.get("/stats")
 def get_document_stats(session: Session = Depends(get_session)):
     """获取资料统计：按类型计数 + 任务摘要。"""
@@ -429,6 +349,7 @@ def batch_operation(payload: dict, session: Session = Depends(get_session)):
         raise HTTPException(status_code=400, detail=f"不支持的操作类型: {action}")
 
     results = []
+    retry_ids = []  # retry 需要先 commit 再建任务，避免 SQLite 锁冲突
     for doc_id in ids:
         try:
             doc = session.get(Document, doc_id)
@@ -473,9 +394,9 @@ def batch_operation(payload: dict, session: Session = Depends(get_session)):
                     if tag_obj and tag_obj in doc.tags:
                         doc.tags.remove(tag_obj)
             elif action == "retry":
-                if doc.status in ("done", "failed"):
+                if doc.status in ("done", "failed", "scanned"):
                     doc.status = "pending"
-                create_jobs_for_document(doc_id)
+                    retry_ids.append(doc_id)
 
             results.append({"id": doc_id, "success": True})
         except Exception as e:
@@ -484,6 +405,11 @@ def batch_operation(payload: dict, session: Session = Depends(get_session)):
             results.append({"id": doc_id, "success": False, "error": str(e)})
 
     session.commit()
+
+    # retry：先 commit 状态变更再建任务，避免 SQLite 锁冲突
+    for doc_id in retry_ids:
+        create_jobs_for_document(doc_id)
+
     return {"code": "OK", "message": "success", "data": results}
 
 
@@ -570,6 +496,79 @@ def update_document(doc_id: str, payload: dict, session: Session = Depends(get_s
     return {"code": "OK", "message": "success", "data": None}
 
 
+def _get_document_text(doc_id: str, file_path: str, session: Session) -> str:
+    """获取文档文本内容：优先读取 markdown 文件，回退到数据库 chunks。"""
+    md_path = Path(file_path).with_suffix(".md")
+    if md_path.exists():
+        return md_path.read_text(encoding="utf-8")
+
+    from server.models.document import DocumentChunk
+    chunks = (
+        session.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == doc_id)
+        .order_by(DocumentChunk.chunk_no)
+        .all()
+    )
+    return "\n".join(c.content for c in chunks)
+
+
+@router.post("/auto-tag-untagged")
+def auto_tag_untagged_documents(session: Session = Depends(get_session)):
+    """检查所有未打标签的文档，根据已生成的 markdown 自动打标签。"""
+    from server.services.auto_tagger import auto_tag_document
+    from server.config import AppConfig
+
+    # 用 outerjoin 一次查询找出无标签的已完成文档，避免 N+1
+    from server.models.tag import document_tags
+    from sqlalchemy import select
+
+    untagged_docs = (
+        session.query(Document)
+        .outerjoin(document_tags, Document.id == document_tags.c.doc_id)
+        .filter(Document.status == "done")
+        .filter(document_tags.c.doc_id == None)  # noqa: E711
+        .all()
+    )
+
+    if not untagged_docs:
+        return {
+            "code": "OK",
+            "message": "success",
+            "data": {"total": 0, "tagged": 0, "message": "所有文档已有标签"},
+        }
+
+    config = AppConfig().get_all()
+    tagged_count = 0
+    errors = []
+
+    for doc in untagged_docs:
+        try:
+            text = _get_document_text(doc.id, doc.file_path, session)
+            if text.strip():
+                new_tags = auto_tag_document(doc.id, text, config, session)
+                if new_tags:
+                    tagged_count += 1
+            else:
+                errors.append({"id": doc.id, "title": doc.title, "error": "无文本内容"})
+        except Exception as e:
+            logger.error(f"自动打标签失败 doc={doc.id}: {e}")
+            session.rollback()
+            errors.append({"id": doc.id, "title": doc.title, "error": str(e)})
+
+    session.commit()
+
+    return {
+        "code": "OK",
+        "message": "success",
+        "data": {
+            "total": len(untagged_docs),
+            "tagged": tagged_count,
+            "errors": errors,
+            "message": f"已为 {tagged_count}/{len(untagged_docs)} 个文档自动打标签",
+        },
+    }
+
+
 @router.post("/{doc_id}/retag")
 def retag_document(doc_id: str, session: Session = Depends(get_session)):
     """清除现有标签并重新自动生成。"""
@@ -577,31 +576,12 @@ def retag_document(doc_id: str, session: Session = Depends(get_session)):
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
 
-    from server.services.parser import parse_file
     from server.services.auto_tagger import auto_tag_document
     from server.config import AppConfig
 
     config = AppConfig().get_all()
 
-    # Get text from file
-    text = ""
-    file_path = Path(doc.file_path)
-    if file_path.exists():
-        try:
-            text = parse_file(str(file_path), config)
-        except Exception:
-            pass
-
-    # Fallback to chunks
-    if not text:
-        from server.models.document import DocumentChunk
-        chunks = (
-            session.query(DocumentChunk)
-            .filter(DocumentChunk.document_id == doc_id)
-            .order_by(DocumentChunk.chunk_no)
-            .all()
-        )
-        text = "\n".join(c.content for c in chunks)
+    text = _get_document_text(doc_id, doc.file_path, session)
 
     # Clear existing tags
     doc.tags = []

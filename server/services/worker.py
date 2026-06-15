@@ -182,12 +182,10 @@ def _execute_bookmark_import(job, config):
                 checksum=checksum, folder_path=folder_path, status="pending",
             )
             s.add(doc)
-            s.flush()
-
-            # Create processing jobs
-            from server.services.worker import create_jobs_for_document
-            create_jobs_for_document(doc_id)
             s.commit()
+
+            # Create processing jobs (commit 后再建，避免 SQLite 锁冲突)
+            create_jobs_for_document(doc_id)
             success += 1
 
     # Clean up staging
@@ -214,7 +212,10 @@ def _execute_job(job: Job):
             logger.warning(f"任务已被删除（文档可能已删除），跳过: {job.id}")
             return
         if job.status != "running":
-            # 已由其他进程处理或状态已变更
+            # 已由其他进程处理或状态已变更，回退为 pending 避免永久卡住
+            if job.status not in ("completed", "failed", "done"):
+                job.status = "pending"
+                s.commit()
             return
 
         doc = s.get(Document, job.document_id)
@@ -286,21 +287,32 @@ def _execute_job(job: Job):
             _execute_bookmark_import(job, config)
 
 
-def create_jobs_for_document(doc_id: str):
-    """为一篇文档创建 quick_scan + full_index 两个任务（跳过已有活跃任务）。"""
+def create_jobs_for_document(doc_id: str, session=None):
+    """为一篇文档创建 quick_scan + full_index 两个任务（跳过已有活跃任务）。
+
+    可选传入已有 session 避免 SQLite 并发写入锁冲突。
+    """
+    if session:
+        _create_jobs(session, doc_id)
+        return
     with get_session_ctx() as s:
-        # 清理旧的 completed/failed 任务，避免多次重建后堆积
-        s.query(Job).filter(
-            Job.document_id == doc_id,
-            Job.status.in_(["completed", "failed"]),
-        ).delete()
-        for jt, pri in [("quick_scan", 1), ("full_index", 5)]:
-            existing = s.query(Job).filter(
-                Job.document_id == doc_id,
-                Job.job_type == jt,
-                Job.status.in_(["pending", "running"]),
-            ).first()
-            if not existing:
-                job = Job(document_id=doc_id, job_type=jt, priority=pri)
-                s.add(job)
+        _create_jobs(s, doc_id)
         s.commit()
+
+
+def _create_jobs(s, doc_id: str):
+    """内部：在已有 session 中创建任务。"""
+    s.query(Job).filter(
+        Job.document_id == doc_id,
+        Job.status.in_(["completed", "failed"]),
+    ).delete()
+    for jt, pri in [("quick_scan", 1), ("full_index", 5)]:
+        existing = s.query(Job).filter(
+            Job.document_id == doc_id,
+            Job.job_type == jt,
+            Job.status.in_(["pending", "running"]),
+        ).first()
+        if not existing:
+            job = Job(document_id=doc_id, job_type=jt, priority=pri)
+            s.add(job)
+    s.flush()

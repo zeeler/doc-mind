@@ -25,6 +25,8 @@ class LLMAdapter:
         """返回 API 格式类型: 'openai' 或 'anthropic'"""
         if self.provider == "custom":
             return self._cfg.get("custom_api_type", "openai")
+        if self.provider == "claude":
+            return "anthropic"
         return "openai"
 
     def _build_openai_client(self) -> OpenAI:
@@ -163,14 +165,16 @@ class LLMAdapter:
     # ---- Anthropic 格式 ----
 
     def _anthropic_headers(self) -> dict:
-        base = self._cfg.get("custom_api_base", "").rstrip("/")
+        api_key = self._cfg.get("claude_api_key") if self.provider == "claude" else self._cfg.get("custom_api_key", "")
         return {
-            "x-api-key": self._cfg.get("custom_api_key", ""),
+            "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         }
 
     def _anthropic_messages_url(self) -> str:
+        if self.provider == "claude":
+            return "https://api.anthropic.com/v1/messages"
         base = self._cfg.get("custom_api_base", "").rstrip("/")
         return f"{base}/messages"
 

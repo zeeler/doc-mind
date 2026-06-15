@@ -21,8 +21,12 @@ class TestConversationModel:
         monkeypatch.setattr("server.database.DATA_DIR", tmp_data_dir)
         reset_engine()
         Base.metadata.create_all(bind=get_engine())
-        conv = Conversation(title="测试会话")
-        assert conv.status == "active"
+        from server.database import get_session_ctx
+        with get_session_ctx() as s:
+            conv = Conversation(title="测试会话")
+            s.add(conv)
+            s.flush()
+            assert conv.status == "active"
 
     def test_message_table_exists(self, tmp_data_dir, monkeypatch):
         monkeypatch.setattr("server.database.DATA_DIR", tmp_data_dir)

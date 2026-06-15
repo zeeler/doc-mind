@@ -74,11 +74,7 @@ def reset_engine():
 def init_db():
     """创建所有表，并执行迁移。显式导入所有模型确保 create_all 正确工作。"""
     from server.models.base import Base
-    # 显式导入所有模型类，确保 SQLAlchemy 知道要创建哪些表
-    from server.models.document import Document, DocumentChunk  # noqa: F401
-    from server.models.conversation import Conversation, Message  # noqa: F401
-    from server.models.job import Job  # noqa: F401
-    from server.models.tag import Tag  # noqa: F401
+    from server.models import Document, DocumentChunk, Conversation, Message, Job, Tag  # noqa: F401
     from server.config import AppConfigModel  # noqa: F401
     Base.metadata.create_all(bind=get_engine())
     _migrate(get_engine())
@@ -194,7 +190,7 @@ def _fts_execute(sql: str, params: dict | None = None) -> None:
         conn.commit()
 
 
-CJK_CHARS_RE = re.compile(r'(?<=[一-鿿＀-￯])(?=[一-鿿＀-￯])')
+CJK_CHARS_RE = re.compile(r'(?<=[一-鿿])(?=[一-鿿])')
 
 
 def space_cjk(text: str) -> str:

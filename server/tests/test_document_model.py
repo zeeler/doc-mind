@@ -28,9 +28,13 @@ class TestDocumentModel:
         monkeypatch.setattr("server.database.DATA_DIR", tmp_data_dir)
         reset_engine()
         Base.metadata.create_all(bind=get_engine())
-        doc = Document(title="test", file_name="test.pdf", file_type="pdf", file_path="/tmp/test.pdf", file_size=1024)
-        assert doc.status == "pending"
-        assert doc.chunk_count == 0
+        from server.database import get_session_ctx
+        with get_session_ctx() as s:
+            doc = Document(title="test", file_name="test.pdf", file_type="pdf", file_path="/tmp/test.pdf", file_size=1024)
+            s.add(doc)
+            s.flush()
+            assert doc.status == "pending"
+            assert doc.chunk_count == 0
 
     def test_document_chunk_table_exists(self, tmp_data_dir, monkeypatch):
         monkeypatch.setattr("server.database.DATA_DIR", tmp_data_dir)

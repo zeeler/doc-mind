@@ -12,10 +12,6 @@ logger = logging.getLogger("knowledge-base")
 router = APIRouter(prefix="/api/v1/tags", tags=["tags"])
 
 
-def _normalize(name: str) -> str:
-    return name.strip().lower()
-
-
 @router.get("")
 def list_tags(session: Session = Depends(get_session)):
     tags = session.query(Tag).order_by(Tag.name).all()
@@ -43,8 +39,7 @@ def create_tag(payload: dict, session: Session = Depends(get_session)):
     if len(name.strip()) > 100:
         raise HTTPException(status_code=400, detail="标签名不能超过100个字符")
 
-    normalized = _normalize(name)
-    existing = session.query(Tag).filter(func.lower(Tag.name) == normalized).first()
+    existing = session.query(Tag).filter(Tag.name.ilike(name.strip())).first()
     if existing:
         return {
             "code": "OK",

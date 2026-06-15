@@ -128,13 +128,14 @@ def _build_web_prompt(question: str, chunks: list[dict]) -> str:
 
 
 def format_citations(chunks: list[dict], web_sourced: bool = False) -> list[dict]:
-    seen_titles: set[str] = set()
+    seen_ids: set[str] = set()
     result = []
     for c in chunks:
-        title = c.get("document_title", "") or c.get("file_name", "")
-        if title in seen_titles:
+        chunk_id = c.get("chunk_id", "")
+        if chunk_id and chunk_id in seen_ids:
             continue
-        seen_titles.add(title)
+        if chunk_id:
+            seen_ids.add(chunk_id)
         is_web = web_sourced or c.get("match_type") == "web"
         citation: dict = {
             "source_type": "web_search" if is_web else "document_chunk",
