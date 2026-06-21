@@ -253,6 +253,15 @@ def _execute_job(job: Job):
         elif job.job_type == "full_index":
             text = parse_file(str(file_path), config)
             md_dir = file_path.parent
+
+            # PDF 解析后保存一份 .md 备份（OCR 结果可读、供 auto-tag 使用）
+            if doc.file_type == "pdf" and text:
+                pdf_md = Path(file_path).with_suffix(".md")
+                try:
+                    pdf_md.write_text(f"# {doc.title}\n\n{text}", encoding="utf-8")
+                except Exception as e:
+                    logger.warning(f"Markdown 备份写入失败 {doc.title}: {e}")
+
             md_path = md_dir / "index.md"
             info = {
                 "title": doc.title, "format": doc.file_type,
