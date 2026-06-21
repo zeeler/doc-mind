@@ -28,7 +28,11 @@ def get_client(persist_dir: str) -> chromadb.PersistentClient:
 class VectorStore:
     def __init__(self, persist_dir: str, collection_name: str = "knowledge_base"):
         self.client = _get_client(persist_dir)
-        self.collection = self.client.get_or_create_collection(name=collection_name)
+        # 显式指定 cosine 空间，与 MemoryStore 一致
+        self.collection = self.client.get_or_create_collection(
+            name=collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
 
     def add(self, ids: list[str], texts: list[str], embeddings: list[list[float]] | None = None, metadatas: list[dict] | None = None) -> None:
         if metadatas is None:
@@ -54,7 +58,8 @@ class VectorStore:
             hit = {
                 "id": ids_list[i],
                 "content": docs_list[i] if i < len(docs_list) else "",
-                "score": 1.0 - distances_list[i] if i < len(distances_list) else 0.0,
+                # cosine distance ∈ [0,2], 归一化到 [0,1]: score = 1 - distance/2
+                "score": max(0.0, 1.0 - distances_list[i] / 2.0) if i < len(distances_list) else 0.0,
             }
             metadata = metas_list[i] if i < len(metas_list) else {}
             hit["metadata"] = metadata

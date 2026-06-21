@@ -114,13 +114,14 @@ async def upload_document(request: Request, file: UploadFile = File(...), folder
         doc_id = str(uuid.uuid4())
         file_dir = DATA_DIR / "files" / doc_id
         file_dir.mkdir(parents=True, exist_ok=True)
-        file_path = file_dir / file.filename
+        safe_name = Path(file.filename).name  # 仅取文件名，防路径穿越
+        file_path = file_dir / safe_name
         file_path.write_bytes(content)
 
         doc = Document(
             id=doc_id,
-            title=Path(file.filename).stem,
-            file_name=file.filename,
+            title=Path(safe_name).stem,
+            file_name=safe_name,
             file_type=suffix,
             file_path=str(file_path),
             file_size=len(content),

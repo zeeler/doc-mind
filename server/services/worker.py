@@ -218,23 +218,25 @@ def _execute_job(job: Job):
                 s.commit()
             return
 
-        doc = s.get(Document, job.document_id)
-        if not doc:
-            job.status = "failed"
-            job.error_message = "文档不存在"
-            job.finished_at = datetime.now(timezone.utc)
-            s.commit()
-            return
+        # bookmark_import 不关联文档，跳过文档存在性检查
+        if job.job_type != "bookmark_import":
+            doc = s.get(Document, job.document_id)
+            if not doc:
+                job.status = "failed"
+                job.error_message = "文档不存在"
+                job.finished_at = datetime.now(timezone.utc)
+                s.commit()
+                return
 
-        # 处理前检查文件是否仍然存在
-        file_path = Path(doc.file_path)
-        if not file_path.exists():
-            job.status = "failed"
-            job.error_message = f"文件不存在（可能已被移动或删除）: {doc.file_path}"
-            job.finished_at = datetime.now(timezone.utc)
-            s.commit()
-            logger.warning(f"任务 {job.id} 失败: 文件不存在 {doc.file_path}")
-            return
+            # 处理前检查文件是否仍然存在
+            file_path = Path(doc.file_path)
+            if not file_path.exists():
+                job.status = "failed"
+                job.error_message = f"文件不存在（可能已被移动或删除）: {doc.file_path}"
+                job.finished_at = datetime.now(timezone.utc)
+                s.commit()
+                logger.warning(f"任务 {job.id} 失败: 文件不存在 {doc.file_path}")
+                return
 
         if job.job_type == "quick_scan":
             info = quick_scan(str(file_path))
