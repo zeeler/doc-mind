@@ -3,7 +3,6 @@
 import re
 import logging
 from server.database import DATA_DIR
-from server.services.search import get_search_service
 
 logger = logging.getLogger("knowledge-base")
 
@@ -32,11 +31,11 @@ def _cn_num_to_arabic(chapter_str: str) -> str:
 
 
 class Retriever:
-    def __init__(self, config: dict, vector_store=None):
+    def __init__(self, config: dict):
         self.top_k = int(config.get("retrieval_top_k", "15"))
         self.config = config
-        self.search_service = get_search_service(data_dir=DATA_DIR, top_k=self.top_k)
-        # vector_store 参数保留用于向后兼容，不再强制要求
+        from server.services.registry import ServiceRegistry
+        self.search_service = ServiceRegistry.get_singleton().get_search_service(DATA_DIR, top_k=self.top_k)
 
     def _expand_query(self, query: str) -> list[str]:
         """查询扩展：针对宽泛问题生成搜索变体，提升覆盖面。

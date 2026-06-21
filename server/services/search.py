@@ -488,9 +488,3 @@ class SearchService:
         # 按 chunk_no 排序以保持上下文连贯性
         expanded.sort(key=lambda x: (x.get("document_id", ""), x.get("chunk_no", 0)))
         return expanded
-
-
-def get_search_service(data_dir: Path, top_k: int = 10) -> 'SearchService':
-    """获取缓存的 SearchService 实例（已弃用，请使用 ServiceRegistry）。"""
-    from server.services.registry import ServiceRegistry
-    return ServiceRegistry.get_singleton().get_search_service(data_dir, top_k)

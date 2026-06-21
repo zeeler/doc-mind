@@ -11,9 +11,7 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
 from server.database import init_db, get_engine
-from server.models.base import Base
 from server.models import Document, DocumentChunk, Conversation, Message, Job, Tag  # noqa: F401
 from server.config import AppConfigModel  # noqa: F401
 from server.routers.documents import router as documents_router
@@ -39,7 +37,6 @@ logging.getLogger("chromadb.telemetry").setLevel(logging.ERROR)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化数据库并启动 Workers，关闭时停止 Workers。"""
-    _ensure_models_loaded()
     init_db()
     from server.services.worker import start_workers
     start_workers(num=2)
@@ -54,13 +51,6 @@ async def lifespan(app: FastAPI):
     stop_workers()
     stop_stale_recovery()
     shutdown_observe_executor()
-
-
-def _ensure_models_loaded():
-    """确保所有 SQLAlchemy 模型在 create_all 前被导入。"""
-    from server.models import Document, DocumentChunk, Conversation, Message, Tag  # noqa: F811
-    from server.config import AppConfigModel  # noqa: F811
-
 
 app = FastAPI(title="知识库", version="0.1.0", lifespan=lifespan)
 

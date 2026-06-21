@@ -14,12 +14,6 @@ _STRUCTURE_BOUNDARY = re.compile(
     re.MULTILINE,
 )
 
-# 章节级别的强边界 — 这些应该是最大的结构单元
-_CHAPTER_BOUNDARY = re.compile(
-    r"^(#{1,3}\s+|第[一二三四五六七八九十百千\d]+章|Chapter\s+\d+)",
-    re.MULTILINE,
-)
-
 
 def chunk_text(
     text: str,
@@ -118,10 +112,6 @@ def _split_by_structure(text: str) -> list[str]:
             parts.extend(re.split(r"\n\s*\n", remaining))
 
     return parts
-
-
-def _split_paragraphs(text: str) -> list[str]:
-    return re.split(r"\n\s*\n", text)
 
 
 def _split_long_paragraph(text: str, chunk_size: int, overlap: int) -> list[str]:

@@ -15,7 +15,6 @@ from server.models.tag import Tag, document_tags
 from server.models.job import Job
 from server.services.parser import SUPPORTED_TYPES
 from server.services.tag_utils import normalize_tag_name, get_or_create_tag, get_tag
-from server.services.search import get_search_service
 from server.services.worker import create_jobs_for_document
 
 logger = logging.getLogger("knowledge-base")
@@ -292,7 +291,8 @@ def list_documents(
     if status:
         q = q.filter(Document.status == status)
     if search:
-        search_svc = get_search_service(data_dir=DATA_DIR, top_k=50)
+        from server.services.registry import ServiceRegistry
+        search_svc = ServiceRegistry.get_singleton().get_search_service(DATA_DIR, top_k=50)
         doc_results = search_svc.document_search(search, top_k=50)
         match_ids = [d["document_id"] for d in doc_results]
         if match_ids:
@@ -521,7 +521,6 @@ def auto_tag_untagged_documents(session: Session = Depends(get_session)):
 
     # 用 outerjoin 一次查询找出无标签的已完成文档，避免 N+1
     from server.models.tag import document_tags
-    from sqlalchemy import select
 
     untagged_docs = (
         session.query(Document)
