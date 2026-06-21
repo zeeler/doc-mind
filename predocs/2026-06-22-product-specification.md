@@ -18,6 +18,68 @@
 10. [网络搜索与外部数据源](#十网络搜索与外部数据源)
 11. [前端架构](#十一前端架构)
 12. [技术栈与依赖](#十二技术栈与依赖)
+13. [错误处理与容错机制](#十三错误处理与容错机制)
+
+---
+
+## 十三、错误处理与容错机制
+
+### 13.1 文档处理管道容错
+
+**Embedding 回退链路**（`server/services/pipeline.py`）：
+
+```
+外部 Embedding 模型可用?
+  -> Yes: 逐 chunk 向量化 -> 写入 ChromaDB
+       -> 中途失败? -> 回滚已写入 chunk -> 全部用 ChromaDB 内置 embedding 重试
+  -> No: 直接使用 ChromaDB 内置 embedding
+```
+
+`_safe_fts_insert()` 包装 FTS5 写入，失败时仅警告不中断索引流程。
+
+**PDF 解析容错**：liteparse 提取文本量 < 100 字符时自动启动 OCR。OCR 返回空结果时保持原始文本。
+
+### 13.2 搜索容错
+
+**向量搜索降级**：ChromaDB 查询失败时回退为纯 FTS5 模式。维度不匹配时（embedding 模型变更后）发出明确警告。
+
+**Reranker 降级**：API 不可用时静默使用原始 RRF/MMR 排序结果。`rerank_chunks()` 返回 `None` 时调用方保留原始排序。
+
+**纯 FTS5 模式**：无外部 Embedding 模型时完全不调用 ChromaDB，避免内置英文 embedding 对中文的低质量搜索。
+
+### 13.3 Worker 错误处理
+
+```
+_claim_job() -> claim 失败: sleep 1s 重试
+_execute_job() -> 任务失败:
+  -> job.status = "failed" + error_message[:500]
+  -> 其他任务不受影响，Worker 继续消费队列
+
+特定失败场景:
+  -> 文档不存在: job.status = "failed", 不重试
+  -> 源文件被删除: job.status = "failed", 不重试
+  -> 任务已被删除: 静默跳过
+```
+
+**retry 机制**：用户可手动触发 `POST /api/v1/jobs/{id}/retry` 或 `POST /api/v1/jobs/retry-failed` 批量重试。retry 将 failed 状态重置为 pending。
+
+### 13.4 网络搜索降级
+
+`_is_web_search_needed()` 在 KB 返回 0 条结果时自动触发。Tavily API 调用失败（HTTP 错误或网络超时）时返回空列表，不影响 KB 结果。API Key 未配置时完全跳过。
+
+### 13.5 记忆系统容错
+
+- LLM 调用失败：`observe()` 返回 0，不中断对话流
+- 合并失败：单对失败不影响其他对，日志记录
+- 导出失败：警告日志，不阻塞记忆存储
+- 过期批量删除：通过 ChromaDB `where` 过滤，失败时操作被跳过
+
+### 13.6 前端错误状态
+
+- 对话流中断：SSE 连接断开时前端显示错误信息，不丢失已接收的 token
+- 文件上传失败：HTTP 413（超限）/ 400（类型不支持）/ 500 在前端显示具体错误消息
+- 配置连接测试：Embedding / Reranker 测试按钮在失败时显示 API 返回的具体错误
+技术栈与依赖](#十二技术栈与依赖)
 
 ---
 
@@ -105,6 +167,94 @@ mgr = MemoryManager.get_singleton()
 配置存储在 SQLite `app_config` 表中，`config.py:DEFAULTS` 定义所有默认值（75 项）。运行时 `AppConfig` 提供 5 秒 TTL 内存缓存，写入后立即失效。
 
 ---
+
+### 1.6 数据库架构与模式演进
+
+**文件**: `server/database.py`, `server/models/`
+
+系统使用 SQLAlchemy Declarative Base，所有模型继承 `server.models.base.Base`。引擎使用 `check_same_thread=False` 支持多线程访问。
+
+**SQLite 表结构**：
+
+| 表名 | 模型类 | 关键字段 | 用途 |
+|------|--------|----------|------|
+| `documents` | Document | id(UUID), title, file_type, file_path, status, chunk_count, checksum(SHA256), folder_path, category | 文档元数据与生命周期 |
+| `document_chunks` | DocumentChunk | id, document_id(FK CASCADE), chunk_no, content(TEXT), token_count, metadata_json(JSON) | 切块存储 |
+| `conversations` | Conversation | id, title, status, created_at, updated_at | 对话会话 |
+| `messages` | Message | id, conversation_id(FK CASCADE), role, content(TEXT), citations_json(JSON), created_at | 对话消息 |
+| `jobs` | Job | id, document_id(FK CASCADE nullable), job_type, priority, status, progress, error_message | 后台任务 |
+| `tags` | Tag | id, name(UNIQUE) | 标签 |
+| `document_tags` | -- | doc_id(FK CASCADE), tag_id(FK CASCADE), 联合主键 | 文档-标签多对多关联 |
+| `app_config` | AppConfigModel | key(主键), value(JSON), updated_at | KV 配置存储 |
+
+**FTS5 全文索引**：
+
+SQLite FTS5 虚拟表 `chunks_fts` 通过 raw SQL 创建和管理（不经过 SQLAlchemy ORM）：
+
+```sql
+CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+    chunk_id,
+    content,
+    document_title
+)
+```
+
+核心问题：FTS5 的 unicode61 分词器不识别中文词边界。系统采用**字符级分词策略**——在连续 CJK 字符间插入空格使每个汉字成为独立 token。所有写入 `chunks_fts` 的 content 和 document_title 都经过 `space_cjk()` 预处理（如 "哈佛谈判心理学" -> "哈 佛 谈 判 心 理 学"）。搜索查询词同样处理后进入 FTS5 MATCH。FTS5 特殊运算符 `* ( ) ^` 在查询时转义防止语法错误。
+
+**数据库迁移系统**：`init_db()` 调用链为 `Base.metadata.create_all()` -> `_migrate()`。使用增量迁移策略，通过 SQLite `PRAGMA user_version` 追踪版本：
+
+| 版本 | 迁移内容 |
+|------|----------|
+| 初始 | documents 表基础结构 |
+| v1 | ALTER TABLE 追加 elapsed_ms, checksum, folder_path, category 列 |
+| v2 | CREATE TABLE jobs, document_chunks；CREATE TABLE tags + document_tags |
+| v3 | CREATE VIRTUAL TABLE chunks_fts (FTS5) |
+| v4 | CJK 空格分词：清空 chunks_fts -> fts_rebuild_all() 重建 -> user_version=4 |
+
+迁移使用 `_table_exists(conn, name)` 和 `PRAGMA table_info` 检测表和列的存在性，避免首次部署或跨版本升级时 DDL 报错。
+
+每次连接通过 SQLAlchemy `@event.listens_for(engine, "connect")` 自动执行 `PRAGMA foreign_keys = ON`（SQLite 默认关闭外键）。部分删除操作仍显式清理关联数据以兼容未启用 CASCADE 的旧数据库。
+
+### 1.7 Session 管理模式
+
+**文件**: `server/database.py:get_session`, `get_session_ctx`
+
+| 模式 | 函数 | 适用场景 | 机制 |
+|------|------|----------|------|
+| FastAPI 依赖注入 | `get_session()` | 路由处理器（有 HTTP 请求上下文） | Generator yield，FastAPI 自动管理生命周期 |
+| 上下文管理器 | `get_session_ctx()` | 非路由代码（Worker、Config、Pipeline） | `@contextmanager` 装饰器，with 语句使用 |
+
+```python
+# 路由中使用
+@router.get("/docs")
+def list_docs(session: Session = Depends(get_session)):
+    return session.query(Document).all()
+
+# 非路由代码使用
+with get_session_ctx() as session:
+    doc = session.get(Document, doc_id)
+```
+
+两者共享同一个 `sessionmaker`（`autocommit=False`, `autoflush=False`, `expire_on_commit=False`），线程安全。`reset_engine()` 仅测试用，清空引擎和 factory 以切换 DATA_DIR。
+
+### 1.8 ServiceRegistry 缓存策略
+
+**文件**: `server/services/registry.py`
+
+ServiceRegistry 对每个服务实例使用**配置指纹**（config key tuple）检测变更：
+
+| 服务 | 缓存键组成 | 重建触发条件 |
+|------|-----------|------------|
+| LLMAdapter | (llm_provider, mlx_chat_model, openai_chat_model, claude_chat_model, custom_chat_model) | provider 或模型名变更 |
+| Embedder | (embedding_enabled, embedding_model, embedding_api_base, embedding_api_key) | Embedding 配置变更 |
+| Reranker | (reranker_model, reranker_api_base, reranker_api_key) | Reranker 配置变更 |
+| RAGService | data_dir + 15 个检索/embedding/网络搜索配置项 | 任一检索相关配置变更 |
+| SearchService | (data_dir, top_k) | 数据目录或 top_k 变更 |
+
+每个服务独立持有自己的锁（`_llm_lock`, `_embedder_lock` 等），避免不同服务间的锁竞争。全局单例通过双重检查锁（DCL）保证线程安全。
+
+配置变更自动传播：`AppConfig.set()` 写入后立即失效配置内存缓存 -> 下次 `get_all()` 读取最新值 -> 各服务的配置指纹变化 -> 触发实例重建。
+
 
 ## 二、配置管理
 
