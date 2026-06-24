@@ -695,8 +695,6 @@ body {
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
           <button class="page-back" @click="page='chat'" style="margin-bottom:0">← 返回对话</button>
           <span style="font:600 20px var(--serif);letter-spacing:.03em">资料管理</span>
-          <button class="batch-toggle" @click="autoTagUntagged" :disabled="autoTagging" style="margin-left:auto;margin-right:4px">{{ autoTagging ? '打标签中...' : '🏷 手动打标签' }}</button>
-          <button class="batch-toggle" :class="{on:batchMode}" @click="toggleBatchMode">{{ batchMode ? '退出批量' : '批量模式' }}</button>
         </div>
         <div class="docs-toolbar" style="margin-bottom:14px">
           <input v-model="filters.search" @keydown.enter="searchDocs" placeholder="搜索文档内容... (回车搜索)">
@@ -711,10 +709,6 @@ body {
             <option value="pending">待处理</option>
             <option value="done">已完成</option>
             <option value="failed">失败</option>
-          </select>
-          <select v-model="filters.category" @change="loadDocuments">
-            <option value="">全部分类</option>
-            <option v-for="cat in allCategories" :key="cat" :value="cat">{{ cat }}</option>
           </select>
         </div>
         <div v-if="vectorInfo" style="margin-bottom:14px;padding:8px 14px;background:var(--bg-sidebar);border-radius:var(--radius-sm)">
