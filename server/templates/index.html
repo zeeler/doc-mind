@@ -507,10 +507,6 @@ body {
 
 /* === Doc item enhanced === */
 .doc-item { position:relative; }
-.doc-checkbox { display:none; margin-right: 10px; width: 16px; height: 16px; accent-color: var(--amber); flex-shrink:0; }
-.batch-mode .doc-checkbox { display: block; }
-.batch-mode .doc-item { cursor: pointer; }
-.batch-mode .doc-item.selected { border-color: var(--amber); background: var(--amber-light); }
 .doc-tags { display:flex; gap:4px; flex-wrap:wrap; margin-top:5px; }
 .doc-tag {
   font: 10px var(--sans); padding: 2px 8px;
@@ -534,24 +530,6 @@ body {
   color: var(--amber); border: 1px solid var(--amber-ring);
 }
 
-/* === Batch bar === */
-.batch-bar {
-  position: sticky; bottom: 0; background: var(--card);
-  border-top: 1px solid var(--border); padding: 12px 18px;
-  display: flex; align-items: center; gap: 10px;
-  box-shadow: var(--shadow-lg); z-index: 10; margin-top: 14px;
-  border-radius: var(--radius) var(--radius) 0 0;
-}
-.batch-bar .selected-count { font: 500 13px var(--sans); color: var(--text); }
-.batch-bar button {
-  padding: 6px 14px; border: 1.5px solid var(--border);
-  border-radius: 6px; background: var(--card); cursor: pointer;
-  font: 12px var(--sans); color: var(--text-secondary);
-  transition: all .15s;
-}
-.batch-bar button:hover { background: var(--bg-hover); }
-.batch-bar button.danger { color: var(--danger); border-color: var(--danger); }
-.batch-bar button.danger:hover { background: var(--danger-bg); }
 
 /* === Tag picker popup === */
 .tag-picker {
@@ -680,14 +658,14 @@ body {
         <div v-show="!docsSidebarCollapsed" class="sidebar-section">
           <h4 @click="toggleSection('folders')">📁 目录浏览 <span>{{ sections.folders ? '▾' : '▸' }}</span></h4>
           <div v-show="sections.folders">
-            <div class="item" :class="{active:!filters.folder}" @click="filters.folder='';loadDocuments()">全部文档</div>
-            <div v-for="node in folderTree" :key="node.path" class="item folder-child" :class="{active:filters.folder===node.path}" @click="filters.folder=node.path;loadDocuments()">{{ node.name }} <span class="count">{{ node.count }}</span></div>
+            <div class="item" :class="{active:!filters.folder}" @click="filters.folder='';onFilterChange()">全部文档</div>
+            <div v-for="node in folderTree" :key="node.path" class="item folder-child" :class="{active:filters.folder===node.path}" @click="filters.folder=node.path;onFilterChange()">{{ node.name }} <span class="count">{{ node.count }}</span></div>
           </div>
         </div>
         <div v-show="!docsSidebarCollapsed" class="sidebar-section">
           <h4 @click="toggleSection('tags')">🏷 标签 <span>{{ sections.tags ? '▾' : '▸' }}</span></h4>
           <div v-show="sections.tags">
-            <div v-for="t in allTags" :key="t.id" class="item" :class="{active:filters.tag===t.name}" @click="filters.tag=filters.tag===t.name?'':t.name;loadDocuments()">{{ t.name }} <span class="count">{{ t.doc_count }}</span></div>
+            <div v-for="t in allTags" :key="t.id" class="item" :class="{active:filters.tag===t.name}" @click="filters.tag=filters.tag===t.name?'':t.name;onFilterChange()">{{ t.name }} <span class="count">{{ t.doc_count }}</span></div>
           </div>
         </div>
       </aside>
@@ -704,7 +682,7 @@ body {
           </select>
           <button @click="searchDocs" style="padding:6px 12px;border:1.5px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;font:12px var(--sans);color:var(--text-secondary)">搜索</button>
           <button v-if="searchResults!==null" @click="clearSearch" style="padding:6px 8px;border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-tertiary)">✕</button>
-          <select v-model="filters.status" @change="loadDocuments">
+          <select v-model="filters.status" @change="onFilterChange">
             <option value="">全部状态</option>
             <option value="pending">待处理</option>
             <option value="done">已完成</option>
@@ -768,9 +746,8 @@ body {
           </div>
           <div v-if="searchResults.length===0" style="text-align:center;padding:48px;color:var(--text-tertiary);font-family:var(--sans)">未找到匹配内容</div>
         </div>
-        <div :class="{'batch-mode':batchMode}">
-          <div v-for="d in documents" :key="d.id" class="doc-item" :class="{selected:selectedIds.has(d.id)}" @click.self="batchMode&&toggleSelect(d.id)">
-            <input v-if="batchMode" type="checkbox" class="doc-checkbox" :checked="selectedIds.has(d.id)" @change="toggleSelect(d.id)" @click.stop style="display:block">
+        <div>
+          <div v-for="d in documents" :key="d.id" class="doc-item">
             <div class="doc-info">
               <div class="doc-title">{{ d.title }}</div>
               <div class="doc-meta">
@@ -781,10 +758,10 @@ body {
                 <span v-if="d.category" class="doc-category">{{ d.category }}</span>
               </div>
               <div class="doc-tags" v-if="d.tags&&d.tags.length">
-                <span class="doc-tag" v-for="t in uniqueTags(d.tags)" :key="t.id" @click.stop="filters.tag=t.name;loadDocuments()">{{ t.name }}</span>
+                <span class="doc-tag" v-for="t in uniqueTags(d.tags)" :key="t.id" @click.stop="filters.tag=t.name;onFilterChange()">{{ t.name }}</span>
               </div>
             </div>
-            <div class="doc-actions" v-if="!batchMode">
+            <div class="doc-actions">
               <button v-if="d.file_type !== 'url'" @click="retryDoc(d.id)" :disabled="retryingIds.has(d.id)" :title="retryingIds.has(d.id)?'索引中...':'重新索引'">{{ retryingIds.has(d.id) ? '⏳' : '🔄' }}</button>
               <button class="doc-del" @click="delDoc(d.id,$event)">删除</button>
             </div>
@@ -794,9 +771,6 @@ body {
                 <input type="checkbox" :checked="d.tags&&d.tags.some(dt=>dt.id===t.id)" @change="toggleDocTag(d,t)">
                 <span>{{ t.name }}</span>
               </div>
-            </div>
-            <div v-if="categoryEditDoc===d" class="tag-picker" @click.stop>
-              <input v-model="editCategoryName" @keydown.enter.prevent="saveDocCategory(d)" @keydown.escape="categoryEditDoc=null" placeholder="分类名，留空清除">
             </div>
           </div>
           <div v-if="documents.length===0" style="text-align:center;padding:48px;color:var(--text-tertiary);font-family:var(--sans)">暂无资料，上传或选择目录开始导入</div>
@@ -808,11 +782,6 @@ body {
             <button @click="goPage(Math.ceil(docsTotal / PAGE_SIZE))" :disabled="docsPage * PAGE_SIZE >= docsTotal" style="padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--card);cursor:pointer;color:var(--text-secondary)">末页</button>
             <span style="color:var(--text-tertiary);margin-left:8px">共 {{ docsTotal }} 条</span>
           </div>
-        </div>
-        <div v-if="batchMode&&selectedIds.size>0" class="batch-bar">
-          <span class="selected-count">已选 {{ selectedIds.size }} 项</span>
-          <button @click="batchRetry">🔄 重试</button>
-          <button class="danger" @click="batchDelete($event)">🗑 删除</button>
         </div>
       </main>
     </div>
@@ -930,7 +899,7 @@ body {
   </div>
 </div>
 <script>
-const { createApp, ref, reactive, computed, nextTick, onMounted, watch } = Vue;
+const { createApp, ref, reactive, computed, nextTick, onMounted, onUnmounted, watch } = Vue;
 
 createApp({
   setup() {
@@ -989,24 +958,17 @@ createApp({
     const msgBox = ref(null);
     const inputEl = ref(null);
     const memoriesList = ref([]);
-    const batchMode = ref(false);
-    const selectedIds = ref(new Set());
     const allTags = ref([]);
-    const allCategories = ref([]);
     const folderTree = ref([]);
-    const filters = reactive({folder:'', category:'', tag:'', status:'', search:''});
+    const filters = reactive({folder:'', tag:'', status:'', search:''});
     const searchResults = ref(null);
     const searchType = ref('chunks');
     const retryingIds = reactive(new Set());
-    const retaggingIds = reactive(new Set());
     const sections = reactive({folders:true, tags:true});
     const sidebarOpen = ref(false);
     const docsSidebarCollapsed = ref(false);
     const tagPickerDoc = ref(null);
     const tagSearch = ref('');
-    const categoryEditDoc = ref(null);
-    const editCategoryName = ref('');
-    const autoTagging = ref(false);
 
     const api = (url, opts={}) => fetch(url, opts).then(r => r.ok ? r.json() : r.json().then(e => {throw new Error(e.detail||r.statusText)}));
 
@@ -1099,7 +1061,6 @@ createApp({
     async function loadDocuments() {
       const params = new URLSearchParams();
       if (filters.folder) params.set('folder', filters.folder);
-      if (filters.category) params.set('category', filters.category);
       if (filters.tag) params.set('tag', filters.tag);
       if (filters.status) params.set('status', filters.status);
       if (filters.search) params.set('search', filters.search);
@@ -1108,6 +1069,7 @@ createApp({
       const qs = params.toString();
       try { const d = await api('/api/v1/documents' + (qs ? '?' + qs : '')); documents.value = d.data || []; docsTotal.value = d.total || 0; } catch(e) { console.error(e); }
     }
+    function onFilterChange() { docsPage.value = 1; searchResults.value = null; loadDocuments(); }
     async function loadJobStats() {
       try {
         const d = await api('/api/v1/jobs/stats'); jobStats.value = d.data;
@@ -1121,9 +1083,9 @@ createApp({
       } catch(e) { console.error(e); }
     }
     async function retryFailedJobs() { try { const d = await api('/api/v1/jobs/retry-failed', {method:'POST'}); alert('已重试 ' + d.data.retried + ' 个任务'); await loadJobStats(); } catch(e) { console.error(e); } }
-    async function uploadFile(e) { const f=e.target.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);await fetch('/api/v1/documents/upload',{method:'POST',body:fd});uploading.value=false;await loadDocuments(); }
-    function uploadDrop(e) { const f=e.dataTransfer.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);fetch('/api/v1/documents/upload',{method:'POST',body:fd}).then(()=>{uploading.value=false;loadDocuments()}); }
-    async function delDoc(id, evt) { try { if(!await showConfirm('确定删除这个文档？',evt))return; } catch(_){return;} await fetch('/api/v1/documents/'+id,{method:'DELETE'});await Promise.all([loadDocuments(),loadJobStats(),loadTags(),loadFolders()]); }
+    async function uploadFile(e) { const f=e.target.files[0];if(!f)return;uploading.value=true;try{const fd=new FormData();fd.append('file',f);const r=await fetch('/api/v1/documents/upload',{method:'POST',body:fd});if(!r.ok)throw new Error('HTTP '+r.status);}catch(e){alert('上传失败: '+e.message);}finally{uploading.value=false;await loadDocuments();} }
+    function uploadDrop(e) { const f=e.dataTransfer.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);fetch('/api/v1/documents/upload',{method:'POST',body:fd}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);}).catch(e=>{alert('上传失败: '+e.message);}).finally(()=>{uploading.value=false;loadDocuments();}); }
+    async function delDoc(id, evt) { try { if(!await showConfirm('确定删除这个文档？',evt))return; } catch(_){return;} try{const r=await fetch('/api/v1/documents/'+id,{method:'DELETE'});if(!r.ok)throw new Error('HTTP '+r.status);await Promise.all([loadDocuments(),loadJobStats(),loadTags(),loadFolders()]);}catch(e){alert('删除失败: '+e.message);} }
     async function retryDoc(id) {
       retryingIds.add(id);
       try {
@@ -1134,17 +1096,6 @@ createApp({
         alert(ok ? '✓ 已加入索引队列' : '✗ 重试失败: ' + (d.data?.[0]?.error || '未知错误'));
       } catch(e) { alert('✗ 请求失败: ' + e.message + '\n请确认服务器已重启'); }
       retryingIds.delete(id); await loadDocuments(); await loadJobStats();
-    }
-    async function retagDoc(doc, event) {
-      retaggingIds.add(doc.id);
-      try {
-        const res = await fetch('/api/v1/documents/' + doc.id + '/retag', {method: 'POST'});
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        await loadDocuments();
-      } catch(e) {
-        alert('重新打标签失败: ' + e.message);
-      }
-      retaggingIds.delete(doc.id);
     }
     async function scanDirectory() {
       if (!window.showDirectoryPicker) { alert('浏览器不支持目录选择，请使用 Chrome/Edge'); return; }
@@ -1215,63 +1166,34 @@ createApp({
         folderTree.value = build(tree, '');
       } catch(e) { console.error(e); }
     }
-    async function loadAllCategories() { try { const d = await api('/api/v1/documents'); const cats = new Set(); (d.data || []).forEach(doc => { if (doc.category) cats.add(doc.category); }); allCategories.value = [...cats].sort(); } catch(e) { console.error(e); } }
     async function searchDocs() { const q = filters.search.trim(); if (!q) { searchResults.value = null; return; } try { const d = await api('/api/v1/search?q=' + encodeURIComponent(q) + '&type=' + searchType.value + '&top_k=10'); searchResults.value = d.data || []; } catch(e) { console.error(e); } }
-    function clearSearch() { filters.search = ''; searchResults.value = null; loadDocuments(); }
-    function toggleBatchMode() { batchMode.value = !batchMode.value; if (!batchMode.value) selectedIds.value = new Set(); }
-    function toggleSelect(id) { const s = new Set(selectedIds.value); if (s.has(id)) s.delete(id); else s.add(id); selectedIds.value = s; }
+    function clearSearch() { filters.search = ''; searchResults.value = null; docsPage.value = 1; loadDocuments(); }
     function openTagPicker(doc, event) { tagPickerDoc.value = doc; tagSearch.value = ''; }
     function closeTagPicker() { tagPickerDoc.value = null; tagSearch.value = ''; }
     async function addTagToDoc(doc, tagName) { const name = tagName.trim(); if (!name) return; await api('/api/v1/documents/' + doc.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({add_tags: [name]})}); tagSearch.value = ''; await loadDocuments(); await loadTags(); }
     async function toggleDocTag(doc, tag) { const has = doc.tags && doc.tags.some(t => t.id === tag.id); await api('/api/v1/documents/' + doc.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(has ? {remove_tags: [tag.name]} : {add_tags: [tag.name]})}); await loadDocuments(); await loadTags(); }
     const filteredTags = computed(() => { if (!tagSearch.value) return allTags.value; return allTags.value.filter(t => t.name.toLowerCase().includes(tagSearch.value.toLowerCase())); });
-    function openCategoryEdit(doc, event) { categoryEditDoc.value = doc; editCategoryName.value = doc.category || ''; }
-    async function saveDocCategory(doc) { const cat = editCategoryName.value.trim(); await api('/api/v1/documents/' + doc.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({category: cat})}); categoryEditDoc.value = null; await loadDocuments(); await loadAllCategories(); }
-    function batchTag() { batchTagPrompt.value = true; batchPromptInput.value = ''; }
-    function batchCategorize() { batchCatPrompt.value = true; batchPromptInput.value = ''; }
-    async function confirmBatchTag() { const tagName = batchPromptInput.value.trim(); if (!tagName) { batchTagPrompt.value = false; return; } await api('/api/v1/documents/batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: [...selectedIds.value], action: 'tag', params: {tags: [tagName]}})}); batchTagPrompt.value = false; selectedIds.value = new Set(); await loadDocuments(); await loadTags(); }
-    async function confirmBatchCat() { const cat = batchPromptInput.value.trim(); await api('/api/v1/documents/batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: [...selectedIds.value], action: 'categorize', params: {category: cat}})}); batchCatPrompt.value = false; selectedIds.value = new Set(); await loadDocuments(); await loadAllCategories(); }
-    async function batchRetry() {
-      const ids = [...selectedIds.value]; ids.forEach(id => retryingIds.add(id));
-      try {
-        const res = await fetch('/api/v1/documents/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,action:'retry'})});
-        if (!res.ok) throw new Error('HTTP ' + res.status); const d = await res.json();
-        const ok = d.data ? d.data.filter(r => r.success).length : 0;
-        alert('✓ 成功 ' + ok + ' 个' + (d.data.length - ok > 0 ? '，失败 ' + (d.data.length - ok) + ' 个' : ''));
-      } catch(e) { alert('✗ 请求失败: ' + e.message + '\n请确认服务器已重启'); }
-      ids.forEach(id => retryingIds.delete(id)); selectedIds.value = new Set(); await loadDocuments(); await loadJobStats();
-    }
-    async function batchDelete(evt) { try { if (!await showConfirm(`确定删除选中的 ${selectedIds.value.size} 个文档？`, evt)) return; } catch(_){return;} await api('/api/v1/documents/batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: [...selectedIds.value], action: 'delete'})}); selectedIds.value = new Set(); await Promise.all([loadDocuments(),loadTags(),loadFolders()]); }
-    async function autoTagUntagged() {
-      autoTagging.value = true;
-      try {
-        const d = await api('/api/v1/documents/auto-tag-untagged', {method:'POST'});
-        alert(d.data.message);
-        await loadDocuments();
-        await loadTags();
-      } catch(e) { alert('手动打标签失败: ' + e.message); }
-      autoTagging.value = false;
-    }
     function goPage(p) { docsPage.value = Math.max(1, Math.min(p, Math.ceil(docsTotal.value / PAGE_SIZE))); loadDocuments(); }
     function toggleSection(name) { sections[name] = !sections[name]; }
-    function dedupBy(arr, keyFn) { const seen = new Set(); return (arr||[]).filter(item => { const k = keyFn(item); if (!k || seen.has(k)) return false; seen.add(k); return true; }); }
+    function dedupBy(arr, keyFn) { const seen = new Set(); return (arr||[]).filter(item => { const k = keyFn(item); if (k == null || seen.has(k)) return false; seen.add(k); return true; }); }
     function uniqueTags(tags) { return dedupBy(tags, t => t.id); }
     function uniqueCitations(cits) { return dedupBy(cits, c => c.document_title || c.file_name); }
 
     async function loadVectorInfo() { try { const r = await api('/api/v1/config/vector-info'); if (r.code === 'OK') vectorInfo.value = r.data; } catch {} }
     async function loadDocStats() { try { const r = await api('/api/v1/documents/stats'); if (r.code === 'OK') { docStats.value = r.data; const s = r.data.job_summary || {}; let done = 0; let all = 0; for (const jt of Object.values(s)) { done += jt.completed || 0; all += (jt.completed||0) + (jt.running||0) + (jt.pending||0) + (jt.failed||0); } jobPercent.value = all > 0 ? Math.round(done / all * 100) : 0; } } catch {} }
     onMounted(() => { loadConversations(); loadConfig(); });
+    onUnmounted(() => { if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } });
     watch(page, (v) => {
-      if (v === 'docs') { loadDocuments(); loadJobStats(); loadTags(); loadFolders(); loadAllCategories(); loadVectorInfo(); loadDocStats(); if (!jobInterval) jobInterval = setInterval(() => { loadJobStats(); loadDocStats(); }, 5000); }
+      if (v === 'docs') { loadDocuments(); loadJobStats(); loadTags(); loadFolders(); loadVectorInfo(); loadDocStats(); if (!jobInterval) jobInterval = setInterval(() => { loadJobStats(); loadDocStats(); }, 5000); }
       else if (v === 'memories') { loadMemories(); if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } }
       else { if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } }
     });
 
     return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,docsPage,docsTotal,PAGE_SIZE,jobStats,jobPercent,docStats,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,embeddingOn,rerankerOn,webSearchOn,vectorInfo,saved,saveError,chatResult,ocrResult,editingId,editTitle,confirmShow,confirmMsg,confirmX,confirmY,embeddingResult,rerankerResult,testingChat,testingOcr,testingEmbedding,testingReranker,msgBox,inputEl,memoriesList,
-      batchMode, selectedIds, allTags, allCategories, folderTree, filters, sections, sidebarOpen, docsSidebarCollapsed, tagPickerDoc, tagSearch, categoryEditDoc, editCategoryName, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds,
-      loadTags, loadFolders, loadAllCategories, toggleBatchMode, toggleSelect, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, openCategoryEdit, saveDocCategory, batchDelete, toggleSection,
+      allTags, folderTree, filters, sections, sidebarOpen, docsSidebarCollapsed, tagPickerDoc, tagSearch, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds, onFilterChange,
+      loadTags, loadFolders, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, toggleSection,
       newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,showConfirm,confirmOk,confirmCancel,testChat,testOcr,testEmbedding,testReranker,loadMemories,rememberMessage,deleteMsg:deleteMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,loadVectorInfo,
-      batchRetry, uniqueTags, uniqueCitations, retaggingIds, retagDoc, goPage, loadDocStats, autoTagging, autoTagUntagged };
+      uniqueTags, uniqueCitations, goPage, loadDocStats };
   }
 }).mount('#app');
 </script>

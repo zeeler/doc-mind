@@ -165,7 +165,18 @@ def import_url(payload: dict = Body(...), session: Session = Depends(get_session
     import hashlib
     checksum = hashlib.sha256(url.encode("utf-8")).hexdigest()
 
-    # Use dedup lock (same as upload endpoint) to prevent TOCTOU race
+    # 在锁外完成网络 IO，避免阻塞并发上传请求
+    from server.services.url_fetcher import fetch_url
+    result = fetch_url(url)
+    if result["error"]:
+        raise HTTPException(status_code=400, detail=f"获取 URL 失败: {result['error']}")
+
+    title = result["title"] or url
+    text_content = result["text_content"]
+    if not text_content or len(text_content.strip()) < 10:
+        raise HTTPException(status_code=400, detail="无法提取页面内容（内容过短）")
+
+    # 去重锁仅保护 DB 查询和创建，避免 TOCTOU 竞争
     with _dedup_lock:
         existing = session.query(Document).filter(Document.checksum == checksum).first()
         if existing:
@@ -178,16 +189,6 @@ def import_url(payload: dict = Body(...), session: Session = Depends(get_session
                     "duplicate": True,
                 },
             }
-
-        from server.services.url_fetcher import fetch_url
-        result = fetch_url(url)
-        if result["error"]:
-            raise HTTPException(status_code=400, detail=f"获取 URL 失败: {result['error']}")
-
-        title = result["title"] or url
-        text_content = result["text_content"]
-        if not text_content or len(text_content.strip()) < 10:
-            raise HTTPException(status_code=400, detail="无法提取页面内容（内容过短）")
 
         # Create document
         import uuid as _uuid
@@ -352,9 +353,12 @@ def batch_operation(payload: dict, session: Session = Depends(get_session)):
     results = []
     retry_ids = []  # retry 需要先 commit 再建任务，避免 SQLite 锁冲突
     for doc_id in ids:
+        # 用 savepoint 隔离每个文档的操作：单文档失败只回滚自身，不影响已成功的文档
+        savepoint = session.begin_nested()
         try:
             doc = session.get(Document, doc_id)
             if not doc:
+                savepoint.commit()
                 results.append({"id": doc_id, "success": False, "error": "文档不存在"})
                 continue
 
@@ -399,10 +403,11 @@ def batch_operation(payload: dict, session: Session = Depends(get_session)):
                     doc.status = "pending"
                     retry_ids.append(doc_id)
 
+            savepoint.commit()
             results.append({"id": doc_id, "success": True})
         except Exception as e:
             logger.error(f"批量操作 {action} 在 {doc_id} 失败: {e}")
-            session.rollback()
+            savepoint.rollback()
             results.append({"id": doc_id, "success": False, "error": str(e)})
 
     session.commit()
@@ -511,62 +516,6 @@ def _get_document_text(doc_id: str, file_path: str, session: Session) -> str:
         .all()
     )
     return "\n".join(c.content for c in chunks)
-
-
-@router.post("/auto-tag-untagged")
-def auto_tag_untagged_documents(session: Session = Depends(get_session)):
-    """检查所有未打标签的文档，根据已生成的 markdown 自动打标签。"""
-    from server.services.auto_tagger import auto_tag_document
-    from server.config import AppConfig
-
-    # 用 outerjoin 一次查询找出无标签的已完成文档，避免 N+1
-    from server.models.tag import document_tags
-
-    untagged_docs = (
-        session.query(Document)
-        .outerjoin(document_tags, Document.id == document_tags.c.doc_id)
-        .filter(Document.status == "done")
-        .filter(document_tags.c.doc_id == None)  # noqa: E711
-        .all()
-    )
-
-    if not untagged_docs:
-        return {
-            "code": "OK",
-            "message": "success",
-            "data": {"total": 0, "tagged": 0, "message": "所有文档已有标签"},
-        }
-
-    config = AppConfig().get_all()
-    tagged_count = 0
-    errors = []
-
-    for doc in untagged_docs:
-        try:
-            text = _get_document_text(doc.id, doc.file_path, session)
-            if text.strip():
-                new_tags = auto_tag_document(doc.id, text, config, session)
-                if new_tags:
-                    tagged_count += 1
-            else:
-                errors.append({"id": doc.id, "title": doc.title, "error": "无文本内容"})
-        except Exception as e:
-            logger.error(f"自动打标签失败 doc={doc.id}: {e}")
-            session.rollback()
-            errors.append({"id": doc.id, "title": doc.title, "error": str(e)})
-
-    session.commit()
-
-    return {
-        "code": "OK",
-        "message": "success",
-        "data": {
-            "total": len(untagged_docs),
-            "tagged": tagged_count,
-            "errors": errors,
-            "message": f"已为 {tagged_count}/{len(untagged_docs)} 个文档自动打标签",
-        },
-    }
 
 
 @router.post("/{doc_id}/retag")
