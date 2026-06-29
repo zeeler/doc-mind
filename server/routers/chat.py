@@ -9,7 +9,7 @@ from sse_starlette.sse import EventSourceResponse
 from server.database import get_session, get_session_ctx, DATA_DIR
 from server.models.conversation import Conversation, Message
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
 

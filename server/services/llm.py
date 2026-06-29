@@ -6,7 +6,7 @@ from typing import AsyncIterator
 from openai import OpenAI, AsyncOpenAI
 import httpx
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 
 class LLMAdapter:
@@ -48,8 +48,8 @@ class LLMAdapter:
         if self.provider == "custom":
             custom_base = self._cfg.get("custom_api_base", "")
             if self._cfg.get("custom_api_type", "openai") == "anthropic":
-                # Anthropic 格式不使用 OpenAI SDK，给一个 dummy client
-                return OpenAI(base_url=custom_base, api_key=self._cfg.get("custom_api_key", ""))
+                # Anthropic 格式走 httpx 直连，不创建 OpenAI dummy client
+                raise ValueError("Anthropic custom provider 不支持同步 OpenAI client，请使用 chat/completions 直连")
             return OpenAI(
                 base_url=custom_base,
                 api_key=self._cfg.get("custom_api_key", ""),

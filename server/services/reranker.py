@@ -4,7 +4,7 @@ import logging
 import requests
 from typing import List
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 # Reranker 官方模板格式（BGE-Reranker / vLLM 兼容）
 QUERY_TEMPLATE = (

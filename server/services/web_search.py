@@ -4,7 +4,7 @@ import logging
 import uuid
 import httpx
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 TAVILY_API_URL = "https://api.tavily.com/search"
 

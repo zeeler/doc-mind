@@ -17,7 +17,7 @@ from server.services.parser import SUPPORTED_TYPES
 from server.services.tag_utils import normalize_tag_name, get_or_create_tag, get_tag
 from server.services.worker import create_jobs_for_document
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 

@@ -9,7 +9,7 @@ import logging
 from openai import OpenAI
 from server.services.llm import LLMAdapter
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 
 class Embedder:

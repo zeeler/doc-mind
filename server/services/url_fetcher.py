@@ -4,7 +4,7 @@ import httpx
 import logging
 from bs4 import BeautifulSoup
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 
 def fetch_url(url: str, timeout: int = 30) -> dict:

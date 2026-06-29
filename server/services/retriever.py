@@ -4,7 +4,7 @@ import re
 import logging
 from server.database import DATA_DIR
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 
 # 中文数字 → 阿拉伯数字映射
@@ -118,21 +118,20 @@ class Retriever:
         """
         from server.database import get_session_ctx
         from server.models.document import Document
-        import re as _re
 
         def _candidates(s: str) -> list[str]:
             """生成多个候选书名片段用于匹配。"""
             cand = []
             s = s.strip()
-            s = _re.sub(r'[《》「」""]', '', s)
+            s = re.sub(r'[《》「」""]', '', s)
             cand.append(s)
-            no_prefix = _re.sub(r'^.+的', '', s).strip()
+            no_prefix = re.sub(r'^.+的', '', s).strip()
             if no_prefix and no_prefix != s:
                 cand.append(no_prefix)
-            no_chapter = _re.sub(r'第[一二三四五六七八九十百千\d]+[章节].*$', '', s).strip()
+            no_chapter = re.sub(r'第[一二三四五六七八九十百千\d]+[章节].*$', '', s).strip()
             if no_chapter and no_chapter not in cand:
                 cand.append(no_chapter)
-            no_prefix_chapter = _re.sub(r'^.+的', '', no_chapter).strip()
+            no_prefix_chapter = re.sub(r'^.+的', '', no_chapter).strip()
             if no_prefix_chapter and no_prefix_chapter not in cand:
                 cand.append(no_prefix_chapter)
             return [c for c in cand if len(c) >= 2]
@@ -153,6 +152,7 @@ class Retriever:
             with get_session_ctx() as s:
                 return _lookup(s, candidates)
         except Exception:
+            logger.warning(f"文档 ID 查找失败: {book_name}", exc_info=True)
             return None
 
     def retrieve(self, query: str) -> list[dict]:

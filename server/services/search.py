@@ -7,7 +7,7 @@ from pathlib import Path
 from server.vector.store import VectorStore
 from server.database import get_engine, space_cjk
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 # FTS5 需要转义的特殊字符（会改变查询语义的运算符）
 _FTS5_SPECIAL_CHARS_RE = re.compile(r'([\\*()^])')
@@ -20,8 +20,11 @@ def _escape_fts5_query(query: str) -> str:
     保持查询原样以保留 FTS5 隐式 AND 语义。
     """
     stripped = query.strip()
+    if not stripped:
+        return '""'
+    # 包裹在双引号中防止冒号等被解析为列名分隔符
     escaped = _FTS5_SPECIAL_CHARS_RE.sub(r'\\\g<1>', stripped)
-    return escaped
+    return f'"{escaped}"'
 
 
 def highlight(text: str, query: str, max_len: int = 160) -> str:

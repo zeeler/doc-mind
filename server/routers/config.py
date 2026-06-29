@@ -1,8 +1,11 @@
 """配置路由。"""
 
+import logging
 from fastapi import APIRouter, HTTPException
 from server.config import AppConfig, DEFAULTS
 from server.services.embedder import Embedder
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/config", tags=["config"])
 
@@ -141,6 +144,7 @@ def get_vector_info():
             if embs is not None and len(embs) > 0:
                 info["dimension"] = len(embs[0])
     except Exception:
+        logger.exception("获取向量信息失败")
         pass
 
     try:
@@ -155,6 +159,7 @@ def get_vector_info():
         if max_mtime > 0:
             info["last_reindex"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(max_mtime))
     except Exception:
+        logger.exception("获取最近重建时间失败")
         pass
 
     return {"code": "OK", "data": info}

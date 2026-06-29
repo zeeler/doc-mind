@@ -6,7 +6,7 @@ from typing import AsyncIterator
 from server.services.llm import LLMAdapter
 from server.services.web_search import WebSearchClient
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 
 def _build_history_text(history: list[dict] | None) -> str:

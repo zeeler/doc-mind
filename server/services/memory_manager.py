@@ -8,7 +8,7 @@ from pathlib import Path
 from server.services.memory_store import MemoryStore
 from server.database import DATA_DIR as _DEFAULT_DATA_DIR
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 _manager_singleton: 'MemoryManager | None' = None
 _manager_singleton_lock = threading.Lock()
@@ -387,16 +387,9 @@ class MemoryManager:
     # ============ 单例管理 ============
 
     @classmethod
-    def get_singleton(cls, llm=None) -> 'MemoryManager':
-        """获取全局单例（线程安全）。
-
-        仅在 llm=None 时使用单例；传 llm 时创建新实例（observe 需要 LLM）。
-        """
+    def get_singleton(cls) -> 'MemoryManager':
+        """获取全局单例（线程安全，双重检查锁）。"""
         global _manager_singleton
-        if llm is not None:
-            from server.config import AppConfig
-            config = AppConfig().get_all()
-            return cls(config=config, llm=llm, persist_dir=str(_DEFAULT_DATA_DIR / "chroma"))
         if _manager_singleton is None:
             with _manager_singleton_lock:
                 if _manager_singleton is None:
@@ -407,6 +400,13 @@ class MemoryManager:
                         persist_dir=str(_DEFAULT_DATA_DIR / "chroma"),
                     )
         return _manager_singleton
+
+    @classmethod
+    def create_with_llm(cls, llm) -> 'MemoryManager':
+        """创建带 LLM 的新实例（供 observer 使用，不缓存）。"""
+        from server.config import AppConfig
+        config = AppConfig().get_all()
+        return cls(config=config, llm=llm, persist_dir=str(_DEFAULT_DATA_DIR / "chroma"))
 
     @classmethod
     def reset_singleton(cls) -> None:

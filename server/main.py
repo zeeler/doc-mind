@@ -29,7 +29,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%H:%M:%S",
 )
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 logging.getLogger("chromadb").setLevel(logging.WARNING)
 logging.getLogger("chromadb.telemetry").setLevel(logging.ERROR)
 

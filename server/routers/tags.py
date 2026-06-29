@@ -7,7 +7,7 @@ from sqlalchemy import func
 from server.database import get_session
 from server.models.tag import Tag, document_tags
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/tags", tags=["tags"])
 

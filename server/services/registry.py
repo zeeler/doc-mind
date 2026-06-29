@@ -8,7 +8,7 @@ import logging
 import threading
 from pathlib import Path
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 _singleton: 'ServiceRegistry | None' = None
 _singleton_lock = threading.Lock()

@@ -5,7 +5,7 @@ from server.services.llm import LLMAdapter
 from server.services.tag_utils import normalize_tag_name, get_or_create_tag
 from server.models.document import Document, DocumentChunk
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 AUTO_TAG_PROMPT = """分析以下文档内容，根据文档主题和关键信息，生成 3-5 个中文标签（每个标签 2-6 个字）。
 标签应简洁、准确，覆盖文档的核心主题。

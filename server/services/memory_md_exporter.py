@@ -121,7 +121,7 @@ class MemoryMDExporter:
                 for f in sorted(global_dir.iterdir()):
                     if f.suffix == ".md":
                         content = f.read_text(encoding="utf-8")
-                        count = len([l for l in content.split("\n") if l.startswith("- [")])
+                        count = len([l for l in content.split("\n") if l.startswith("- [") or l.startswith("- {")])
                         lines.append(f"- [{f.stem}](global/{f.name}) — {count} 条\n")
             lines.append("\n## 会话记忆\n\n")
             sessions_dir = self.base_dir / "sessions"

@@ -7,7 +7,7 @@ import logging
 import threading
 import time
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 # 会话级 observe 状态追踪
 _conv_last_observe: dict[str, float] = {}  # conv_id -> last_observe_timestamp
@@ -76,7 +76,7 @@ def run_observe_bg(conversation_id: str, history: list[dict], question: str,
                     from server.services.memory_manager import MemoryManager
                     from server.services.registry import ServiceRegistry
                     messages = [{"role": m.role, "content": m.content} for m in all_msgs]
-                    mem_mgr = MemoryManager.get_singleton(llm=ServiceRegistry.get_singleton().get_llm())
+                    mem_mgr = MemoryManager.create_with_llm(llm=ServiceRegistry.get_singleton().get_llm())
                     mem_mgr.observe(messages, conversation_id)
             with _conv_observe_lock:
                 _conv_last_observe[conversation_id] = time.time()
@@ -94,7 +94,7 @@ def run_observe_bg(conversation_id: str, history: list[dict], question: str,
 
         from server.services.memory_manager import MemoryManager
         from server.services.registry import ServiceRegistry
-        mem_mgr = MemoryManager.get_singleton(llm=ServiceRegistry.get_singleton().get_llm())
+        mem_mgr = MemoryManager.create_with_llm(llm=ServiceRegistry.get_singleton().get_llm())
         recent = history + [
             {"role": "user", "content": question},
             {"role": "assistant", "content": answer_text},

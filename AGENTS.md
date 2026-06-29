@@ -47,7 +47,6 @@ server/
 │   ├── auto_tagger.py     # LLM 自动打标签
 │   ├── tag_utils.py       # 标签工具
 │   ├── scanner.py         # 快速扫描
-│   ├── bookmark_parser.py # Chrome 书签解析
 │   ├── url_fetcher.py     # URL 抓取
 │   └── web_search.py      # Tavily 网络搜索
 ├── templates/index.html   # Vue 3 单文件前端（inline in Jinja2 template）

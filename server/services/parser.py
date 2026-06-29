@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 SUPPORTED_TYPES = {"pdf", "docx", "xlsx", "pptx", "mobi", "md", "txt", "markdown"}
 

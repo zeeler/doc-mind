@@ -275,8 +275,8 @@ class TestFTS5Escaping:
 
     def test_normal_query_unchanged(self):
         from server.services.search import _escape_fts5_query
-        assert _escape_fts5_query("第3章 梦想家") == "第3章 梦想家"
+        assert _escape_fts5_query("第3章 梦想家") == '"第3章 梦想家"'
 
     def test_chinese_query_preserved(self):
         from server.services.search import _escape_fts5_query
-        assert _escape_fts5_query("哈佛谈判心理学") == "哈佛谈判心理学"
+        assert _escape_fts5_query("哈佛谈判心理学") == '"哈佛谈判心理学"'

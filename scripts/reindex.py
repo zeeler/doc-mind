@@ -22,7 +22,7 @@ def main():
     from server.models.document import Document, DocumentChunk
     from server.vector.store import VectorStore
     from server.config import AppConfig
-    from server.services.pipeline import process_document
+    from server.services.pipeline import index_document
 
     # 初始化数据库
     init_db()
@@ -68,9 +68,15 @@ def main():
                 except Exception as e:
                     logger.warning(f"  清除 FTS5 失败: {e}")
 
-            # 3. 重新处理
+            # 3. 读取文本后重新索引（优先从 .md 备份读取）
             try:
-                process_document(doc.id, config)
+                md_path = Path(doc.file_path).with_suffix(".md")
+                if md_path.exists():
+                    text = md_path.read_text(encoding="utf-8")
+                else:
+                    logger.warning(f"  无 .md 备份，跳过: {doc.title}")
+                    continue
+                index_document(doc.id, text, config)
                 success += 1
                 logger.info(f"  ✓ 完成")
             except Exception as e:

@@ -3,7 +3,7 @@
 import logging
 from pathlib import Path
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 
 def quick_scan(file_path: str) -> dict:

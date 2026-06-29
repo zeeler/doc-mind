@@ -13,7 +13,7 @@ from server.services.scanner import quick_scan, build_index_md
 from server.services.parser import parse_file
 from server.config import AppConfig
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 _workers: list[threading.Thread] = []
 _stop = False

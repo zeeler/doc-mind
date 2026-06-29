@@ -5,7 +5,7 @@ import logging
 from sqlalchemy.orm import Session
 from server.models.tag import Tag
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 MAX_TAG_NAME_LENGTH = 100
 

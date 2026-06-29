@@ -5,7 +5,7 @@ from server.database import DATA_DIR
 from server.services.registry import ServiceRegistry
 from server.config import AppConfig
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["search"])
 

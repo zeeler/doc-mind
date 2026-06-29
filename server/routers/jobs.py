@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from server.database import get_session, get_session_ctx
 from server.models.job import Job
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 

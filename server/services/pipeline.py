@@ -9,7 +9,7 @@ from server.config import has_embedding_model
 from server.services.embedder import Embedder
 from server.vector.store import VectorStore
 
-logger = logging.getLogger("knowledge-base")
+logger = logging.getLogger(__name__)
 
 
 def _init_embedder(config: dict) -> tuple[Embedder | None, bool]:
