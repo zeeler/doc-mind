@@ -45,7 +45,8 @@ def auto_tag_document(doc_id: str, text: str, config: dict, session) -> list[str
     if not excerpt.strip():
         return []
 
-    llm = LLMAdapter(config)
+    from server.services.registry import ServiceRegistry
+    llm = ServiceRegistry.get_singleton().get_llm()
     prompt = AUTO_TAG_PROMPT.format(title=title, excerpt=excerpt)
 
     response = llm.chat([

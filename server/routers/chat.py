@@ -3,7 +3,7 @@
 import json
 import logging
 import uuid
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 from server.database import get_session, get_session_ctx, DATA_DIR
@@ -106,7 +106,7 @@ def chat_ask(body: dict, session: Session = Depends(get_session)):
 
 
 @router.post("/stream")
-async def chat_stream(body: dict, session: Session = Depends(get_session)):
+async def chat_stream(body: dict, request: Request, session: Session = Depends(get_session)):
     conversation_id = body.get("conversation_id")
     question = body.get("question", "").strip()
 
@@ -144,6 +144,10 @@ async def chat_stream(body: dict, session: Session = Depends(get_session)):
         try:
             yield {"event": "meta", "data": json.dumps({"conversation_id": conversation_id}, ensure_ascii=False)}
             async for chunk in rag.ask_stream(question, history=history, memory_context=memory_context):
+                # 客户端断开连接时提前终止，避免浪费 LLM 资源
+                if await request.is_disconnected():
+                    logger.info(f"客户端断开连接，终止流式生成 conv={conversation_id}")
+                    break
                 if chunk["type"] == "token":
                     full_answer += chunk["content"]
                     yield {"data": json.dumps({"type": "token", "content": chunk["content"]}, ensure_ascii=False)}

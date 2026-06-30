@@ -10,6 +10,7 @@ _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from server.database import init_db, get_engine
 from server.models import Document, DocumentChunk, Conversation, Message, Job, Tag  # noqa: F401
@@ -53,6 +54,15 @@ async def lifespan(app: FastAPI):
     shutdown_observe_executor()
 
 app = FastAPI(title="知识库", version="0.1.0", lifespan=lifespan)
+
+# CORS 中间件：前后端分离部署时需要
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(documents_router)
 app.include_router(conversations_router)

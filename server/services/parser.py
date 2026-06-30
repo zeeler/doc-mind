@@ -8,7 +8,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_TYPES = {"pdf", "docx", "xlsx", "pptx", "mobi", "md", "txt", "markdown"}
+SUPPORTED_TYPES = {"pdf", "docx", "xlsx", "pptx", "mobi", "md", "txt"}
+# 补充后缀映射：.markdown → md
+SUFFIX_NORMALIZE = {"markdown": "md"}
 
 # 原生 PDF 引擎（liteparse）的底层 C 库在多线程并发调用时
 # 可能出现 malloc double-free 等内存错误。全局锁保证同一时间只有一个线程解析 PDF。
@@ -18,6 +20,7 @@ pdf_lock = threading.Lock()
 def parse_file(file_path: str | Path, config: dict | None = None) -> str:
     path = Path(file_path)
     suffix = path.suffix.lower().lstrip(".")
+    suffix = SUFFIX_NORMALIZE.get(suffix, suffix)
 
     if suffix not in SUPPORTED_TYPES:
         raise ValueError(f"不支持的文件类型: {suffix}")

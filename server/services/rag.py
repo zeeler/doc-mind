@@ -190,10 +190,11 @@ class RAGService:
         avg = sum(scores) / len(scores)
         max_score = max(scores)
 
-        # 有 reranker 精排分数（范围 0–1）：分数 < 0.3 视为低质量
+        # 有 reranker 精排分数（范围 0–1）：使用 rerank_score 而非原始 score，避免评分体系混淆
         has_rerank = any("rerank_score" in c for c in chunks)
         if has_rerank:
-            good = [s for s in scores if s > 0.3]
+            rerank_scores = [c.get("rerank_score", 0.0) for c in chunks]
+            good = [s for s in rerank_scores if s > 0.3]
             return len(good) < 2
 
         # RRF 融合分数（范围 ~0.008–0.017）：avg < 0.01 或 max < 0.012 视为低质量

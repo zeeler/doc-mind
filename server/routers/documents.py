@@ -13,7 +13,7 @@ from server.database import get_session, get_session_ctx, DATA_DIR, fts_delete_b
 from server.models.document import Document, DocumentChunk
 from server.models.tag import Tag, document_tags
 from server.models.job import Job
-from server.services.parser import SUPPORTED_TYPES
+from server.services.parser import SUPPORTED_TYPES, SUFFIX_NORMALIZE
 from server.services.tag_utils import normalize_tag_name, get_or_create_tag, get_tag
 from server.services.worker import create_jobs_for_document
 
@@ -52,7 +52,13 @@ async def upload_document(request: Request, file: UploadFile = File(...), folder
     if not file.filename:
         raise HTTPException(status_code=400, detail="文件名不能为空")
 
+    # 路径穿越验证：过滤 .. 和绝对路径
+    folder_path = (folder_path or "").strip()
+    if ".." in folder_path or folder_path.startswith("/"):
+        raise HTTPException(status_code=400, detail="folder_path 包含非法字符")
+
     suffix = Path(file.filename).suffix.lower().lstrip(".")
+    suffix = SUFFIX_NORMALIZE.get(suffix, suffix)
     if suffix not in SUPPORTED_TYPES:
         raise HTTPException(status_code=400, detail=f"不支持的文件类型: {suffix}")
 

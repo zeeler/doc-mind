@@ -259,14 +259,22 @@ class MemoryManager:
 
     # ============ consolidate() — 记忆合并 ============
 
-    def consolidate(self, dry_run: bool = False, max_memories: int = 500) -> dict:
+    def consolidate(self, dry_run: bool = False, max_memories: int = 100) -> dict:
         """合并相似记忆，清理过期。使用 query top-3 预筛选避免 O(n²)。"""
+        # 上限保护：防止超大规模记忆集导致过多 ChromaDB 查询
+        MAX_CONSUME = 200
         all_mems = self.store.get_all(limit=10000)
+        if len(all_mems) > MAX_CONSUME:
+            logger.warning(
+                f"consolidate 记忆量过大 ({len(all_mems)} > {MAX_CONSUME})，"
+                f"仅处理前 {min(max_memories, MAX_CONSUME)} 条"
+            )
+        effective_limit = min(max_memories, MAX_CONSUME)
         merged_count = 0
         pairs = []
         seen_pairs = set()
 
-        for mem in all_mems[:max_memories]:
+        for mem in all_mems[:effective_limit]:
             similar = self.store.search(mem["content"], top_k=3)
             for hit in similar:
                 if hit["id"] == mem["id"]:
