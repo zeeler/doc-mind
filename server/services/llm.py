@@ -198,7 +198,8 @@ class LLMAdapter:
             "messages": self._to_anthropic_messages(messages),
         }
 
-        with httpx.Client(timeout=120) as http:
+        timeout = int(self._cfg.get("llm_timeout", "300"))
+        with httpx.Client(timeout=timeout) as http:
             resp = http.post(url, headers=headers, json=body)
             resp.raise_for_status()
             data = resp.json()

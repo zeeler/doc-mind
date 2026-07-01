@@ -1136,7 +1136,7 @@ createApp({
     function md(t) {
       if (!t) return '';
       if (typeof marked !== 'undefined') {
-        marked.setOptions({ breaks: true, gfm: true });
+        marked.setOptions({ breaks: true, gfm: true, sanitize: true });
         return marked.parse(t);
       }
       // Fallback

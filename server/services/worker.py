@@ -68,6 +68,43 @@ def _recover_stuck_jobs():
         if count or orphan or dup:
             logger.info(f"启动清理: {count or 0} running→pending, {orphan or 0} 孤儿, {dup or 0} 重复已删除")
 
+    # 检查 ChromaDB/SQLite 一致性：清理孤儿向量
+    _check_chromadb_consistency()
+
+
+def _check_chromadb_consistency():
+    """检查 ChromaDB 中是否存在 SQLite 不存在的孤儿向量（进程崩溃残留）。"""
+    try:
+        from server.vector.store import get_client
+        from server.database import DATA_DIR
+        from server.models.document import DocumentChunk
+
+        client = get_client(str(DATA_DIR / "chroma"))
+        collection = client.get_collection("knowledge_base")
+
+        chroma_data = collection.get(include=[])
+        chroma_ids = set(chroma_data.get("ids", []))
+        if not chroma_ids:
+            return
+
+        with get_session_ctx() as s:
+            sql_chunk_ids = {
+                row[0] for row in s.query(DocumentChunk.id).all()
+            }
+
+        orphan_ids = chroma_ids - sql_chunk_ids
+        if orphan_ids:
+            logger.warning(
+                f"ChromaDB 一致性检查: 发现 {len(orphan_ids)} 个孤儿向量（SQLite 中无对应 chunk），"
+                f"正在清理…"
+            )
+            # 分批删除避免单次请求过大
+            batch = list(orphan_ids)[:500]
+            collection.delete(ids=batch)
+            logger.info(f"已清理 ChromaDB 孤儿向量: {len(batch)} 个")
+    except Exception as e:
+        logger.warning(f"ChromaDB 一致性检查失败（非致命）: {e}")
+
 
 def stop_workers():
     global _stop
@@ -134,7 +171,16 @@ def _execute_bookmark_import(job, config):
                 s.commit()
         return
 
-    data = _json.loads(urls_file.read_text(encoding="utf-8"))
+    try:
+        data = _json.loads(urls_file.read_text(encoding="utf-8"))
+    except _json.JSONDecodeError as e:
+        with get_session_ctx() as s:
+            j = s.get(Job, job.id)
+            if j:
+                j.status = "failed"
+                j.error_message = f"书签文件 JSON 格式错误: {e}"
+                s.commit()
+        return
     urls = data.get("urls", [])
     folder_path = data.get("folder_path", "书签导入")
 
@@ -150,18 +196,19 @@ def _execute_bookmark_import(job, config):
         if not url:
             continue
 
+        # 在 session 外完成网络 IO，避免持有锁期间阻塞其他操作
+        result = fetch_url(url)
+        if result["error"]:
+            fail += 1
+            continue
+
+        checksum = _hashlib.sha256(url.encode("utf-8")).hexdigest()
+
         with get_session_ctx() as s:
             # Dedup
-            checksum = _hashlib.sha256(url.encode("utf-8")).hexdigest()
             existing = s.query(Document).filter(Document.checksum == checksum).first()
             if existing:
                 skip += 1
-                continue
-
-            # Fetch
-            result = fetch_url(url)
-            if result["error"]:
-                fail += 1
                 continue
 
             # Create document
@@ -184,8 +231,8 @@ def _execute_bookmark_import(job, config):
             s.add(doc)
             s.commit()
 
-            # Create processing jobs (commit 后再建，避免 SQLite 锁冲突)
-            create_jobs_for_document(doc_id)
+            # 在同一 session 内创建任务，避免每 URL 额外 2 次 session 开销
+            create_jobs_for_document(doc_id, session=s)
             success += 1
 
     # Clean up staging
@@ -205,11 +252,11 @@ def _execute_bookmark_import(job, config):
 
 def _execute_job(job: Job):
     config = AppConfig().get_all()
+    job_id = job.id  # 先保存 ID，防止 s.get() 返回 None 后访问 .id 崩溃
     with get_session_ctx() as s:
-        # 使用 get() 而非 merge()，避免在 job 已被删除时复活一条新记录
-        job = s.get(Job, job.id)
+        job = s.get(Job, job_id)
         if not job:
-            logger.warning(f"任务已被删除（文档可能已删除），跳过: {job.id}")
+            logger.warning(f"任务已被删除（文档可能已删除），跳过: {job_id}")
             return
         if job.status != "running":
             # 已由其他进程处理或状态已变更，回退为 pending 避免永久卡住
