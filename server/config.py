@@ -144,3 +144,54 @@ class AppConfig:
         global _cache
         with _cache_lock:
             _cache = None
+
+
+class TypedConfig:
+    """类型化配置访问器 — 将字符串值转换为正确类型。
+
+    用法:
+        cfg = TypedConfig()           # 从缓存读取
+        k = cfg.retrieval_top_k       # int
+        b = cfg.memory_enabled        # bool
+    """
+
+    def __init__(self):
+        self._raw = AppConfig().get_all()
+
+    def _int(self, key: str, default: int = 0) -> int:
+        try:
+            return int(self._raw.get(key, str(default)))
+        except (ValueError, TypeError):
+            return default
+
+    def _bool(self, key: str, default: bool = False) -> bool:
+        v = self._raw.get(key, str(default).lower())
+        return v == "true"
+
+    def _float(self, key: str, default: float = 0.0) -> float:
+        try:
+            return float(self._raw.get(key, str(default)))
+        except (ValueError, TypeError):
+            return default
+
+    # ---- 常用配置属性 ----
+    @property
+    def retrieval_top_k(self) -> int: return self._int("retrieval_top_k", 15)
+    @property
+    def retrieval_enable_query_expansion(self) -> bool: return self._bool("retrieval_enable_query_expansion")
+    @property
+    def memory_enabled(self) -> bool: return self._bool("memory_enabled", True)
+    @property
+    def auto_tag_enabled(self) -> bool: return self._bool("auto_tag_enabled", True)
+    @property
+    def reranker_enabled(self) -> bool: return self._bool("reranker_enabled")
+    @property
+    def reranker_top_k(self) -> int: return self._int("reranker_top_k", 3)
+    @property
+    def web_search_enabled(self) -> bool: return self._bool("web_search_enabled")
+    @property
+    def ocr_enabled(self) -> bool: return self._bool("ocr_enabled")
+    @property
+    def embedding_enabled(self) -> bool: return self._bool("embedding_enabled", True)
+    @property
+    def memory_dedup_threshold(self) -> float: return self._float("memory_dedup_threshold", 0.85)
