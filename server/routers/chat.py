@@ -1,6 +1,7 @@
 """对话路由 — 同步问答 + SSE 流式问答。"""
 
 import json
+import asyncio
 import logging
 import uuid
 from fastapi import APIRouter, HTTPException, Depends, Request
@@ -8,6 +9,9 @@ from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 from server.database import get_session, get_session_ctx, DATA_DIR
 from server.models.conversation import Conversation, Message
+
+# 并发控制：限制同时流式请求数，防止 GPU OOM
+_stream_semaphore = asyncio.Semaphore(2)
 from server.schemas import ChatAskRequest
 
 logger = logging.getLogger(__name__)
@@ -105,6 +109,10 @@ def chat_ask(req: ChatAskRequest, session: Session = Depends(get_session)):
 
 @router.post("/stream")
 async def chat_stream(req: ChatAskRequest, request: Request, session: Session = Depends(get_session)):
+    # 并发控制：限制同时流式请求数，防止 GPU OOM
+    if _stream_semaphore.locked():
+        raise HTTPException(status_code=503, detail="服务器繁忙，请稍后重试")
+
     conversation_id = req.conversation_id
     question = req.question
 
@@ -112,16 +120,17 @@ async def chat_stream(req: ChatAskRequest, request: Request, session: Session = 
     if not conv:
         raise HTTPException(status_code=404, detail="会话不存在")
 
-    user_msg = Message(
-        id=str(uuid.uuid4()),
-        conversation_id=conversation_id,
-        role="user",
-        content=question,
-    )
-    session.add(user_msg)
-    if conv.title == "新会话":
-        conv.title = question[:50] + ("..." if len(question) > 50 else "")
-    session.commit()
+    async with _stream_semaphore:
+        user_msg = Message(
+            id=str(uuid.uuid4()),
+            conversation_id=conversation_id,
+            role="user",
+            content=question,
+        )
+        session.add(user_msg)
+        if conv.title == "新会话":
+            conv.title = question[:50] + ("..." if len(question) > 50 else "")
+        session.commit()
 
     try:
         from server.services.registry import ServiceRegistry

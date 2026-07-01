@@ -55,6 +55,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="知识库", version="0.1.0", lifespan=lifespan)
 
+# 认证中间件：API key 验证（未配置时兼容旧行为）
+from server.middleware.auth import AuthMiddleware
+app.add_middleware(AuthMiddleware)
+
 # CORS 中间件：前后端分离部署时需要
 app.add_middleware(
     CORSMiddleware,
