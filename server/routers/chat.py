@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 from server.database import get_session, get_session_ctx, DATA_DIR
 from server.models.conversation import Conversation, Message
+from server.schemas import ChatAskRequest
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
@@ -46,12 +47,9 @@ def _recall_memory_context(question: str, conversation_id: str | None) -> str:
 
 
 @router.post("/ask")
-def chat_ask(body: dict, session: Session = Depends(get_session)):
-    conversation_id = body.get("conversation_id")
-    question = body.get("question", "").strip()
-
-    if not question:
-        raise HTTPException(status_code=400, detail="问题不能为空")
+def chat_ask(req: ChatAskRequest, session: Session = Depends(get_session)):
+    conversation_id = req.conversation_id
+    question = req.question
 
     conv = session.get(Conversation, conversation_id)
     if not conv:
@@ -106,12 +104,9 @@ def chat_ask(body: dict, session: Session = Depends(get_session)):
 
 
 @router.post("/stream")
-async def chat_stream(body: dict, request: Request, session: Session = Depends(get_session)):
-    conversation_id = body.get("conversation_id")
-    question = body.get("question", "").strip()
-
-    if not question:
-        raise HTTPException(status_code=400, detail="问题不能为空")
+async def chat_stream(req: ChatAskRequest, request: Request, session: Session = Depends(get_session)):
+    conversation_id = req.conversation_id
+    question = req.question
 
     conv = session.get(Conversation, conversation_id)
     if not conv:

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from server.database import get_session
 from server.models.tag import Tag, document_tags
+from server.schemas import CreateTagRequest
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +33,10 @@ def list_tags(session: Session = Depends(get_session)):
 
 
 @router.post("")
-def create_tag(payload: dict, session: Session = Depends(get_session)):
-    name = payload.get("name", "")
-    if not name or not name.strip():
-        raise HTTPException(status_code=400, detail="标签名不能为空")
-    if len(name.strip()) > 100:
-        raise HTTPException(status_code=400, detail="标签名不能超过100个字符")
+def create_tag(req: CreateTagRequest, session: Session = Depends(get_session)):
+    name = req.name
 
-    existing = session.query(Tag).filter(Tag.name.ilike(name.strip())).first()
+    existing = session.query(Tag).filter(Tag.name.ilike(name)).first()
     if existing:
         return {
             "code": "OK",
@@ -47,7 +44,7 @@ def create_tag(payload: dict, session: Session = Depends(get_session)):
             "data": {"id": existing.id, "name": existing.name, "duplicate": True},
         }
 
-    tag = Tag(name=name.strip())
+    tag = Tag(name=name)
     session.add(tag)
     session.commit()
     session.refresh(tag)

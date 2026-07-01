@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from server.services.memory_manager import MemoryManager
 from server.config import AppConfig
 from server.services.llm import LLMAdapter
+from server.schemas import RememberRequest, ObserveRequest, ConsolidateRequest, ExportMemoriesRequest
 
 router = APIRouter(prefix="/api/v1/memories", tags=["memories"])
 
@@ -17,11 +18,11 @@ def _get_mgr(with_llm: bool = False) -> MemoryManager:
 # ====== 被动记忆（API 直存）======
 
 @router.post("/remember")
-def remember_message(body: dict):
-    conversation_id = body.get("conversation_id")
-    message_id = body.get("message_id")
-    note = body.get("note", "").strip()
-    scope = body.get("scope", "global")
+def remember_message(req: RememberRequest):
+    conversation_id = req.conversation_id
+    message_id = req.message_id
+    note = req.note.strip()
+    scope = req.scope
 
     if not conversation_id or not message_id:
         raise HTTPException(status_code=400, detail="缺少 conversation_id 或 message_id")
@@ -76,10 +77,8 @@ def delete_memory_endpoint(mem_id: str):
 # ====== 主动触发分析 ======
 
 @router.post("/observe")
-def observe_endpoint(body: dict):
-    conversation_id = body.get("conversation_id")
-    if not conversation_id:
-        raise HTTPException(status_code=400, detail="缺少 conversation_id")
+def observe_endpoint(req: ObserveRequest):
+    conversation_id = req.conversation_id
 
     from server.database import get_session_ctx
     from server.models.conversation import Conversation
@@ -97,8 +96,8 @@ def observe_endpoint(body: dict):
 # ====== 合并记忆 ======
 
 @router.post("/consolidate")
-def consolidate_endpoint(body: dict = {}):
-    dry_run = body.get("dry_run", False)
+def consolidate_endpoint(req: ConsolidateRequest = ConsolidateRequest()):
+    dry_run = req.dry_run
     mgr = _get_mgr()
     result = mgr.consolidate(dry_run=dry_run)
     return {"code": "OK", "data": result}
@@ -107,8 +106,8 @@ def consolidate_endpoint(body: dict = {}):
 # ====== 导出 md ======
 
 @router.post("/export")
-def export_memories_endpoint(body: dict = {}):
-    scope = body.get("scope", None)
+def export_memories_endpoint(req: ExportMemoriesRequest = ExportMemoriesRequest()):
+    scope = req.scope
     mgr = _get_mgr()
     path = mgr.export_md(scope=scope)
     files = mgr.exporter.get_export_files() if mgr.exporter else []

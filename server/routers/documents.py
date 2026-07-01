@@ -14,6 +14,7 @@ from server.models.document import Document, DocumentChunk
 from server.models.tag import Tag, document_tags
 from server.models.job import Job
 from server.services.parser import SUPPORTED_TYPES, SUFFIX_NORMALIZE
+from server.schemas import ImportUrlRequest, BatchOperationRequest
 from server.services.tag_utils import normalize_tag_name, get_or_create_tag, get_tag
 from server.services.worker import create_jobs_for_document
 
@@ -157,15 +158,10 @@ async def upload_document(request: Request, file: UploadFile = File(...), folder
 
 
 @router.post("/import-url")
-def import_url(payload: dict = Body(...), session: Session = Depends(get_session)):
+def import_url(req: ImportUrlRequest, session: Session = Depends(get_session)):
     """导入 URL 作为资料：抓取、提取、创建记录、排队处理。"""
-    url = (payload.get("url") or "").strip()
-    if not url:
-        raise HTTPException(status_code=400, detail="URL 不能为空")
-    if not url.startswith(("http://", "https://")):
-        raise HTTPException(status_code=400, detail="URL 必须以 http:// 或 https:// 开头")
-
-    folder_path = (payload.get("folder_path") or "").strip()
+    url = req.url
+    folder_path = req.folder_path
 
     # SHA256(url) for dedup
     import hashlib
@@ -344,17 +340,10 @@ def list_folders(session: Session = Depends(get_session)):
 
 
 @router.post("/batch")
-def batch_operation(payload: dict, session: Session = Depends(get_session)):
-    ids = payload.get("ids") or []
-    action = payload.get("action", "")
-    params = payload.get("params") or {}
-
-    if not ids:
-        raise HTTPException(status_code=400, detail="ids 不能为空")
-
-    valid_actions = {"delete", "retry", "tag", "untag", "categorize"}
-    if action not in valid_actions:
-        raise HTTPException(status_code=400, detail=f"不支持的操作类型: {action}")
+def batch_operation(req: BatchOperationRequest, session: Session = Depends(get_session)):
+    ids = req.ids
+    action = req.action
+    params = req.params
 
     results = []
     retry_ids = []  # retry 需要先 commit 再建任务，避免 SQLite 锁冲突

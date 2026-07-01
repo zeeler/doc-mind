@@ -5,13 +5,14 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from server.database import get_session
 from server.models.conversation import Conversation, Message
+from server.schemas import CreateConversationRequest, UpdateConversationRequest, BatchDeleteConvsRequest
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["conversations"])
 
 
 @router.post("")
-def create_conversation(body: dict = {}, session: Session = Depends(get_session)):
-    title = body.get("title", "").strip() if body else ""
+def create_conversation(req: CreateConversationRequest = CreateConversationRequest(), session: Session = Depends(get_session)):
+    title = req.title.strip()
     conv = Conversation(id=str(uuid.uuid4()), title=title or "新会话")
     session.add(conv)
     session.commit()
@@ -47,12 +48,12 @@ def list_conversations(session: Session = Depends(get_session)):
 
 
 @router.put("/{conv_id}")
-def update_conversation(conv_id: str, body: dict, session: Session = Depends(get_session)):
+def update_conversation(conv_id: str, req: UpdateConversationRequest, session: Session = Depends(get_session)):
     conv = session.get(Conversation, conv_id)
     if not conv:
         raise HTTPException(status_code=404, detail="会话不存在")
-    if "title" in body and body["title"].strip():
-        conv.title = body["title"].strip()
+    if req.title.strip():
+        conv.title = req.title.strip()
         session.commit()
     return {
         "code": "OK",
@@ -77,10 +78,8 @@ def delete_conversation(conv_id: str, session: Session = Depends(get_session)):
 
 
 @router.post("/batch-delete")
-def batch_delete_conversations(body: dict, session: Session = Depends(get_session)):
-    ids = body.get("ids") or []
-    if not ids:
-        raise HTTPException(status_code=400, detail="ids 不能为空")
+def batch_delete_conversations(req: BatchDeleteConvsRequest, session: Session = Depends(get_session)):
+    ids = req.ids
     count = session.query(Conversation).filter(Conversation.id.in_(ids)).delete(synchronize_session=False)
     session.commit()
     return {"code": "OK", "message": "success", "data": {"deleted": count}}

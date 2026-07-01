@@ -28,11 +28,11 @@ class TestTagRoutes:
 
     def test_create_tag_empty_name(self, client):
         response = client.post("/api/v1/tags", json={"name": ""})
-        assert response.status_code == 400
+        assert response.status_code == 422  # Pydantic 校验返回 422
 
     def test_create_tag_too_long(self, client):
         response = client.post("/api/v1/tags", json={"name": "a" * 101})
-        assert response.status_code == 400
+        assert response.status_code == 422  # Pydantic 校验返回 422
 
     def test_create_duplicate_tag_returns_existing(self, client):
         r1 = client.post("/api/v1/tags", json={"name": "Python"})

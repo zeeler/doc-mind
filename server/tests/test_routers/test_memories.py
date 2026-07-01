@@ -45,7 +45,7 @@ class TestMemoriesAPI:
     def test_observe_requires_conv_id(self, client):
         """observe 需要 conversation_id。"""
         resp = client.post("/api/v1/memories/observe", json={})
-        assert resp.status_code == 400
+        assert resp.status_code == 422  # Pydantic 校验返回 422
 
     def test_consolidate_dry_run(self, client):
         """consolidate dry_run 返回 pairs。"""

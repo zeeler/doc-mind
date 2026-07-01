@@ -1,9 +1,10 @@
 """配置路由。"""
 
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Body
 from server.config import AppConfig, DEFAULTS
 from server.services.embedder import Embedder
+from server.schemas import UpdateConfigRequest
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ def get_config():
 
 
 @router.put("")
-def update_config(body: dict):
+def update_config(body: dict = Body(...)):
     cfg = AppConfig()
     unknown_keys = [k for k in body if k not in DEFAULTS]
     if unknown_keys:
