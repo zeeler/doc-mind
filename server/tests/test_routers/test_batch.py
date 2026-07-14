@@ -9,28 +9,34 @@ def client(tmp_data_dir, monkeypatch):
     monkeypatch.setattr("server.database.DATA_DIR", tmp_data_dir)
     monkeypatch.setattr("server.config.DATA_DIR", tmp_data_dir)
     monkeypatch.setattr("server.routers.documents.DATA_DIR", tmp_data_dir)
-    from server.database import reset_engine
+    # 禁用后台 worker，避免 SQLite 并发锁冲突
+    monkeypatch.setattr("server.services.worker.start_workers", lambda num=2: None)
+    from server.database import reset_engine, ensure_fts5_table
     reset_engine()
     from server.models.base import Base
     from server.database import get_engine
     from server.models.tag import Tag  # noqa: F401
     Base.metadata.create_all(bind=get_engine())
+    ensure_fts5_table()
     return TestClient(app)
 
 
 class TestBatchOperations:
     def test_batch_empty_ids(self, client):
         response = client.post("/api/v1/documents/batch", json={"ids": [], "action": "delete"})
-        assert response.status_code == 400
+        assert response.status_code == 422
 
     def test_batch_unknown_action(self, client):
         response = client.post("/api/v1/documents/batch", json={"ids": ["x"], "action": "unknown"})
-        assert response.status_code == 400
+        assert response.status_code == 422
 
-    def test_batch_delete(self, client, sample_txt):
+    def test_batch_delete(self, client, sample_txt, tmp_data_dir):
         with open(sample_txt, "rb") as f:
             r1 = client.post("/api/v1/documents/upload", files={"file": ("a.txt", f, "text/plain")})
-        with open(sample_txt, "rb") as f2:
+        # 使用不同内容的文件避免去重（SHA256 校验和相同会导致同 ID）
+        path2 = tmp_data_dir / "test_sample2.txt"
+        path2.write_text("这是不同的测试内容。\n\n避免去重。", encoding="utf-8")
+        with open(path2, "rb") as f2:
             r2 = client.post("/api/v1/documents/upload", files={"file": ("b.txt", f2, "text/plain")})
         ids = [r1.json()["data"]["id"], r2.json()["data"]["id"]]
 

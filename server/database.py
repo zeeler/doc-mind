@@ -29,9 +29,11 @@ def get_engine() -> Engine:
 
         @event.listens_for(_engine, "connect")
         def _set_sqlite_pragma(dbapi_connection, connection_record):
-            """每次连接时启用外键约束（SQLite 默认关闭）。"""
+            """每次连接时启用外键约束和 WAL 模式（SQLite 默认关闭）。"""
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys = ON")
+            cursor.execute("PRAGMA journal_mode = WAL")
+            cursor.execute("PRAGMA busy_timeout = 5000")
             cursor.close()
 
     return _engine

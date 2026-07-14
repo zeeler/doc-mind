@@ -58,6 +58,11 @@ class TestRetriever:
     @patch("server.services.registry.ServiceRegistry.get_singleton", return_value=MagicMock())
     def test_retrieve_with_query_expansion(self, MockGetSearchService):
         """查询扩展开启时应对多个查询变体进行检索并去重。"""
+        mock_registry = MockGetSearchService.return_value
+        mock_reranker = MagicMock()
+        mock_reranker.enabled = False
+        mock_registry.get_reranker.return_value = mock_reranker
+
         mock_svc = MagicMock()
         # 模拟每个查询返回不同结果（扩展可能产生 3-4 个查询变体）
         def _side_effect(*args, **kwargs):
