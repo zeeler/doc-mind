@@ -47,6 +47,7 @@ DEFAULTS = {
     "ocr_max_workers": "2",
     "chunk_size": "800",
     "chunk_overlap": "100",
+    "chunk_structure_aware": "true",
     "retrieval_top_k": "15",
     "retrieval_enable_mmr": "true",
     "retrieval_mmr_lambda": "0.7",
