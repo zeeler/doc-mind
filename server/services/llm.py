@@ -21,6 +21,21 @@ class LLMAdapter:
 
         logger.info(f"LLM 适配器: provider={self.provider}, api_type={self.api_type}, model={self.chat_model}")
 
+    def _resolve_api_key(self) -> str:
+        """统一解析 API Key：llm_api_key > 提供商专用 key > 默认值。"""
+        unified = self._cfg.get("llm_api_key", "").strip()
+        if unified:
+            return unified
+        if self.provider == "mlx":
+            return "mlx"
+        if self.provider == "openai":
+            return self._cfg.get("openai_api_key", "")
+        if self.provider == "claude":
+            return self._cfg.get("claude_api_key", "")
+        if self.provider == "custom":
+            return self._cfg.get("custom_api_key", "")
+        return ""
+
     def _get_api_type(self) -> str:
         """返回 API 格式类型: 'openai' 或 'anthropic'"""
         if self.provider == "custom":
@@ -33,17 +48,17 @@ class LLMAdapter:
         if self.provider == "mlx":
             return OpenAI(
                 base_url=self._cfg.get("mlx_api_base", "http://localhost:8080/v1"),
-                api_key="mlx",
+                api_key=self._resolve_api_key(),
             )
         if self.provider == "openai":
             return OpenAI(
                 base_url=self._cfg.get("openai_api_base", "https://api.openai.com/v1"),
-                api_key=self._cfg.get("openai_api_key", ""),
+                api_key=self._resolve_api_key(),
             )
         if self.provider == "claude":
             return OpenAI(
                 base_url="https://api.anthropic.com/v1",
-                api_key=self._cfg.get("claude_api_key", ""),
+                api_key=self._resolve_api_key(),
             )
         if self.provider == "custom":
             custom_base = self._cfg.get("custom_api_base", "")
@@ -52,7 +67,7 @@ class LLMAdapter:
                 raise ValueError("Anthropic custom provider 不支持同步 OpenAI client，请使用 chat/completions 直连")
             return OpenAI(
                 base_url=custom_base,
-                api_key=self._cfg.get("custom_api_key", ""),
+                api_key=self._resolve_api_key(),
             )
         raise ValueError(f"不支持的 LLM provider: {self.provider}")
 
@@ -60,25 +75,25 @@ class LLMAdapter:
         if self.provider == "mlx":
             return AsyncOpenAI(
                 base_url=self._cfg.get("mlx_api_base", "http://localhost:8080/v1"),
-                api_key="mlx",
+                api_key=self._resolve_api_key(),
             )
         if self.provider == "openai":
             return AsyncOpenAI(
                 base_url=self._cfg.get("openai_api_base", "https://api.openai.com/v1"),
-                api_key=self._cfg.get("openai_api_key", ""),
+                api_key=self._resolve_api_key(),
             )
         if self.provider == "claude":
             return AsyncOpenAI(
                 base_url="https://api.anthropic.com/v1",
-                api_key=self._cfg.get("claude_api_key", ""),
+                api_key=self._resolve_api_key(),
             )
         if self.provider == "custom":
             custom_base = self._cfg.get("custom_api_base", "")
             if self._cfg.get("custom_api_type", "openai") == "anthropic":
-                return AsyncOpenAI(base_url=custom_base, api_key=self._cfg.get("custom_api_key", ""))
+                return AsyncOpenAI(base_url=custom_base, api_key=self._resolve_api_key())
             return AsyncOpenAI(
                 base_url=custom_base,
-                api_key=self._cfg.get("custom_api_key", ""),
+                api_key=self._resolve_api_key(),
             )
         raise ValueError(f"不支持的 LLM provider: {self.provider}")
 
@@ -165,7 +180,7 @@ class LLMAdapter:
     # ---- Anthropic 格式 ----
 
     def _anthropic_headers(self) -> dict:
-        api_key = self._cfg.get("claude_api_key") if self.provider == "claude" else self._cfg.get("custom_api_key", "")
+        api_key = self._resolve_api_key()
         return {
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",

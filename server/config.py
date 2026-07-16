@@ -26,6 +26,7 @@ class AppConfigModel(Base):
 DEFAULTS = {
     "api_key": "",                     # API 认证密钥（空=无认证，兼容旧行为）
     "llm_provider": "mlx",           # "mlx" | "openai" | "claude" | "custom"
+    "llm_api_key": "",               # 统一 LLM API Key（所有 provider 共用，覆盖专用 key）
     "mlx_chat_model": "",
     "mlx_embedding_model": "",
     "mlx_api_base": "http://localhost:8080/v1",
