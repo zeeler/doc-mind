@@ -56,6 +56,10 @@ class ServiceRegistry:
             config.get("openai_chat_model"),
             config.get("claude_chat_model"),
             config.get("custom_chat_model"),
+            config.get("mlx_api_base"),
+            config.get("openai_api_base"),
+            config.get("custom_api_base"),
+            config.get("custom_api_type"),
         )
         if self._llm is not None and key == self._llm_key:
             return self._llm
