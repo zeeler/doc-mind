@@ -165,6 +165,25 @@ class ServiceRegistry:
 
     # ====== 单例管理 ======
 
+    def invalidate_all(self) -> None:
+        """清空所有服务缓存，下次访问时用最新配置重建。"""
+        with self._llm_lock:
+            self._llm = None
+            self._llm_key = None
+        with self._embedder_lock:
+            self._embedder = None
+            self._embedder_key = None
+        with self._reranker_lock:
+            self._reranker = None
+            self._reranker_key = None
+        with self._rag_lock:
+            self._rag = None
+            self._rag_key = None
+        with self._search_lock:
+            self._search = None
+            self._search_key = None
+        logger.info("ServiceRegistry 缓存已清空，下次访问将重建所有服务")
+
     @classmethod
     def get_singleton(cls) -> 'ServiceRegistry':
         """获取全局单例（线程安全）。"""

@@ -4,6 +4,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Body
 from server.config import AppConfig, DEFAULTS
 from server.services.embedder import Embedder
+from server.services.registry import ServiceRegistry
 from server.schemas import UpdateConfigRequest
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,8 @@ def update_config(body: dict = Body(...)):
         )
     for key, value in body.items():
         cfg.set(key, str(value))
+    # 配置变更后主动清空所有服务缓存，确保下次请求用新配置重建
+    ServiceRegistry.get_singleton().invalidate_all()
     return {"code": "OK", "message": "success", "data": cfg.get_all()}
 
 
