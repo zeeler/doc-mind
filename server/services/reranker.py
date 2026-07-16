@@ -30,6 +30,9 @@ class Reranker:
 
         base_url = config.get("reranker_api_base", "").strip().rstrip("/")
         api_key = config.get("reranker_api_key", "").strip()
+        # API Key 解析: reranker_api_key > llm_api_key
+        if not api_key:
+            api_key = config.get("llm_api_key", "").strip()
         self._model = config["reranker_model"].strip()
         # 避免双 /v1：base_url 通常已包含 /v1
         if base_url.endswith("/v1"):

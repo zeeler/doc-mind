@@ -114,7 +114,11 @@ def _ocr_ollama(path: str, page_count: int, config: dict) -> str:
         screenshots = img_parser.screenshot(path, page_numbers=page_numbers)
 
     def ocr_page(idx: int, s) -> tuple[int, str]:
-        client = OpenAI(base_url=base_url, api_key="ocr")
+        # API key 解析: ocr_api_key > llm_api_key > 本地 dummy
+        api_key = config.get("ocr_api_key", "").strip()
+        if not api_key:
+            api_key = config.get("llm_api_key", "").strip() or "ocr"
+        client = OpenAI(base_url=base_url, api_key=api_key)
         img_b64 = base64.b64encode(s.image_bytes).decode()
         try:
             response = client.chat.completions.create(

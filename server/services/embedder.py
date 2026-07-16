@@ -22,8 +22,8 @@ class Embedder:
             base_url = config.get("embedding_api_base", "").strip()
             api_key = config.get("embedding_api_key", "").strip()
             if base_url:
-                # API Key 可选：有则传，没有则传占位符（本地服务通常不校验）
-                api_key = api_key or "not-needed"
+                # API Key 解析: embedding_api_key > llm_api_key > 本地 dummy
+                api_key = api_key or config.get("llm_api_key", "").strip() or "not-needed"
                 self._standalone_client = OpenAI(base_url=base_url, api_key=api_key)
                 self.model = config["embedding_model"]
                 logger.info("Embedding 独立模式: model=%s base=%s", self.model, base_url)
