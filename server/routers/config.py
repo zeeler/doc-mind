@@ -227,7 +227,7 @@ def search_status():
     anysearch_key = config.get("anysearch_api_key", "").strip()
     tavily_key = config.get("tavily_api_key", "").strip()
 
-    anysearch_result = {"configured": bool(anychsearch_key), "ok": False}
+    anysearch_result = {"configured": bool(anysearch_key), "ok": False}
     tavily_result = {"configured": bool(tavily_key), "ok": False}
 
     def _test(provider, key):
