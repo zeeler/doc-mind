@@ -29,7 +29,8 @@ class TestRAGService:
     def test_build_qa_prompt_empty_chunks(self):
         prompt = build_qa_prompt("问题", [])
         assert "问题" in prompt
-        assert "知识库中未找到" in prompt
+        assert "未找到相关内容" in prompt
+        assert "不要编造" in prompt
 
     # ---- 回归测试：最近修复的 bug ----
 

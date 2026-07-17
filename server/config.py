@@ -64,6 +64,7 @@ DEFAULTS = {
     "anysearch_enabled": "true",
     "anysearch_api_key": "as_sk_2ef7a12922fb49e0aa3bc65e5a31e643",
     "anysearch_max_results": "5",
+    "web_search_fallback": "true",  # AnySearch 失败时回退到 Tavily
     "embedding_enabled": "false",
     "embedding_model": "",
     "embedding_api_base": "",

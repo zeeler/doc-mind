@@ -649,7 +649,10 @@ body {
             <button @click="send" :disabled="!input.trim()||streaming"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
           </div>
           <div class="chat-web-search">
-            <label><input type="checkbox" v-model="webSearch"> 联网搜索</label>
+            <label :title="webSearchAvailable?'':'请先在设置中配置任一搜索 API 密钥并通过测试'">
+              <input type="checkbox" v-model="webSearch" :disabled="!webSearchAvailable"> 联网搜索
+            </label>
+            <span v-if="!webSearchAvailable" style="font-size:10px;color:var(--text-tertiary);margin-left:6px">（请先在设置中配置搜索 API）</span>
           </div>
           <div class="chat-hint">AI 回答可能存在错误，请核实重要信息</div>
         </div>
@@ -865,13 +868,38 @@ body {
         <div v-if="rerankerResult" :class="rerankerResult.ok?'result-ok':'result-err'">{{ rerankerResult.msg }}</div>
       </div>
       <div class="page-card">
-        <h3>网络搜索（Tavily）</h3>
-        <div class="desc">知识库检索结果不足时自动从互联网获取实时信息</div>
+        <h3>网络搜索</h3>
+        <div class="desc">对话框勾选「联网搜索」后从互联网获取实时信息。AnySearch 优先，Tavily 作为备份</div>
         <label class="check-lbl"><input type="checkbox" v-model="webSearchOn"> 启用网络搜索</label>
         <template v-if="webSearchOn">
-          <div class="field"><label>API Key</label><input v-model="config.tavily_api_key" type="password" placeholder="tvly-..."></div>
-          <div class="field"><label>最大结果数</label><input v-model="config.web_search_max_results" type="number" min="1" max="10"></div>
-          <div v-if="!config.tavily_api_key" class="hint" style="color:var(--danger)">需要输入 Tavily API Key 才能生效</div>
+          <!-- AnySearch -->
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-light)">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <span style="font:600 13px var(--sans)">AnySearch（主）</span>
+              <button class="btn btn-ghost" @click="testAnysearch" :disabled="!config.anysearch_api_key">{{ testingAnysearch ? '测试中...' : '测试连接' }}</button>
+            </div>
+            <div class="field"><label>API Key</label><input v-model="config.anysearch_api_key" type="password" placeholder="as_sk_..."></div>
+            <div class="field"><label>最大结果数</label><input v-model="config.anysearch_max_results" type="number" min="1" max="10"></div>
+            <div v-if="!config.anysearch_api_key" class="hint" style="color:var(--danger)">需要输入 AnySearch API Key 才能生效</div>
+            <div v-if="anysearchResult" :class="anysearchResult.ok?'result-ok':'result-err'" style="margin-top:6px">{{ anysearchResult.msg }}</div>
+          </div>
+          <!-- Tavily -->
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-light)">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <span style="font:600 13px var(--sans)">Tavily（备）</span>
+              <button class="btn btn-ghost" @click="testTavily" :disabled="!config.tavily_api_key">{{ testingTavily ? '测试中...' : '测试连接' }}</button>
+            </div>
+            <div class="field"><label>API Key</label><input v-model="config.tavily_api_key" type="password" placeholder="tvly-..."></div>
+            <div class="field"><label>最大结果数</label><input v-model="config.web_search_max_results" type="number" min="1" max="10"></div>
+            <div v-if="!config.tavily_api_key" class="hint" style="color:var(--danger)">需要输入 Tavily API Key 才能生效</div>
+            <div v-if="tavilyResult" :class="tavilyResult.ok?'result-ok':'result-err'" style="margin-top:6px">{{ tavilyResult.msg }}</div>
+          </div>
+          <label class="check-lbl" style="margin-top:14px;display:block"><input type="checkbox" v-model="config.web_search_fallback" true-value="true" false-value="false"> AnySearch 失败时回退到 Tavily</label>
+          <div v-if="anysearchResult && tavilyResult" style="margin-top:8px">
+            <div :class="webSearchAvailable?'result-ok':'result-err'" style="font-family:var(--sans)">
+              {{ webSearchAvailable ? '✓ 联网搜索可用' : '✗ 两个搜索引擎均不可用，对话框联网搜索将禁用' }}
+            </div>
+          </div>
         </template>
       </div>
       <button class="btn btn-primary" @click="saveConfig" style="padding:13px">保存配置</button>
@@ -962,6 +990,11 @@ createApp({
     function confirmCancel() { if (confirmResolve) { confirmResolve(false); confirmResolve = null; } confirmShow.value = false; }
     const testingChat = ref(false);
     const testingOcr = ref(false);
+    const anysearchResult = ref(null);   // AnySearch 测试结果
+    const tavilyResult = ref(null);      // Tavily 测试结果
+    const testingAnysearch = ref(false);
+    const testingTavily = ref(false);
+    const webSearchAvailable = ref(false);  // 是否有可用搜索引擎
     const msgBox = ref(null);
     const inputEl = ref(null);
     const memoriesList = ref([]);
@@ -1133,8 +1166,11 @@ createApp({
         dirResult.value = msg; if (ok > 0) setTimeout(() => loadDocuments(), 500);
       } catch(e) { dirProcessing.value = false; if (e.name !== 'AbortError') dirResult.value = '目录选择失败: ' + e.message; }
     }
-    async function loadConfig() { try { const d=await api('/api/v1/config'); config.value=d.data||{}; ocrOn.value=config.value.ocr_enabled!=='false'; embeddingOn.value=config.value.embedding_enabled==='true'; rerankerOn.value=config.value.reranker_enabled==='true'; webSearchOn.value=config.value.web_search_enabled==='true'; } catch(e) {} }
-    async function saveConfig() { saveError.value=''; config.value.ocr_enabled=ocrOn.value?'true':'false';config.value.embedding_enabled=embeddingOn.value?'true':'false';config.value.reranker_enabled=rerankerOn.value?'true':'false';config.value.web_search_enabled=webSearchOn.value?'true':'false'; try { await api('/api/v1/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config.value)}); saved.value=true;setTimeout(()=>saved.value=false,2000); } catch(e) { saveError.value='✗ 保存失败: '+e.message; } }
+    async function loadConfig() { try { const d=await api('/api/v1/config'); config.value=d.data||{}; ocrOn.value=config.value.ocr_enabled!=='false'; embeddingOn.value=config.value.embedding_enabled==='true'; rerankerOn.value=config.value.reranker_enabled==='true'; webSearchOn.value=config.value.web_search_enabled==='true'; config.value.web_search_fallback=config.value.web_search_fallback||'true'; } catch(e) {} }
+    async function saveConfig() { saveError.value=''; config.value.ocr_enabled=ocrOn.value?'true':'false';config.value.embedding_enabled=embeddingOn.value?'true':'false';config.value.reranker_enabled=rerankerOn.value?'true':'false';config.value.web_search_enabled=webSearchOn.value?'true':'false'; try { await api('/api/v1/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config.value)}); saved.value=true;setTimeout(()=>saved.value=false,2000); checkSearchStatus(); } catch(e) { saveError.value='✗ 保存失败: '+e.message; } }
+    async function testAnysearch() { testingAnysearch.value=true; anysearchResult.value=null; try { const d=await api('/api/v1/config/test-search/anysearch',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); const r=d.data; anysearchResult.value={ok:r.ok,msg:r.ok?`✓ AnySearch 连接正常 (${r.latency_ms}ms)`:'✗ AnySearch 测试失败: '+(r.error||'未知错误')}; } catch(e) { anysearchResult.value={ok:false,msg:'✗ 请求失败: '+e.message}; } finally { testingAnysearch.value=false; checkSearchStatus(); } }
+    async function testTavily() { testingTavily.value=true; tavilyResult.value=null; try { const d=await api('/api/v1/config/test-search/tavily',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); const r=d.data; tavilyResult.value={ok:r.ok,msg:r.ok?`✓ Tavily 连接正常 (${r.latency_ms}ms)`:'✗ Tavily 测试失败: '+(r.error||'未知错误')}; } catch(e) { tavilyResult.value={ok:false,msg:'✗ 请求失败: '+e.message}; } finally { testingTavily.value=false; checkSearchStatus(); } }
+    async function checkSearchStatus() { try { const d=await api('/api/v1/config/search-status'); const s=d.data; webSearchAvailable.value=s.web_search_available; } catch(e) { webSearchAvailable.value=false; } }
     async function testEmbedding() { testingEmbedding.value=true;embeddingResult.value=null; try { const d=await api('/api/v1/config/embedding-test'); embeddingResult.value={ok:true,msg:'✓ 连接成功，模型: '+d.data.model+'，维度: '+d.data.dimension}; } catch(e) { embeddingResult.value={ok:false,msg:'✗ '+e.message}; } testingEmbedding.value=false; }
     async function testReranker() { testingReranker.value=true;rerankerResult.value=null; try { const d=await api('/api/v1/config/reranker-test'); rerankerResult.value={ok:true,msg:'✓ 连接成功，模型: '+d.data.model}; } catch(e) { rerankerResult.value={ok:false,msg:'✗ '+e.message}; } testingReranker.value=false; }
     async function testChat() { testingChat.value=true;chatResult.value=null;try{const cr=await api('/api/v1/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const res=await fetch('/api/v1/chat/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:cr.data.id,question:'你好'})});const d=await res.json();chatResult.value=d.data&&d.data.answer?{ok:true,msg:'✓ '+d.data.answer.slice(0,60)+'...'}:{ok:false,msg:'✗ '+(d.detail||res.statusText)}}catch(e){chatResult.value={ok:false,msg:'✗ '+e.message}}testingChat.value=false; }
@@ -1188,7 +1224,7 @@ createApp({
 
     async function loadVectorInfo() { try { const r = await api('/api/v1/config/vector-info'); if (r.code === 'OK') vectorInfo.value = r.data; } catch {} }
     async function loadDocStats() { try { const r = await api('/api/v1/documents/stats'); if (r.code === 'OK') { docStats.value = r.data; const s = r.data.job_summary || {}; let done = 0; let all = 0; for (const jt of Object.values(s)) { done += jt.completed || 0; all += (jt.completed||0) + (jt.running||0) + (jt.pending||0) + (jt.failed||0); } jobPercent.value = all > 0 ? Math.round(done / all * 100) : 0; } } catch {} }
-    onMounted(() => { loadConversations(); loadConfig(); });
+    onMounted(() => { loadConversations(); loadConfig().then(() => checkSearchStatus()); });
     onUnmounted(() => { if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } });
     watch(page, (v) => {
       if (v === 'docs') { loadDocuments(); loadJobStats(); loadTags(); loadFolders(); loadVectorInfo(); loadDocStats(); if (!jobInterval) jobInterval = setInterval(() => { loadJobStats(); loadDocStats(); }, 5000); }

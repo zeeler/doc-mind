@@ -50,9 +50,10 @@ def build_qa_prompt(
     if not chunks:
         return (
             f"## 用户问题\n{question}\n\n"
-            f"知识库中未找到相关内容。请基于你自身的知识如实回答，"
-            f"并在回答末尾注明：\n"
-            f"> 📚 *以上回答基于模型自身知识，未引用知识库文档。*"
+            f"## 重要：知识库和网络搜索均未找到相关内容。\n"
+            f"请如实告知用户未找到相关信息，不要编造、推测或追问。"
+            f"建议用户尝试更换关键词或上传相关文档。"
+            f"使用中文回答，简洁明确。"
         )
     if web_sourced:
         return _build_web_prompt(question, chunks)
@@ -75,19 +76,19 @@ def _build_kb_prompt(question: str, chunks: list[dict]) -> str:
         titles_str = "、".join(doc_titles[:3])
         doc_hint = f"\n以上参考资料来自你的知识库文档：{titles_str}。这些是用户已上传的个人文档内容。"
 
-    return f"""## 参考资料
+    return f"""## 参考资料（知识库文档）
 {context}{doc_hint}
 
 ## 要求
-- 参考资料来自用户已上传的文档，优先使用其中的信息回答问题
-- 理解对话历史中的上下文，结合当前问题给出连贯的回答
-- 如果当前问题是对上一轮回答的追问或澄清，请基于历史上下文理解用户意图
-- 即使信息分散在多个片段中，也要尽量综合整理，给出有价值的回答
-- 回答中引用来源编号，如 [1]、[2]
-- 如果参考资料覆盖了多个不同的要点或角度，请全面综合回答，不要遗漏
-- 只有确实完全不相关时才说明无法回答，不要因为信息不完整就放弃
+- 你是一个严谨的知识库检索助手，请只根据上述参考资料回答问题
+- 每个结论必须标注来源编号，如 [1]、[2]
+- 参考资料来自用户已上传的个人文档，优先使用其中的信息
+- 理解对话历史上下文，结合当前问题给出连贯回答
+- 全面综合多个片段的信息，覆盖所有相关要点
+- 如果参考资料只覆盖了部分问题，诚实说明哪些能回答、哪些不能
+- 如果参考资料完全不相关，直接说明"知识库中未找到相关内容"，不要编造
 - 使用中文回答
-- 在回答末尾必须添加信息来源说明，格式如下：
+- 在回答末尾添加信息来源说明，格式：
   > 📚 **信息来源**：知识库文档《书名1》、《书名2》
 
 ## 用户问题
@@ -115,13 +116,13 @@ def _build_web_prompt(question: str, chunks: list[dict]) -> str:
 {context}
 
 ## 要求
-- 优先使用搜索结果中的信息回答问题
-- 理解对话历史中的上下文，结合当前问题给出连贯的回答
-- 回答中引用来源编号，如 [1]、[2]，并在引用处附上对应的链接 URL
-- 综合多个来源的信息，给出全面的回答
-- 如果搜索结果无法覆盖问题，可以结合自身知识补充，但请注明哪部分来自自身知识
+- 你是一个严谨的信息检索助手，请只根据上述互联网搜索结果回答问题
+- 每个结论必须标注来源编号和链接，如 [1](url)
+- 优先使用搜索结果中的信息，综合多个来源给出全面回答
+- 如果搜索结果只覆盖了部分问题，诚实说明哪些能回答、哪些不能
+- 如果搜索结果完全不相关或不够充分，直接说明"网络搜索未能找到足够信息"，不要编造
 - 使用中文回答
-- 在回答末尾必须添加信息来源说明，格式如下：
+- 在回答末尾添加信息来源说明，格式：
   > 🌐 **信息来源**：互联网搜索（{titles_str} 等）
 
 ## 用户问题
@@ -207,19 +208,41 @@ class RAGService:
         good = [s for s in scores if s > 0.15]
         return len(good) < 2
 
-    def _do_anysearch(self, question: str) -> list[dict]:
-        """通过 AnySearch 执行网络搜索，失败时返回空列表。"""
-        enabled = self.config.get("anysearch_enabled", "true") == "true"
-        if not enabled:
-            return []
-        api_key = self.config.get("anysearch_api_key", "")
-        max_results = int(self.config.get("anysearch_max_results", "5"))
-        try:
-            client = AnySearchClient(api_key=api_key, max_results=max_results)
-            return client.search(question)
-        except Exception as e:
-            logger.warning("AnySearch 调用失败: %s", e)
-            return []
+    def _do_web_search(self, question: str) -> tuple[list[dict], str | None]:
+        """执行网络搜索：AnySearch 主 → Tavily 备。返回 (chunks, source)。
+        source 为 'anysearch' | 'tavily' | None（无结果时）。"""
+        # 1. AnySearch（主）
+        anysearch_enabled = self.config.get("anysearch_enabled", "true") == "true"
+        anysearch_key = self.config.get("anysearch_api_key", "").strip()
+        if anysearch_enabled and anysearch_key:
+            try:
+                max_results = int(self.config.get("anysearch_max_results", "5"))
+                client = AnySearchClient(api_key=anysearch_key, max_results=max_results)
+                results = client.search(question)
+                if results:
+                    logger.info("AnySearch 命中: %d 条结果", len(results))
+                    return results, "anysearch"
+                else:
+                    logger.info("AnySearch 无结果，尝试 Tavily")
+            except Exception as e:
+                logger.warning("AnySearch 调用失败: %s，尝试 Tavily", e)
+
+        # 2. Tavily（备）
+        fallback_enabled = self.config.get("web_search_fallback", "true") == "true"
+        if fallback_enabled:
+            ws = self._web_search
+            if ws:
+                try:
+                    results = ws.search(question)
+                    if results:
+                        logger.info("Tavily 命中: %d 条结果", len(results))
+                        return results, "tavily"
+                    else:
+                        logger.info("Tavily 无结果")
+                except Exception as e:
+                    logger.warning("Tavily 调用失败: %s", e)
+
+        return [], None
 
     def ask_sync(self, question: str, history: list[dict] | None = None,
                  memory_context: str = "", web_search: bool = False) -> dict:
@@ -227,27 +250,26 @@ class RAGService:
         web_sourced = False
 
         if web_search:
-            anysearch_chunks = self._do_anysearch(question)
-            if anysearch_chunks:
-                logger.info("AnySearch 补充: %d 条结果", len(anychsearch_chunks))
+            web_chunks, source = self._do_web_search(question)
+            if web_chunks:
                 if not chunks:
-                    chunks = anysearch_chunks
+                    chunks = web_chunks
                     web_sourced = True
                 else:
-                    chunks = chunks + anysearch_chunks
+                    chunks = chunks + web_chunks
+                    web_sourced = False  # 混合模式，KB 为主
         elif self._is_web_search_needed(chunks):
             ws = self._web_search
             if ws:
                 web_chunks = ws.search(question)
                 if web_chunks:
                     logger.info("网络搜索补充: %d 条结果", len(web_chunks))
-                    # KB 结果不足时用网络搜索代替，否则混合使用
                     if not chunks:
                         chunks = web_chunks
                         web_sourced = True
                     else:
                         chunks = chunks + web_chunks
-                        web_sourced = False  # 混合结果仍以 KB 为主
+                        web_sourced = False
 
         prompt = build_qa_prompt(question, chunks, web_sourced=web_sourced)
 
@@ -264,13 +286,14 @@ class RAGService:
         web_sourced = False
 
         if web_search:
-            anysearch_chunks = await loop.run_in_executor(None, self._do_anysearch, question)
-            if anysearch_chunks:
+            web_chunks, source = await loop.run_in_executor(None, self._do_web_search, question)
+            if web_chunks:
                 if not chunks:
-                    chunks = anysearch_chunks
+                    chunks = web_chunks
                     web_sourced = True
                 else:
-                    chunks = chunks + anysearch_chunks
+                    chunks = chunks + web_chunks
+                    web_sourced = False
         elif self._is_web_search_needed(chunks):
             ws = self._web_search
             if ws:
