@@ -77,7 +77,7 @@ def chat_ask(req: ChatAskRequest, session: Session = Depends(get_session)):
 
         memory_context = _recall_memory_context(question, conversation_id)
 
-        result = rag.ask_sync(question, history=history, memory_context=memory_context)
+        result = rag.ask_sync(question, history=history, memory_context=memory_context, web_search=req.web_search)
     except Exception as e:
         logger.error(f"LLM 调用失败: {e}", exc_info=True)
         session.commit()
@@ -147,7 +147,7 @@ async def chat_stream(req: ChatAskRequest, request: Request, session: Session = 
         citations = []
         try:
             yield {"event": "meta", "data": json.dumps({"conversation_id": conversation_id}, ensure_ascii=False)}
-            async for chunk in rag.ask_stream(question, history=history, memory_context=memory_context):
+            async for chunk in rag.ask_stream(question, history=history, memory_context=memory_context, web_search=req.web_search):
                 # 客户端断开连接时提前终止，避免浪费 LLM 资源
                 if await request.is_disconnected():
                     logger.info(f"客户端断开连接，终止流式生成 conv={conversation_id}")

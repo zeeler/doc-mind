@@ -9,6 +9,7 @@ from typing import Literal
 class ChatAskRequest(BaseModel):
     conversation_id: str
     question: str
+    web_search: bool = False
 
     @field_validator("question")
     @classmethod

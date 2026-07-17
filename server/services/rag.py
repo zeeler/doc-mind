@@ -5,6 +5,7 @@ import logging
 from typing import AsyncIterator
 from server.services.llm import LLMAdapter
 from server.services.web_search import WebSearchClient
+from server.services.anysearch import AnySearchClient
 
 logger = logging.getLogger(__name__)
 
@@ -206,12 +207,35 @@ class RAGService:
         good = [s for s in scores if s > 0.15]
         return len(good) < 2
 
+    def _do_anysearch(self, question: str) -> list[dict]:
+        """通过 AnySearch 执行网络搜索，失败时返回空列表。"""
+        enabled = self.config.get("anysearch_enabled", "true") == "true"
+        if not enabled:
+            return []
+        api_key = self.config.get("anysearch_api_key", "")
+        max_results = int(self.config.get("anysearch_max_results", "5"))
+        try:
+            client = AnySearchClient(api_key=api_key, max_results=max_results)
+            return client.search(question)
+        except Exception as e:
+            logger.warning("AnySearch 调用失败: %s", e)
+            return []
+
     def ask_sync(self, question: str, history: list[dict] | None = None,
-                 memory_context: str = "") -> dict:
+                 memory_context: str = "", web_search: bool = False) -> dict:
         chunks = self.retriever.retrieve(question)
         web_sourced = False
 
-        if self._is_web_search_needed(chunks):
+        if web_search:
+            anysearch_chunks = self._do_anysearch(question)
+            if anysearch_chunks:
+                logger.info("AnySearch 补充: %d 条结果", len(anychsearch_chunks))
+                if not chunks:
+                    chunks = anysearch_chunks
+                    web_sourced = True
+                else:
+                    chunks = chunks + anysearch_chunks
+        elif self._is_web_search_needed(chunks):
             ws = self._web_search
             if ws:
                 web_chunks = ws.search(question)
@@ -234,12 +258,20 @@ class RAGService:
         return {"answer": result["content"], "citations": citations}
 
     async def ask_stream(self, question: str, history: list[dict] | None = None,
-                         memory_context: str = "") -> AsyncIterator[dict]:
+                         memory_context: str = "", web_search: bool = False) -> AsyncIterator[dict]:
         loop = asyncio.get_running_loop()
         chunks = await loop.run_in_executor(None, self.retriever.retrieve, question)
         web_sourced = False
 
-        if self._is_web_search_needed(chunks):
+        if web_search:
+            anysearch_chunks = await loop.run_in_executor(None, self._do_anysearch, question)
+            if anysearch_chunks:
+                if not chunks:
+                    chunks = anysearch_chunks
+                    web_sourced = True
+                else:
+                    chunks = chunks + anysearch_chunks
+        elif self._is_web_search_needed(chunks):
             ws = self._web_search
             if ws:
                 web_chunks = await loop.run_in_executor(None, ws.search, question)

@@ -326,6 +326,9 @@ body {
 .chat-input-inner button:not(:disabled):hover { background: var(--amber-hover); transform: scale(1.05); }
 .chat-input-inner button:disabled { cursor: default; opacity: .15; }
 .chat-hint { text-align: center; padding: 10px 0 0; font-size: 11px; color: var(--text-tertiary); font-family: var(--sans); }
+.chat-web-search { text-align: center; padding: 6px 0 0; }
+.chat-web-search label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: var(--text-secondary); user-select: none; }
+.chat-web-search input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: var(--amber); }
 
 /* === Page (docs/settings/memories) === */
 .page { flex:1; overflow-y:auto; padding: 32px 44px; max-width: 800px; }
@@ -645,6 +648,9 @@ body {
             <textarea v-model="input" @keydown.enter.exact.prevent="send" placeholder="向知识库提问..." :disabled="streaming" rows="1" ref="inputEl"></textarea>
             <button @click="send" :disabled="!input.trim()||streaming"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
           </div>
+          <div class="chat-web-search">
+            <label><input type="checkbox" v-model="webSearch"> 联网搜索</label>
+          </div>
           <div class="chat-hint">AI 回答可能存在错误，请核实重要信息</div>
         </div>
       </template>
@@ -914,6 +920,7 @@ createApp({
     const streaming = ref(false);
     const streamText = ref('');
     const streamErr = ref('');
+    const webSearch = ref(false);  // 网络搜索复选框
     const documents = ref([]);
     const docsPage = ref(1);
     const docsTotal = ref(0);
@@ -1045,7 +1052,7 @@ createApp({
       streaming.value = true; streamText.value = ''; streamErr.value = '';
       nextTick(scrollBottom);
       try {
-        const res = await fetch('/api/v1/chat/stream', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:currentConv.value,question:q})});
+        const res = await fetch('/api/v1/chat/stream', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:currentConv.value,question:q,web_search:webSearch.value})});
         if (!res.ok) { const e=await res.json().catch(()=>({detail:res.statusText})); messages.value=[...messages.value,{id:Date.now().toString(),role:'assistant',content:'❌ '+e.detail}]; streaming.value=false; return; }
         const reader=res.body.getReader(),dec=new TextDecoder(); let buf='',evt='',full='';
         while(true){const{value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});const lines=buf.split('\n');buf=lines.pop()||'';for(const l of lines){if(l.startsWith('event: ')){evt=l.slice(7).trim()}else if(l.startsWith('data: ')){try{const p=JSON.parse(l.slice(6));if(evt==='error')streamErr.value=p.message||'未知错误';else if(p.type==='token'){full+=p.content;streamText.value=full;nextTick(scrollBottom)}}catch(e){}}}}
