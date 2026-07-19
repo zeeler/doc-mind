@@ -1,6 +1,7 @@
 """混合搜索服务 — FTS5 关键词 + ChromaDB 向量 + RRF 融合 + 高亮。"""
 
 import re
+import html as html_lib
 import sqlalchemy as sa
 import logging
 from pathlib import Path
@@ -22,18 +23,23 @@ def _escape_fts5_query(query: str) -> str:
     stripped = query.strip()
     if not stripped:
         return '""'
+    # 双引号在 FTS5 字符串中需双写转义，否则带引号的查询会语法错误静默返回空
+    escaped = _FTS5_SPECIAL_CHARS_RE.sub(r'\\\g<1>', stripped).replace('"', '""')
     # 包裹在双引号中防止冒号等被解析为列名分隔符
-    escaped = _FTS5_SPECIAL_CHARS_RE.sub(r'\\\g<1>', stripped)
     return f'"{escaped}"'
 
 
 def highlight(text: str, query: str, max_len: int = 160) -> str:
-    """在文本中高亮搜索词，截取第一个匹配附近的 excerpt。"""
+    """在文本中高亮搜索词，截取第一个匹配附近的 excerpt。
+
+    文档内容先做 HTML 转义再插入 <mark>，防止文档中的 HTML 被前端 v-html 执行（XSS）。
+    """
     tokens = query.strip().split()
-    result = text
+    result = html_lib.escape(text, quote=False)
     for token in tokens:
+        escaped_token = html_lib.escape(token, quote=False)
         result = re.sub(
-            f"({re.escape(token)})",
+            f"({re.escape(escaped_token)})",
             r"<mark>\1</mark>",
             result,
             flags=re.IGNORECASE,
@@ -241,13 +247,15 @@ class SearchService:
 
         if has_embedding_model(config):
             try:
-                from server.services.embedder import Embedder
-                embedder = Embedder(config)
-                texts = [query] + [r["content"] for r in results]
-                all_embs = embedder.embed(texts)
-                query_emb = all_embs[0]
-                chunk_embs = all_embs[1:]
-                use_embedding = True
+                # 复用 ServiceRegistry 缓存的 Embedder，避免每次 MMR 重建实例
+                from server.services.registry import ServiceRegistry
+                embedder = ServiceRegistry.get_singleton().get_embedder()
+                if embedder is not None:
+                    texts = [query] + [r["content"] for r in results]
+                    all_embs = embedder.embed(texts)
+                    query_emb = all_embs[0]
+                    chunk_embs = all_embs[1:]
+                    use_embedding = True
             except Exception as e:
                 logger.warning(f"MMR embedding 失败，退化为文本相似度: {e}")
 

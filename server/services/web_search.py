@@ -20,8 +20,10 @@ class WebSearchClient:
         self.api_key = api_key.strip()
         self.max_results = max_results
 
-    def search(self, query: str) -> list[dict]:
-        """调用 Tavily API，返回 chunk 格式的结果列表。"""
+    def search(self, query: str, raise_errors: bool = False) -> list[dict]:
+        """调用 Tavily API，返回 chunk 格式的结果列表。
+
+        raise_errors=True 时不吞掉请求异常（供连接测试端点区分成败）。"""
         if not self.api_key:
             logger.warning("Tavily 搜索跳过: API Key 未配置")
             return []
@@ -45,9 +47,18 @@ class WebSearchClient:
                 exc.response.status_code,
                 exc.response.text[:200],
             )
+            if raise_errors:
+                raise
             return []
         except httpx.RequestError as exc:
             logger.error("Tavily 请求失败: %s", exc)
+            if raise_errors:
+                raise
+            return []
+        except ValueError as exc:  # resp.json() 解析失败（非 JSON 响应）
+            logger.error("Tavily 响应非 JSON: %s", exc)
+            if raise_errors:
+                raise
             return []
 
         raw_results = body.get("results", [])

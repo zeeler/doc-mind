@@ -59,10 +59,10 @@ app = FastAPI(title="知识库", version="0.1.0", lifespan=lifespan)
 from server.middleware.auth import AuthMiddleware
 app.add_middleware(AuthMiddleware)
 
-# CORS 中间件：前后端分离部署时需要
+# CORS 中间件：前后端分离部署时需要（收紧为本机/局域网来源，避免任意网页跨域调用本地 API）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

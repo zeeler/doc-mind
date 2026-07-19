@@ -60,6 +60,11 @@ class ServiceRegistry:
             config.get("openai_api_base"),
             config.get("custom_api_base"),
             config.get("custom_api_type"),
+            # api key 变更也必须触发重建（否则旧 key 的 client 会被继续使用）
+            config.get("llm_api_key"),
+            config.get("openai_api_key"),
+            config.get("claude_api_key"),
+            config.get("custom_api_key"),
         )
         if self._llm is not None and key == self._llm_key:
             return self._llm
@@ -133,6 +138,10 @@ class ServiceRegistry:
             config.get("web_search_enabled", "false"),
             config.get("tavily_api_key", ""),
             config.get("web_search_max_results", "5"),
+            config.get("web_search_fallback", "true"),
+            config.get("anysearch_enabled", "true"),
+            config.get("anysearch_api_key", ""),
+            config.get("anysearch_max_results", "5"),
             config.get("embedding_enabled", "false"),
             config.get("embedding_model", ""),
             config.get("embedding_api_base", ""),

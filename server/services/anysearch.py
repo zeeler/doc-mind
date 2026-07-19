@@ -20,8 +20,10 @@ class AnySearchClient:
         self.api_key = api_key.strip() if api_key else ""
         self.max_results = max(max_results, 1)
 
-    def search(self, query: str) -> list[dict]:
-        """调用 AnySearch API，返回 chunk 格式的结果列表。"""
+    def search(self, query: str, raise_errors: bool = False) -> list[dict]:
+        """调用 AnySearch API，返回 chunk 格式的结果列表。
+
+        raise_errors=True 时不吞掉请求异常（供连接测试端点区分成败）。"""
         if not query.strip():
             return []
 
@@ -55,9 +57,18 @@ class AnySearchClient:
                 exc.response.status_code,
                 exc.response.text[:200],
             )
+            if raise_errors:
+                raise
             return []
         except httpx.RequestError as exc:
             logger.error("AnySearch 请求失败: %s", exc)
+            if raise_errors:
+                raise
+            return []
+        except ValueError as exc:  # resp.json() 解析失败（非 JSON 响应）
+            logger.error("AnySearch 响应非 JSON: %s", exc)
+            if raise_errors:
+                raise
             return []
 
         # 解析 JSON-RPC 响应: result.content[0].text 是 JSON 字符串

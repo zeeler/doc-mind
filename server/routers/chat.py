@@ -120,24 +120,23 @@ async def chat_stream(req: ChatAskRequest, request: Request, session: Session = 
     if not conv:
         raise HTTPException(status_code=404, detail="会话不存在")
 
-    async with _stream_semaphore:
-        user_msg = Message(
-            id=str(uuid.uuid4()),
-            conversation_id=conversation_id,
-            role="user",
-            content=question,
-        )
-        session.add(user_msg)
-        if conv.title == "新会话":
-            conv.title = question[:50] + ("..." if len(question) > 50 else "")
-        session.commit()
+    user_msg = Message(
+        id=str(uuid.uuid4()),
+        conversation_id=conversation_id,
+        role="user",
+        content=question,
+    )
+    session.add(user_msg)
+    if conv.title == "新会话":
+        conv.title = question[:50] + ("..." if len(question) > 50 else "")
+    session.commit()
 
     try:
         from server.services.registry import ServiceRegistry
         rag = ServiceRegistry.get_singleton().get_rag_service(DATA_DIR)
-        history = _get_conversation_history(session, conversation_id)
-
-        memory_context = _recall_memory_context(question, conversation_id)
+        # DB 查询与记忆召回（含 embedding 网络调用）都是同步阻塞操作，放线程池避免卡事件循环
+        history = await asyncio.to_thread(_get_conversation_history, session, conversation_id)
+        memory_context = await asyncio.to_thread(_recall_memory_context, question, conversation_id)
     except Exception as e:
         logger.error(f"RAG 服务初始化失败: {e}", exc_info=True)
         raise HTTPException(status_code=502, detail=f"RAG 服务初始化失败: {str(e)}")
@@ -145,39 +144,41 @@ async def chat_stream(req: ChatAskRequest, request: Request, session: Session = 
     async def event_stream():
         full_answer = ""
         citations = []
-        try:
-            yield {"event": "meta", "data": json.dumps({"conversation_id": conversation_id}, ensure_ascii=False)}
-            async for chunk in rag.ask_stream(question, history=history, memory_context=memory_context, web_search=req.web_search):
-                # 客户端断开连接时提前终止，避免浪费 LLM 资源
-                if await request.is_disconnected():
-                    logger.info(f"客户端断开连接，终止流式生成 conv={conversation_id}")
-                    break
-                if chunk["type"] == "token":
-                    full_answer += chunk["content"]
-                    yield {"data": json.dumps({"type": "token", "content": chunk["content"]}, ensure_ascii=False)}
-                elif chunk["type"] == "citations":
-                    citations = chunk["data"]
-                    yield {"event": "citations", "data": json.dumps(citations, ensure_ascii=False)}
-                elif chunk["type"] == "done":
-                    pass
-        except Exception as e:
-            logger.error(f"LLM 流式调用失败: {e}", exc_info=True)
-            yield {"event": "error", "data": json.dumps({"message": f"LLM 调用失败: {str(e)}"}, ensure_ascii=False)}
-        finally:
-            # 只有实际收到回复内容时才保存消息，避免流式完全失败时产生空消息
-            if full_answer:
-                with get_session_ctx() as s:
-                    assistant_msg = Message(
-                        id=str(uuid.uuid4()),
-                        conversation_id=conversation_id,
-                        role="assistant",
-                        content=full_answer,
-                        citations_json=citations,
-                    )
-                    s.add(assistant_msg)
-                    s.commit()
-                from server.services.observer import get_observe_executor, run_observe_bg
-                get_observe_executor().submit(run_observe_bg, conversation_id, history, question, full_answer)
+        # 信号量必须覆盖整个 LLM 生成过程（在响应消费阶段执行），否则并发控制无效
+        async with _stream_semaphore:
+            try:
+                yield {"event": "meta", "data": json.dumps({"conversation_id": conversation_id}, ensure_ascii=False)}
+                async for chunk in rag.ask_stream(question, history=history, memory_context=memory_context, web_search=req.web_search):
+                    # 客户端断开连接时提前终止，避免浪费 LLM 资源
+                    if await request.is_disconnected():
+                        logger.info(f"客户端断开连接，终止流式生成 conv={conversation_id}")
+                        break
+                    if chunk["type"] == "token":
+                        full_answer += chunk["content"]
+                        yield {"data": json.dumps({"type": "token", "content": chunk["content"]}, ensure_ascii=False)}
+                    elif chunk["type"] == "citations":
+                        citations = chunk["data"]
+                        yield {"event": "citations", "data": json.dumps(citations, ensure_ascii=False)}
+                    elif chunk["type"] == "done":
+                        pass
+            except Exception as e:
+                logger.error(f"LLM 流式调用失败: {e}", exc_info=True)
+                yield {"event": "error", "data": json.dumps({"message": f"LLM 调用失败: {str(e)}"}, ensure_ascii=False)}
+            finally:
+                # 只有实际收到回复内容时才保存消息，避免流式完全失败时产生空消息
+                if full_answer:
+                    with get_session_ctx() as s:
+                        assistant_msg = Message(
+                            id=str(uuid.uuid4()),
+                            conversation_id=conversation_id,
+                            role="assistant",
+                            content=full_answer,
+                            citations_json=citations,
+                        )
+                        s.add(assistant_msg)
+                        s.commit()
+                    from server.services.observer import get_observe_executor, run_observe_bg
+                    get_observe_executor().submit(run_observe_bg, conversation_id, history, question, full_answer)
         yield {"event": "done", "data": "{}"}
 
     return EventSourceResponse(event_stream())

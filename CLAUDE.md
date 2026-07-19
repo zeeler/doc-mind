@@ -26,6 +26,7 @@ server/
 ├── config.py              # KV 配置（SQLite 存储 + 5秒 TTL 内存缓存）
 ├── database.py            # SQLAlchemy + SQLite + FTS5 全文索引
 ├── main.py                # FastAPI 入口 + 生命周期管理
+├── middleware/auth.py     # API Key 认证中间件（纯 ASGI，兼容 SSE）
 ├── models/                # SQLAlchemy 模型（Document/Chunk/Conversation/Message/Job/Tag）
 ├── routers/               # API 路由（chat/documents/conversations/config/jobs/memories/search/tags）
 ├── services/
@@ -48,8 +49,9 @@ server/
 │   ├── tag_utils.py       # 标签工具
 │   ├── scanner.py         # 快速扫描
 │   ├── bookmark_parser.py # Chrome 书签解析
-│   ├── url_fetcher.py     # URL 抓取
-│   └── web_search.py      # Tavily 网络搜索
+│   ├── url_fetcher.py     # URL 抓取（含内网地址 SSRF 防护）
+│   ├── anysearch.py       # AnySearch 网络搜索（主引擎，JSON-RPC）
+│   └── web_search.py      # Tavily 网络搜索（备用引擎）
 ├── templates/index.html   # Vue 3 单文件前端（inline in Jinja2 template）
 ├── tests/                 # pytest 测试
 └── vector/store.py        # ChromaDB VectorStore 封装
@@ -69,7 +71,7 @@ server/
 
 ### Session 管理
 - FastAPI 路由：`Depends(get_session)` 注入
-- 非路由代码（Worker、Service）：`with get_session_ctx() as session:`
+- 非路由代码（Worker、Service）：`with get_session_ctx() as session:`（正常退出自动 commit，异常自动 rollback；显式 commit 亦可，幂等）
 
 ### 单例模式
 - ServiceRegistry: 双重检查锁，`get_singleton()` / `reset_singleton()`

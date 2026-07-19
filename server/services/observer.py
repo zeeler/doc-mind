@@ -38,6 +38,13 @@ def shutdown_observe_executor():
         _observe_executor = None
 
 
+def forget_conversation(conversation_id: str) -> None:
+    """会话删除时清理 observe 状态，防止 _conv_last_observe 无限增长。"""
+    with _conv_observe_lock:
+        _conv_last_observe.pop(conversation_id, None)
+        _conv_observing.discard(conversation_id)
+
+
 def run_observe_bg(conversation_id: str, history: list[dict], question: str,
                    answer_text: str) -> None:
     """后台异步：主动记忆分析（供 chat_ask 和 chat_stream 共用）。
@@ -58,8 +65,14 @@ def run_observe_bg(conversation_id: str, history: list[dict], question: str,
 
         idle_timeout = int(cfg.get("memory_session_idle_timeout", "30")) * 60  # 转为秒
         with _conv_observe_lock:
-            last_obs = _conv_last_observe.get(conversation_id, 0)
-        idle_secs = time.time() - last_obs
+            last_obs = _conv_last_observe.get(conversation_id)
+        if last_obs is None:
+            # 首次交互：只登记时间戳并走消息数间隔逻辑，避免每个新会话第一轮就全量 observe
+            with _conv_observe_lock:
+                _conv_last_observe[conversation_id] = time.time()
+            idle_secs = 0.0
+        else:
+            idle_secs = time.time() - last_obs
 
         if idle_secs > idle_timeout:
             from server.database import get_session_ctx

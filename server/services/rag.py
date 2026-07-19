@@ -55,8 +55,13 @@ def build_qa_prompt(
             f"建议用户尝试更换关键词或上传相关文档。"
             f"使用中文回答，简洁明确。"
         )
-    if web_sourced:
+    web_chunks = [c for c in chunks if c.get("match_type") == "web"]
+    kb_chunks = [c for c in chunks if c.get("match_type") != "web"]
+    if web_sourced or not kb_chunks:
         return _build_web_prompt(question, chunks)
+    if web_chunks:
+        # 混合模式：KB 为主 + 网络补充，来源分节呈现，避免网络内容被标成《文档》
+        return _build_mixed_prompt(question, kb_chunks, web_chunks)
     return _build_kb_prompt(question, chunks)
 
 
@@ -129,6 +134,44 @@ def _build_web_prompt(question: str, chunks: list[dict]) -> str:
 {question}"""
 
 
+def _build_mixed_prompt(question: str, kb_chunks: list[dict], web_chunks: list[dict]) -> str:
+    """KB 结果 + 网络结果混合场景：分节呈现并要求分别标注来源。"""
+    kb_parts = []
+    for i, chunk in enumerate(kb_chunks, 1):
+        kb_parts.append(
+            f"[{i}] 来源: {chunk['document_title']} (段落 {chunk.get('chunk_no', 0)})\n{chunk['content']}"
+        )
+    web_parts = []
+    offset = len(kb_chunks)
+    for j, chunk in enumerate(web_chunks, 1):
+        url = chunk.get("url") or chunk.get("file_name", "")
+        web_parts.append(
+            f"[{offset + j}] 标题: {chunk['document_title']}\n链接: {url}\n内容: {chunk['content']}"
+        )
+    kb_titles = "、".join(
+        list(dict.fromkeys(c["document_title"] for c in kb_chunks if c.get("document_title")))[:3]
+    )
+
+    return f"""## 参考资料一：知识库文档
+{chr(10).join(kb_parts)}
+
+## 参考资料二：互联网搜索结果（补充）
+{chr(10).join(web_parts)}
+
+## 要求
+- 你是一个严谨的检索助手，只根据上述参考资料回答问题，不要编造
+- 每个结论必须标注来源编号：知识库结论用 [编号]，网络结论用 [编号](链接)
+- 优先使用知识库文档的信息，网络搜索结果仅作补充
+- 如果参考资料只覆盖了部分问题，诚实说明哪些能回答、哪些不能
+- 使用中文回答
+- 在回答末尾分别列出信息来源，格式：
+  > 📚 **知识库来源**：《{kb_titles}》
+  > 🌐 **网络来源**：列出用到的链接
+
+## 用户问题
+{question}"""
+
+
 def format_citations(chunks: list[dict], web_sourced: bool = False) -> list[dict]:
     seen_ids: set[str] = set()
     result = []
@@ -159,22 +202,19 @@ class RAGService:
         self.retriever = retriever
         self.llm = LLMAdapter(config)
         self.config = config
-        self._web_search_client: WebSearchClient | None = None
 
-    @property
-    def _web_search(self) -> WebSearchClient | None:
-        """延迟初始化 WebSearchClient，仅在启用且配置了 Key 时可用。"""
-        if self._web_search_client is not None:
-            return self._web_search_client
-        enabled = self.config.get("web_search_enabled", "false") == "true"
-        api_key = self.config.get("tavily_api_key", "")
-        if enabled and api_key:
-            max_results = int(self.config.get("web_search_max_results", "5"))
-            self._web_search_client = WebSearchClient(api_key, max_results)
-        return self._web_search_client
+    def _anysearch_usable(self) -> bool:
+        return (
+            self.config.get("anysearch_enabled", "true") == "true"
+            and bool(self.config.get("anysearch_api_key", "").strip())
+        )
+
+    def _has_web_engine(self) -> bool:
+        """任一搜索引擎配置可用（AnySearch 或 Tavily）。"""
+        return self._anysearch_usable() or bool(self.config.get("tavily_api_key", "").strip())
 
     def _is_web_search_needed(self, chunks: list[dict]) -> bool:
-        """判断是否需要触发网络搜索：KB 结果太少或相关性太低。
+        """判断是否需要自动触发网络搜索：KB 结果太少或相关性太低。
 
         评分体系因 match_type 而异：
         - rerank_score: 0–1（余弦相似度）
@@ -182,8 +222,9 @@ class RAGService:
         - FTS5: 0.09–0.5（1/(1+rank)）
         因此需根据实际分数范围动态判断，而非使用固定阈值。
         """
-        client = self._web_search
-        if client is None:
+        if self.config.get("web_search_enabled", "false") != "true":
+            return False
+        if not self._has_web_engine():
             return False
         if not chunks:
             return True
@@ -210,14 +251,20 @@ class RAGService:
 
     def _do_web_search(self, question: str) -> tuple[list[dict], str | None]:
         """执行网络搜索：AnySearch 主 → Tavily 备。返回 (chunks, source)。
-        source 为 'anysearch' | 'tavily' | None（无结果时）。"""
+        source 为 'anysearch' | 'tavily' | None（无结果时）。
+
+        AnySearch 未配置时 Tavily 直接作为主引擎（不受 fallback 开关限制）；
+        AnySearch 配置了但失败/无结果时，是否回退 Tavily 由 web_search_fallback 控制。"""
+        anysearch_usable = self._anysearch_usable()
+
         # 1. AnySearch（主）
-        anysearch_enabled = self.config.get("anysearch_enabled", "true") == "true"
-        anysearch_key = self.config.get("anysearch_api_key", "").strip()
-        if anysearch_enabled and anysearch_key:
+        if anysearch_usable:
             try:
                 max_results = int(self.config.get("anysearch_max_results", "5"))
-                client = AnySearchClient(api_key=anysearch_key, max_results=max_results)
+                client = AnySearchClient(
+                    api_key=self.config.get("anysearch_api_key", "").strip(),
+                    max_results=max_results,
+                )
                 results = client.search(question)
                 if results:
                     logger.info("AnySearch 命中: %d 条结果", len(results))
@@ -227,20 +274,20 @@ class RAGService:
             except Exception as e:
                 logger.warning("AnySearch 调用失败: %s，尝试 Tavily", e)
 
-        # 2. Tavily（备）
+        # 2. Tavily（备/替补主引擎）
         fallback_enabled = self.config.get("web_search_fallback", "true") == "true"
-        if fallback_enabled:
-            ws = self._web_search
-            if ws:
-                try:
-                    results = ws.search(question)
-                    if results:
-                        logger.info("Tavily 命中: %d 条结果", len(results))
-                        return results, "tavily"
-                    else:
-                        logger.info("Tavily 无结果")
-                except Exception as e:
-                    logger.warning("Tavily 调用失败: %s", e)
+        tavily_key = self.config.get("tavily_api_key", "").strip()
+        if tavily_key and (fallback_enabled or not anysearch_usable):
+            try:
+                max_results = int(self.config.get("web_search_max_results", "5"))
+                results = WebSearchClient(tavily_key, max_results).search(question)
+                if results:
+                    logger.info("Tavily 命中: %d 条结果", len(results))
+                    return results, "tavily"
+                else:
+                    logger.info("Tavily 无结果")
+            except Exception as e:
+                logger.warning("Tavily 调用失败: %s", e)
 
         return [], None
 
@@ -259,17 +306,15 @@ class RAGService:
                     chunks = chunks + web_chunks
                     web_sourced = False  # 混合模式，KB 为主
         elif self._is_web_search_needed(chunks):
-            ws = self._web_search
-            if ws:
-                web_chunks = ws.search(question)
-                if web_chunks:
-                    logger.info("网络搜索补充: %d 条结果", len(web_chunks))
-                    if not chunks:
-                        chunks = web_chunks
-                        web_sourced = True
-                    else:
-                        chunks = chunks + web_chunks
-                        web_sourced = False
+            web_chunks, source = self._do_web_search(question)
+            if web_chunks:
+                logger.info("网络搜索补充(%s): %d 条结果", source, len(web_chunks))
+                if not chunks:
+                    chunks = web_chunks
+                    web_sourced = True
+                else:
+                    chunks = chunks + web_chunks
+                    web_sourced = False
 
         prompt = build_qa_prompt(question, chunks, web_sourced=web_sourced)
 
@@ -295,16 +340,15 @@ class RAGService:
                     chunks = chunks + web_chunks
                     web_sourced = False
         elif self._is_web_search_needed(chunks):
-            ws = self._web_search
-            if ws:
-                web_chunks = await loop.run_in_executor(None, ws.search, question)
-                if web_chunks:
-                    if not chunks:
-                        chunks = web_chunks
-                        web_sourced = True
-                    else:
-                        chunks = chunks + web_chunks
-                        web_sourced = False
+            web_chunks, source = await loop.run_in_executor(None, self._do_web_search, question)
+            if web_chunks:
+                logger.info("网络搜索补充(%s): %d 条结果", source, len(web_chunks))
+                if not chunks:
+                    chunks = web_chunks
+                    web_sourced = True
+                else:
+                    chunks = chunks + web_chunks
+                    web_sourced = False
 
         prompt = build_qa_prompt(question, chunks, web_sourced=web_sourced)
 

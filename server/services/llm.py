@@ -172,6 +172,8 @@ class LLMAdapter:
             stream=True,
         )
         async for chunk in stream:
+            if not chunk.choices:  # 部分兼容服务会发 usage-only chunk（choices 为空）
+                continue
             delta = chunk.choices[0].delta
             if delta.content:
                 yield {"type": "token", "content": delta.content}
@@ -237,7 +239,8 @@ class LLMAdapter:
             "stream": True,
         }
 
-        async with httpx.AsyncClient(timeout=120) as http:
+        timeout = int(self._cfg.get("llm_timeout", "300"))
+        async with httpx.AsyncClient(timeout=timeout) as http:
             async with http.stream("POST", url, headers=headers, json=body) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():

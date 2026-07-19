@@ -55,6 +55,7 @@ def get_session_ctx() -> Session:
     """上下文管理器版 session 获取，供非 FastAPI 代码（Worker、Config 等）使用。
 
     用法: with get_session_ctx() as session:
+    正常退出时自动 commit（显式 commit 过的调用方不受影响），异常时回滚。
     """
     global _SessionLocal
     if _SessionLocal is None:
@@ -62,6 +63,10 @@ def get_session_ctx() -> Session:
     db = _SessionLocal()
     try:
         yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 

@@ -227,13 +227,15 @@ class Retriever:
             )
             all_results = expanded
 
-        # 按 chunk_no 排序以保证上下文连贯
-        all_results.sort(key=lambda x: (
+        # 先按分数选出 max_results（避免高分 chunk 被 score=0 的上下文扩展 chunk 挤出），
+        # 再按 chunk_no 排序保证上下文连贯
+        max_results = int(self.config.get("retrieval_max_results", "50"))
+        all_results.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+        selected = all_results[:max_results]
+        selected.sort(key=lambda x: (
             x.get("document_id", ""),
             x.get("chunk_no", 0),
         ))
-
-        max_results = int(self.config.get("retrieval_max_results", "50"))
         return [
             {
                 "chunk_id": r["chunk_id"],
@@ -244,5 +246,5 @@ class Retriever:
                 "file_name": r.get("file_name", ""),
                 "chunk_no": r.get("chunk_no", 0),
             }
-            for r in all_results[:max_results]
+            for r in selected
         ]

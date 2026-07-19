@@ -8,22 +8,27 @@ from server.main import app
 
 @pytest.fixture
 def mock_rag():
-    with patch("server.routers.chat.RAGService") as MockRAG:
-        mock_rag = MagicMock()
-        mock_rag.ask_sync.return_value = {
-            "answer": "上海住宿标准不超过600元/晚",
-            "citations": [
-                {
-                    "source_type": "document_chunk",
-                    "chunk_id": "c1",
-                    "document_title": "差旅制度.pdf",
-                    "file_name": "差旅制度.pdf",
-                    "chunk_no": 3,
-                    "excerpt": "上海住宿标准不超过600元/晚",
-                }
-            ],
-        }
-        MockRAG.return_value = mock_rag
+    """模拟 RAG 服务 — 通过 ServiceRegistry 注入，因为 chat router 不再直接 import RAGService。"""
+    mock_rag = MagicMock()
+    mock_rag.ask_sync.return_value = {
+        "answer": "上海住宿标准不超过600元/晚",
+        "citations": [
+            {
+                "source_type": "document_chunk",
+                "chunk_id": "c1",
+                "document_title": "差旅制度.pdf",
+                "file_name": "差旅制度.pdf",
+                "chunk_no": 3,
+                "excerpt": "上海住宿标准不超过600元/晚",
+            }
+        ],
+    }
+
+    mock_registry = MagicMock()
+    mock_registry.get_rag_service.return_value = mock_rag
+    mock_registry.get_llm.return_value = MagicMock()
+
+    with patch("server.services.registry.ServiceRegistry.get_singleton", return_value=mock_registry):
         yield mock_rag
 
 

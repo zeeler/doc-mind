@@ -1,10 +1,32 @@
 """URL fetcher — downloads and extracts text content from URLs."""
 
+import ipaddress
+import socket
+from urllib.parse import urlparse
+
 import httpx
 import logging
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+
+def _is_private_host(host: str | None) -> bool:
+    """判断主机是否解析到内网/环回地址（SSRF 防护）。解析失败返回 False（让请求自然报错）。"""
+    if not host:
+        return True
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            return True
+    return False
 
 
 def fetch_url(url: str, timeout: int = 30) -> dict:
@@ -14,6 +36,11 @@ def fetch_url(url: str, timeout: int = 30) -> dict:
     """
     result = {"title": "", "text_content": "", "error": None}
 
+    # SSRF 防护：拒绝解析到内网/环回地址的 URL（重定向落点也检查）
+    if _is_private_host(urlparse(url).hostname):
+        result["error"] = "不允许访问内网地址"
+        return result
+
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (compatible; KnowledgeBase/1.0)",
@@ -22,6 +49,10 @@ def fetch_url(url: str, timeout: int = 30) -> dict:
         with httpx.Client(timeout=timeout, follow_redirects=True) as client:
             resp = client.get(url, headers=headers)
             resp.raise_for_status()
+
+        if _is_private_host(resp.url.host):
+            result["error"] = "不允许访问内网地址（重定向）"
+            return result
 
         soup = BeautifulSoup(resp.text, "html.parser")
 

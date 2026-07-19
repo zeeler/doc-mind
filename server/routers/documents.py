@@ -1,5 +1,6 @@
 """文档管理路由。"""
 
+import asyncio
 import uuid
 import hashlib
 import shutil
@@ -48,39 +49,11 @@ def _cleanup_document_indices(doc_id: str) -> None:
         logger.warning(f"FTS5 清除索引失败 doc {doc_id}: {e}")
 
 
-@router.post("/upload")
-async def upload_document(request: Request, file: UploadFile = File(...), folder_path: str = Form("")):
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="文件名不能为空")
-
-    # 路径穿越验证：过滤 .. 和绝对路径
-    folder_path = (folder_path or "").strip()
-    if ".." in folder_path or folder_path.startswith("/"):
-        raise HTTPException(status_code=400, detail="folder_path 包含非法字符")
-
-    suffix = Path(file.filename).suffix.lower().lstrip(".")
-    suffix = SUFFIX_NORMALIZE.get(suffix, suffix)
-    if suffix not in SUPPORTED_TYPES:
-        raise HTTPException(status_code=400, detail=f"不支持的文件类型: {suffix}")
-
-    # 检查 Content-Length（如果客户端提供了的话，快速拒绝超大文件）
-    content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail=f"文件大小超过限制 ({MAX_FILE_SIZE // 1024 // 1024}MB)",
-        )
-
-    content = await file.read()
-    if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail=f"文件大小超过限制 ({MAX_FILE_SIZE // 1024 // 1024}MB)",
-        )
-
+def _process_upload(content: bytes, filename: str, suffix: str, folder_path: str) -> dict:
+    """同步处理上传内容（去重 + 落盘 + 建档 + 排队）。由路由放线程池执行，避免阻塞事件循环。"""
     checksum = _compute_sha256(content)
 
-    # === 去重检查（加锁防止 TOCTOU 竞态）===
+    # 去重检查：加锁防止并发上传相同文件产生竞态
     with _dedup_lock:
         with get_session_ctx() as session:
             existing = session.query(Document).filter(Document.checksum == checksum).first()
@@ -116,11 +89,11 @@ async def upload_document(request: Request, file: UploadFile = File(...), folder
                 },
             }
 
-        # === 新文件 ===
+        # 新文件
         doc_id = str(uuid.uuid4())
         file_dir = DATA_DIR / "files" / doc_id
         file_dir.mkdir(parents=True, exist_ok=True)
-        safe_name = Path(file.filename).name  # 仅取文件名，防路径穿越
+        safe_name = Path(filename).name  # 仅取文件名，防路径穿越
         file_path = file_dir / safe_name
         file_path.write_bytes(content)
 
@@ -155,6 +128,40 @@ async def upload_document(request: Request, file: UploadFile = File(...), folder
             "status": doc.status,
         },
     }
+
+
+@router.post("/upload")
+async def upload_document(request: Request, file: UploadFile = File(...), folder_path: str = Form("")):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+
+    # 路径穿越验证：过滤 .. 和绝对路径
+    folder_path = (folder_path or "").strip()
+    if ".." in folder_path or folder_path.startswith("/"):
+        raise HTTPException(status_code=400, detail="folder_path 包含非法字符")
+
+    suffix = Path(file.filename).suffix.lower().lstrip(".")
+    suffix = SUFFIX_NORMALIZE.get(suffix, suffix)
+    if suffix not in SUPPORTED_TYPES:
+        raise HTTPException(status_code=400, detail=f"不支持的文件类型: {suffix}")
+
+    # 检查 Content-Length（如果客户端提供了的话，快速拒绝超大文件）
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件大小超过限制 ({MAX_FILE_SIZE // 1024 // 1024}MB)",
+        )
+
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件大小超过限制 ({MAX_FILE_SIZE // 1024 // 1024}MB)",
+        )
+
+    # 大文件落盘 + 锁内 DB 操作是同步阻塞，放线程池执行避免卡住整个事件循环
+    return await asyncio.to_thread(_process_upload, content, file.filename, suffix, folder_path)
 
 
 @router.post("/import-url")

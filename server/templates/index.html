@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>知识库</title>
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -272,6 +273,14 @@ body {
 }
 .msg.assistant .bubble pre code { background:none; padding:0; }
 /* Message action buttons — icon-only, ChatGPT/Grok style */
+.msg-cites { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.msg-cites .cite-item {
+  font: 11px var(--sans); color: var(--text-secondary);
+  background: var(--bg-sidebar); border: 1px solid var(--border-light);
+  border-radius: 99px; padding: 2px 10px; text-decoration: none;
+  max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.msg-cites a.cite-item:hover { color: var(--amber); border-color: var(--amber); }
 .msg-actions { display:flex; gap:2px; margin-top:8px; opacity:0; transition:opacity .15s; }
 .msg:hover .msg-actions { opacity:1; }
 .msg-actions button {
@@ -621,6 +630,12 @@ body {
             <div class="content">
               <div v-if="m.role==='user'" class="bubble">{{ m.content }}</div>
               <div v-if="m.role==='assistant'" class="bubble" v-html="md(m.content)"></div>
+              <div v-if="m.role==='assistant'&&m.citations&&m.citations.length" class="msg-cites">
+                <template v-for="(c,i) in uniqueCitations(m.citations)" :key="i">
+                  <a v-if="c.url" :href="c.url" target="_blank" rel="noopener" class="cite-item">🌐 {{ c.document_title || c.url }}</a>
+                  <span v-else class="cite-item">📚 《{{ c.document_title }}》</span>
+                </template>
+              </div>
               <div class="msg-actions">
                 <button :class="{copied:copyId===m.id}" @click="copyMd(m)" title="复制">
                   <svg v-if="copyId!==m.id" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
@@ -719,7 +734,7 @@ body {
         </div>
         <div style="display:flex;gap:8px;margin-bottom:10px;min-height:120px">
           <div class="upload-zone" @click="$refs.fileInput.click()" @dragover.prevent @drop.prevent="uploadDrop" style="flex:1;margin-bottom:0;padding:16px;display:flex;flex-direction:column;align-items:center;justify-content:center">
-            <input type="file" ref="fileInput" @change="uploadFile" accept=".pdf,.docx,.md,.txt,.markdown" style="display:none">
+            <input type="file" ref="fileInput" @change="uploadFile" accept=".pdf,.docx,.xlsx,.pptx,.mobi,.md,.txt,.markdown" style="display:none">
             <p>{{ uploading ? '上传中...' : '拖拽文件到此处，或点击上传' }}</p>
             <span>支持 PDF / Word / Markdown / TXT</span>
           </div>
@@ -771,6 +786,7 @@ body {
               </div>
             </div>
             <div class="doc-actions">
+              <button @click.stop="openTagPicker(d,$event)" title="编辑标签">🏷</button>
               <button v-if="d.file_type !== 'url'" @click="retryDoc(d.id)" :disabled="retryingIds.has(d.id)" :title="retryingIds.has(d.id)?'索引中...':'重新索引'">{{ retryingIds.has(d.id) ? '⏳' : '🔄' }}</button>
               <button class="doc-del" @click="delDoc(d.id,$event)">删除</button>
             </div>
@@ -1087,12 +1103,12 @@ createApp({
       try {
         const res = await fetch('/api/v1/chat/stream', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:currentConv.value,question:q,web_search:webSearch.value})});
         if (!res.ok) { const e=await res.json().catch(()=>({detail:res.statusText})); messages.value=[...messages.value,{id:Date.now().toString(),role:'assistant',content:'❌ '+e.detail}]; streaming.value=false; return; }
-        const reader=res.body.getReader(),dec=new TextDecoder(); let buf='',evt='',full='';
-        while(true){const{value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});const lines=buf.split('\n');buf=lines.pop()||'';for(const l of lines){if(l.startsWith('event: ')){evt=l.slice(7).trim()}else if(l.startsWith('data: ')){try{const p=JSON.parse(l.slice(6));if(evt==='error')streamErr.value=p.message||'未知错误';else if(p.type==='token'){full+=p.content;streamText.value=full;nextTick(scrollBottom)}}catch(e){}}}}
+        const reader=res.body.getReader(),dec=new TextDecoder(); let buf='',evt='',full='',cits=[];
+        while(true){const{value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});const lines=buf.split('\n');buf=lines.pop()||'';for(const l of lines){if(l.startsWith('event: ')){evt=l.slice(7).trim()}else if(l.startsWith('data: ')){try{const p=JSON.parse(l.slice(6));if(evt==='error')streamErr.value=p.message||'未知错误';else if(evt==='citations'&&Array.isArray(p))cits=p;else if(p.type==='token'){full+=p.content;streamText.value=full;nextTick(scrollBottom)}}catch(e){}}}}
       } catch(e) { streamErr.value = '网络错误: '+e.message; }
       streaming.value = false;
       const f = streamText.value + (streamErr.value ? '\n\n---\n❌ '+streamErr.value : '');
-      if (f) messages.value = [...messages.value, {id:Date.now().toString(),role:'assistant',content:f}];
+      if (f) messages.value = [...messages.value, {id:Date.now().toString(),role:'assistant',content:f,citations:cits}];
       streamText.value = ''; streamErr.value = '';
       await loadConversations();
       await openTask(currentConv.value);
@@ -1123,7 +1139,7 @@ createApp({
       } catch(e) { console.error(e); }
     }
     async function retryFailedJobs() { try { const d = await api('/api/v1/jobs/retry-failed', {method:'POST'}); alert('已重试 ' + d.data.retried + ' 个任务'); await loadJobStats(); } catch(e) { console.error(e); } }
-    async function uploadFile(e) { const f=e.target.files[0];if(!f)return;uploading.value=true;try{const fd=new FormData();fd.append('file',f);const r=await fetch('/api/v1/documents/upload',{method:'POST',body:fd});if(!r.ok)throw new Error('HTTP '+r.status);}catch(e){alert('上传失败: '+e.message);}finally{uploading.value=false;await loadDocuments();} }
+    async function uploadFile(e) { const f=e.target.files[0];if(!f)return;uploading.value=true;try{const fd=new FormData();fd.append('file',f);const r=await fetch('/api/v1/documents/upload',{method:'POST',body:fd});if(!r.ok)throw new Error('HTTP '+r.status);}catch(e){alert('上传失败: '+e.message);}finally{uploading.value=false;e.target.value='';await loadDocuments();} }
     function uploadDrop(e) { const f=e.dataTransfer.files[0];if(!f)return;uploading.value=true;const fd=new FormData();fd.append('file',f);fetch('/api/v1/documents/upload',{method:'POST',body:fd}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);}).catch(e=>{alert('上传失败: '+e.message);}).finally(()=>{uploading.value=false;loadDocuments();}); }
     async function delDoc(id, evt) { try { if(!await showConfirm('确定删除这个文档？',evt))return; } catch(_){return;} try{const r=await fetch('/api/v1/documents/'+id,{method:'DELETE'});if(!r.ok)throw new Error('HTTP '+r.status);await Promise.all([loadDocuments(),loadJobStats(),loadTags(),loadFolders()]);}catch(e){alert('删除失败: '+e.message);} }
     async function retryDoc(id) {
@@ -1173,14 +1189,16 @@ createApp({
     async function checkSearchStatus() { try { const d=await api('/api/v1/config/search-status'); const s=d.data; webSearchAvailable.value=s.web_search_available; } catch(e) { webSearchAvailable.value=false; } }
     async function testEmbedding() { testingEmbedding.value=true;embeddingResult.value=null; try { const d=await api('/api/v1/config/embedding-test'); embeddingResult.value={ok:true,msg:'✓ 连接成功，模型: '+d.data.model+'，维度: '+d.data.dimension}; } catch(e) { embeddingResult.value={ok:false,msg:'✗ '+e.message}; } testingEmbedding.value=false; }
     async function testReranker() { testingReranker.value=true;rerankerResult.value=null; try { const d=await api('/api/v1/config/reranker-test'); rerankerResult.value={ok:true,msg:'✓ 连接成功，模型: '+d.data.model}; } catch(e) { rerankerResult.value={ok:false,msg:'✗ '+e.message}; } testingReranker.value=false; }
-    async function testChat() { testingChat.value=true;chatResult.value=null;try{const cr=await api('/api/v1/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const res=await fetch('/api/v1/chat/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:cr.data.id,question:'你好'})});const d=await res.json();chatResult.value=d.data&&d.data.answer?{ok:true,msg:'✓ '+d.data.answer.slice(0,60)+'...'}:{ok:false,msg:'✗ '+(d.detail||res.statusText)}}catch(e){chatResult.value={ok:false,msg:'✗ '+e.message}}testingChat.value=false; }
+    async function testChat() { testingChat.value=true;chatResult.value=null;let tmpId=null;try{const cr=await api('/api/v1/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});tmpId=cr.data.id;const res=await fetch('/api/v1/chat/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:tmpId,question:'你好'})});const d=await res.json();chatResult.value=d.data&&d.data.answer?{ok:true,msg:'✓ '+d.data.answer.slice(0,60)+'...'}:{ok:false,msg:'✗ '+(d.detail||res.statusText)}}catch(e){chatResult.value={ok:false,msg:'✗ '+e.message}}finally{if(tmpId){try{await fetch('/api/v1/conversations/'+tmpId,{method:'DELETE'});await loadConversations();}catch(_){}}testingChat.value=false;} }
     async function testOcr() { testingOcr.value=true;ocrResult.value=null;if(config.value.ocr_engine!=='ollama'){ocrResult.value={ok:true,msg:'✓ Tesseract 就绪'};testingOcr.value=false;return}try{const b=(config.value.ocr_ollama_base_url||'http://localhost:11434/v1').replace(/\/+$/,'');const res=await fetch(b+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:config.value.ocr_ollama_model||'minicpm-v:8b',messages:[{role:'user',content:'OK'}],max_tokens:10})});if(res.ok)ocrResult.value={ok:true,msg:'✓ API 正常'};else{const e=await res.text();ocrResult.value={ok:false,msg:'✗ '+res.status+': '+e.slice(0,100)}}}catch(e){ocrResult.value={ok:false,msg:'✗ '+e.message}}testingOcr.value=false; }
     const copyId = ref(null);
     function md(t) {
       if (!t) return '';
       if (typeof marked !== 'undefined') {
-        marked.setOptions({ breaks: true, gfm: true, sanitize: true });
-        return marked.parse(t);
+        marked.setOptions({ breaks: true, gfm: true });
+        const raw = marked.parse(t);
+        // marked v5+ 已移除 sanitize 选项，必须用 DOMPurify 防 XSS
+        return (typeof DOMPurify !== 'undefined') ? DOMPurify.sanitize(raw) : raw.replace(/</g,'&lt;');
       }
       // Fallback
       return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>').replace(/^/,'<p>').replace(/$/,'</p>');
@@ -1211,7 +1229,7 @@ createApp({
     }
     async function searchDocs() { const q = filters.search.trim(); if (!q) { searchResults.value = null; return; } try { const d = await api('/api/v1/search?q=' + encodeURIComponent(q) + '&type=' + searchType.value + '&top_k=10'); searchResults.value = d.data || []; } catch(e) { console.error(e); } }
     function clearSearch() { filters.search = ''; searchResults.value = null; docsPage.value = 1; loadDocuments(); }
-    function openTagPicker(doc, event) { tagPickerDoc.value = doc; tagSearch.value = ''; }
+    function openTagPicker(doc, event) { tagPickerDoc.value = tagPickerDoc.value === doc ? null : doc; tagSearch.value = ''; }
     function closeTagPicker() { tagPickerDoc.value = null; tagSearch.value = ''; }
     async function addTagToDoc(doc, tagName) { const name = tagName.trim(); if (!name) return; await api('/api/v1/documents/' + doc.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({add_tags: [name]})}); tagSearch.value = ''; await loadDocuments(); await loadTags(); }
     async function toggleDocTag(doc, tag) { const has = doc.tags && doc.tags.some(t => t.id === tag.id); await api('/api/v1/documents/' + doc.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(has ? {remove_tags: [tag.name]} : {add_tags: [tag.name]})}); await loadDocuments(); await loadTags(); }

@@ -27,18 +27,20 @@ def get_config():
 
 
 @router.put("")
-def update_config(body: dict = Body(...)):
+def update_config(body: UpdateConfigRequest):
     cfg = AppConfig()
-    unknown_keys = [k for k in body if k not in DEFAULTS]
+    data = body.model_dump()
+    unknown_keys = [k for k in data if k not in DEFAULTS]
     if unknown_keys:
         raise HTTPException(
             status_code=400,
             detail=f"不支持的配置项: {', '.join(unknown_keys)}",
         )
-    for key, value in body.items():
+    for key, value in data.items():
         cfg.set(key, str(value))
     # 配置变更后主动清空所有服务缓存，确保下次请求用新配置重建
     ServiceRegistry.get_singleton().invalidate_all()
+    _invalidate_search_status_cache()
     return {"code": "OK", "message": "success", "data": cfg.get_all()}
 
 
@@ -177,8 +179,18 @@ def get_vector_info():
     return {"code": "OK", "data": info}
 
 
+def _invalidate_search_status_cache() -> None:
+    """配置变更或手动测试后强制刷新 search-status。"""
+    global _search_status_cache
+    with _search_status_lock:
+        _search_status_cache = None
+
+
 def _test_search_provider(provider: str, api_key: str, max_results: int = 1) -> dict:
-    """内部：测试单个搜索引擎连通性。返回 {ok, error?, result_count?, latency_ms?}。"""
+    """内部：测试单个搜索引擎连通性。返回 {ok, error?, result_count?, latency_ms?}。
+
+    raise_errors=True 让 client 抛出请求异常，无效 key 才能被识别为失败
+    （否则 client 内部吞错返回 []，无效 key 也会显示"连接成功"）。"""
     t0 = time.time()
     try:
         if provider == "anysearch":
@@ -190,7 +202,7 @@ def _test_search_provider(provider: str, api_key: str, max_results: int = 1) -> 
         else:
             return {"ok": False, "error": f"未知的搜索引擎: {provider}"}
 
-        results = client.search("test")
+        results = client.search("test", raise_errors=True)
         elapsed = int((time.time() - t0) * 1000)
         return {"ok": True, "result_count": len(results), "latency_ms": elapsed}
     except Exception as e:
@@ -207,6 +219,7 @@ def test_search(provider: str, body: dict = Body(default={})):
     if not api_key:
         return {"code": "OK", "data": {"ok": False, "error": "未配置 API Key"}}
     result = _test_search_provider(provider, api_key)
+    _invalidate_search_status_cache()  # 测试后让 search-status 立即反映最新状态
     return {"code": "OK", "data": result}
 
 

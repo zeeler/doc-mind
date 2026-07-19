@@ -74,6 +74,8 @@ def delete_conversation(conv_id: str, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="会话不存在")
     session.delete(conv)
     session.commit()
+    from server.services.observer import forget_conversation
+    forget_conversation(conv_id)
     return {"code": "OK", "message": "success", "data": None}
 
 
@@ -82,6 +84,9 @@ def batch_delete_conversations(req: BatchDeleteConvsRequest, session: Session = 
     ids = req.ids
     count = session.query(Conversation).filter(Conversation.id.in_(ids)).delete(synchronize_session=False)
     session.commit()
+    from server.services.observer import forget_conversation
+    for cid in ids:
+        forget_conversation(cid)
     return {"code": "OK", "message": "success", "data": {"deleted": count}}
 
 

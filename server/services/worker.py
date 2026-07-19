@@ -99,9 +99,10 @@ def _check_chromadb_consistency():
                 f"正在清理…"
             )
             # 分批删除避免单次请求过大
-            batch = list(orphan_ids)[:500]
-            collection.delete(ids=batch)
-            logger.info(f"已清理 ChromaDB 孤儿向量: {len(batch)} 个")
+            orphan_list = list(orphan_ids)
+            for i in range(0, len(orphan_list), 500):
+                collection.delete(ids=orphan_list[i:i + 500])
+            logger.info(f"已清理 ChromaDB 孤儿向量: {len(orphan_list)} 个")
     except Exception as e:
         logger.warning(f"ChromaDB 一致性检查失败（非致命）: {e}")
 
@@ -233,6 +234,7 @@ def _execute_bookmark_import(job, config):
 
             # 在同一 session 内创建任务，避免每 URL 额外 2 次 session 开销
             create_jobs_for_document(doc_id, session=s)
+            s.commit()  # 显式提交 jobs（ctx 退出也会兜底 commit）
             success += 1
 
     # Clean up staging

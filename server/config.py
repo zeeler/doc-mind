@@ -41,6 +41,7 @@ DEFAULTS = {
     "custom_chat_model": "",
     "custom_embedding_model": "",
     "custom_api_type": "openai",     # "openai" | "anthropic" — API 格式
+    "llm_timeout": "300",            # LLM 请求超时（秒），同步/流式共用
     "ocr_enabled": "true",
     "ocr_engine": "tesseract",       # "tesseract" | "ollama" — OCR 引擎
     "ocr_ollama_model": "llama3.2-vision:11b",
@@ -62,7 +63,7 @@ DEFAULTS = {
     "tavily_api_key": "",
     "web_search_max_results": "5",
     "anysearch_enabled": "true",
-    "anysearch_api_key": "as_sk_2ef7a12922fb49e0aa3bc65e5a31e643",
+    "anysearch_api_key": "",           # 在设置页配置，切勿提交真实 key
     "anysearch_max_results": "5",
     "web_search_fallback": "true",  # AnySearch 失败时回退到 Tavily
     "embedding_enabled": "false",

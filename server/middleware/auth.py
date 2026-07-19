@@ -40,7 +40,6 @@ class AuthMiddleware:
             return
 
         # 从请求头或查询参数提取 API key
-        headers = dict(scope.get("headers", []))
         provided = ""
         for key, val in scope.get("headers", []):
             if key.lower() == b"x-api-key":
