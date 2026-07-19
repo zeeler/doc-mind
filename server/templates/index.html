@@ -734,9 +734,9 @@ body {
         </div>
         <div style="display:flex;gap:8px;margin-bottom:10px;min-height:120px">
           <div class="upload-zone" @click="$refs.fileInput.click()" @dragover.prevent @drop.prevent="uploadDrop" style="flex:1;margin-bottom:0;padding:16px;display:flex;flex-direction:column;align-items:center;justify-content:center">
-            <input type="file" ref="fileInput" @change="uploadFile" accept=".pdf,.docx,.xlsx,.pptx,.mobi,.md,.txt,.markdown" style="display:none">
+            <input type="file" ref="fileInput" @change="uploadFile" accept=".pdf,.docx,.xlsx,.pptx,.mobi,.md,.txt,.markdown,.png,.jpg,.jpeg,.webp,.bmp" style="display:none">
             <p>{{ uploading ? '上传中...' : '拖拽文件到此处，或点击上传' }}</p>
-            <span>支持 PDF / Word / Markdown / TXT</span>
+            <span>支持 PDF / Word / Markdown / TXT / 图片</span>
           </div>
           <button @click="scanDirectory" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:2px dashed var(--border);border-radius:var(--radius);background:var(--card);cursor:pointer;padding:16px;font:13px var(--sans);color:var(--text-secondary);transition:all .25s" :disabled="dirProcessing"
             @mouseover="$event.target.style.borderColor='var(--amber)';$event.target.style.background='var(--amber-light)';$event.target.style.color='var(--amber)'"
@@ -1155,7 +1155,7 @@ createApp({
     }
     async function scanDirectory() {
       if (!window.showDirectoryPicker) { alert('浏览器不支持目录选择，请使用 Chrome/Edge'); return; }
-      const SUFFIXES = ['pdf','docx','xlsx','pptx','mobi','md','txt','markdown'];
+      const SUFFIXES = ['pdf','docx','xlsx','pptx','mobi','md','txt','markdown','png','jpg','jpeg','webp','bmp'];
       try {
         const handle = await window.showDirectoryPicker(); const files = [];
         async function walk(dir, prefix) {

@@ -24,3 +24,21 @@ class TestParser:
         assert "docx" in SUPPORTED_TYPES
         assert "md" in SUPPORTED_TYPES
         assert "txt" in SUPPORTED_TYPES
+        assert "png" in SUPPORTED_TYPES
+        assert "jpg" in SUPPORTED_TYPES
+
+    def test_parse_image_tesseract(self, tmp_path):
+        """用 Pillow 创建含文字的 PNG，验证 Tesseract OCR 解析。"""
+        pytest.importorskip("PIL")
+        pytest.importorskip("pytesseract")
+        from PIL import Image, ImageDraw
+
+        img_path = tmp_path / "test_ocr.png"
+        img = Image.new("RGB", (400, 80), "white")
+        d = ImageDraw.Draw(img)
+        d.text((10, 30), "Hello OCR 测试", fill="black")
+        img.save(str(img_path))
+
+        text = parse_file(str(img_path), {"ocr_engine": "tesseract", "ocr_enabled": "true"})
+        # Tesseract 可能因字体/渲染差异不完全匹配，但至少应包含部分字符
+        assert len(text.strip()) > 0, "OCR 应返回非空文本"

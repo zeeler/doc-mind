@@ -1,4 +1,4 @@
-"""文档解析 — PDF/Word/Markdown/TXT → 纯文本，支持扫描件 OCR。"""
+"""文档解析 — PDF/Word/Markdown/TXT/图片 → 纯文本，支持扫描件 OCR。"""
 
 import base64
 import logging
@@ -8,9 +8,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_TYPES = {"pdf", "docx", "xlsx", "pptx", "mobi", "md", "txt"}
-# 补充后缀映射：.markdown → md
-SUFFIX_NORMALIZE = {"markdown": "md"}
+SUPPORTED_TYPES = {"pdf", "docx", "xlsx", "pptx", "mobi", "md", "txt",
+                   "png", "jpg", "jpeg", "webp", "bmp"}
+# 补充后缀映射：.markdown → md，.jpeg → jpg
+SUFFIX_NORMALIZE = {"markdown": "md", "jpeg": "jpg"}
+
+IMAGE_TYPES = {"png", "jpg", "jpeg", "webp", "bmp"}
 
 # 原生 PDF 引擎（liteparse）的底层 C 库在多线程并发调用时
 # 可能出现 malloc double-free 等内存错误。全局锁保证同一时间只有一个线程解析 PDF。
@@ -45,6 +48,9 @@ def parse_file(file_path: str | Path, config: dict | None = None) -> str:
     if suffix == "mobi":
         from server.services.formats.mobi import parse_mobi
         return parse_mobi(path)
+
+    if suffix in IMAGE_TYPES:
+        return _parse_image(path, config or {})
 
     raise ValueError(f"不支持的文件类型: {suffix}")
 
@@ -158,3 +164,114 @@ def _parse_docx(path: Path) -> str:
         if para.text.strip():
             parts.append(para.text.strip())
     return "\n\n".join(parts)
+
+
+# ====== 图片 OCR 解析 ======
+
+
+def _parse_image(path: Path, config: dict) -> str:
+    """图片文件 → OCR 文字识别。根据 ocr_engine 配置选择引擎。"""
+    ocr_enabled = config.get("ocr_enabled", "true") != "false"
+    if not ocr_enabled:
+        logger.info(f"图片 OCR 已禁用（ocr_enabled=false），跳过: {path.name}")
+        return ""
+
+    engine = config.get("ocr_engine", "tesseract")
+    logger.info(f"图片 OCR 开始: {path.name} (引擎: {engine})")
+
+    if engine == "ollama":
+        text = _ocr_image_ollama(path, config)
+    else:
+        text = _ocr_image_tesseract(path)
+
+    text = text.strip()
+    if text:
+        logger.info(f"图片 OCR 完成: {path.name} ({len(text)} 字符)")
+    else:
+        logger.warning(f"图片 OCR 未提取到文字: {path.name}")
+    return text
+
+
+def _ocr_image_tesseract(path: Path) -> str:
+    """Tesseract 本地 OCR：读图片 → pytesseract 识别中英文。"""
+    try:
+        from PIL import Image
+    except ImportError:
+        logger.warning("Pillow 未安装，无法读取图片")
+        return ""
+    try:
+        import pytesseract
+    except ImportError:
+        logger.warning("pytesseract 未安装，无法使用 Tesseract OCR")
+        return ""
+
+    try:
+        img = Image.open(path)
+        # 转换为 RGB 确保兼容性（RGBA/P 模式需要转换）
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        text = pytesseract.image_to_string(img, lang="chi_sim+eng")
+        return text
+    except pytesseract.TesseractError as e:
+        logger.error(f"Tesseract OCR 失败: {e}")
+        return ""
+    except Exception as e:
+        logger.error(f"图片读取/OCR 失败 {path.name}: {e}")
+        return ""
+
+
+def _ocr_image_ollama(path: Path, config: dict) -> str:
+    """多模态模型 OCR（Ollama / MLX / 自定义 API）。读图片 → base64 → Vision API。"""
+    try:
+        from PIL import Image
+    except ImportError:
+        logger.warning("Pillow 未安装，无法读取图片")
+        return ""
+
+    try:
+        from openai import OpenAI
+    except ImportError:
+        logger.warning("openai 未安装，无法调用 OCR API")
+        return ""
+
+    model = config.get("ocr_ollama_model", "")
+    base_url = config.get("ocr_ollama_base_url", "http://localhost:11434/v1")
+    if not model:
+        logger.warning("OCR 模型 ID 未配置（ocr_ollama_model），请在设置中填写")
+        return ""
+
+    try:
+        img = Image.open(path)
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+
+        import io
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        img_b64 = base64.b64encode(buf.getvalue()).decode()
+    except Exception as e:
+        logger.error(f"图片读取/编码失败 {path.name}: {e}")
+        return ""
+
+    # API key: ocr_api_key > llm_api_key > 本地 dummy
+    api_key = config.get("ocr_api_key", "").strip()
+    if not api_key:
+        api_key = config.get("llm_api_key", "").strip() or "ocr"
+
+    try:
+        client = OpenAI(base_url=base_url, api_key=api_key)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "请提取这张图片中的所有文字，只输出文字内容，不要添加其他说明。"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+                ],
+            }],
+            max_tokens=4096,
+        )
+        return response.choices[0].message.content or ""
+    except Exception as e:
+        logger.error(f"OCR API 调用失败 {path.name}: {e}")
+        return ""
