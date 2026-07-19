@@ -55,6 +55,16 @@ def parse_file(file_path: str | Path, config: dict | None = None) -> str:
     raise ValueError(f"不支持的文件类型: {suffix}")
 
 
+def _should_use_local_ocr(config: dict) -> bool:
+    """判断是否应优先使用本地多模态模型做 OCR。
+
+    条件：ocr_prefer_local=true 且 ocr_ollama_model 已配置。"""
+    return (
+        config.get("ocr_prefer_local", "false") == "true"
+        and bool(config.get("ocr_ollama_model", "").strip())
+    )
+
+
 def _parse_pdf(path: Path, config: dict) -> str:
     from liteparse import LiteParse
 
@@ -71,8 +81,9 @@ def _parse_pdf(path: Path, config: dict) -> str:
 
     if text_len < 100 and ocr_enabled:
         engine = config.get("ocr_engine", "tesseract")
-        if engine == "ollama":
-            engine_label = "本地多模态模型"
+        use_local = _should_use_local_ocr(config)
+        if use_local or engine == "ollama":
+            engine_label = "本地多模态模型（优先）" if use_local else "本地多模态模型"
             logger.info(
                 f"PDF 文本量少 ({text_len} 字符 / {page_count} 页)，启动 OCR ({engine_label})"
             )
@@ -170,16 +181,18 @@ def _parse_docx(path: Path) -> str:
 
 
 def _parse_image(path: Path, config: dict) -> str:
-    """图片文件 → OCR 文字识别。根据 ocr_engine 配置选择引擎。"""
+    """图片文件 → OCR 文字识别。ocr_prefer_local 勾选且模型已配置时优先本地多模态模型。"""
     ocr_enabled = config.get("ocr_enabled", "true") != "false"
     if not ocr_enabled:
         logger.info(f"图片 OCR 已禁用（ocr_enabled=false），跳过: {path.name}")
         return ""
 
+    use_local = _should_use_local_ocr(config)
     engine = config.get("ocr_engine", "tesseract")
-    logger.info(f"图片 OCR 开始: {path.name} (引擎: {engine})")
+    engine_label = "本地多模态模型（优先）" if use_local else ("本地多模态模型" if engine == "ollama" else "tesseract")
+    logger.info(f"图片 OCR 开始: {path.name} (引擎: {engine_label})")
 
-    if engine == "ollama":
+    if use_local or engine == "ollama":
         text = _ocr_image_ollama(path, config)
     else:
         text = _ocr_image_tesseract(path)

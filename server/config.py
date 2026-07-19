@@ -44,6 +44,7 @@ DEFAULTS = {
     "llm_timeout": "300",            # LLM 请求超时（秒），同步/流式共用
     "ocr_enabled": "true",
     "ocr_engine": "tesseract",       # "tesseract" | "ollama" — OCR 引擎
+    "ocr_prefer_local": "false",     # 勾选后如本地多模态模型已配置，优先用它做 OCR
     "ocr_ollama_model": "llama3.2-vision:11b",
     "ocr_ollama_base_url": "http://localhost:11434/v1",
     "ocr_api_key": "",               # OCR API Key（为空时使用 llm_api_key）

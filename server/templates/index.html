@@ -844,7 +844,8 @@ body {
         <h3>文档解析 OCR</h3>
         <div class="desc">扫描件 PDF 文字识别，独立于对话模型</div>
         <div class="field"><label>引擎</label><select v-model="config.ocr_engine"><option value="tesseract">Tesseract (CPU)</option><option value="ollama">本地 API (Ollama/MLX)</option></select></div>
-        <template v-if="config.ocr_engine==='ollama'">
+        <label class="check-lbl" style="margin-bottom:8px"><input type="checkbox" v-model="preferLocalOcr"> 优先本地模型（勾选后如模型已配置则优先用它做 OCR，无需切换引擎）</label>
+        <template v-if="config.ocr_engine==='ollama' || preferLocalOcr">
           <div class="field"><label>Base URL</label><input v-model="config.ocr_ollama_base_url" placeholder="http://localhost:11434/v1"></div>
           <div class="field"><label>模型 ID</label><input v-model="config.ocr_ollama_model" placeholder="glm-4v-9b"></div>
           <div class="field"><label>并行数</label><input v-model="config.ocr_max_workers" type="number" min="1" max="8"></div>
@@ -982,6 +983,7 @@ createApp({
     const dirResult = ref(null);
     const config = ref({llm_provider:'custom'});
     const ocrOn = ref(true);
+    const preferLocalOcr = ref(false);
     const embeddingOn = ref(false);
     const webSearchOn = ref(false);
     const vectorInfo = ref(null);
@@ -1182,8 +1184,8 @@ createApp({
         dirResult.value = msg; if (ok > 0) setTimeout(() => loadDocuments(), 500);
       } catch(e) { dirProcessing.value = false; if (e.name !== 'AbortError') dirResult.value = '目录选择失败: ' + e.message; }
     }
-    async function loadConfig() { try { const d=await api('/api/v1/config'); config.value=d.data||{}; ocrOn.value=config.value.ocr_enabled!=='false'; embeddingOn.value=config.value.embedding_enabled==='true'; rerankerOn.value=config.value.reranker_enabled==='true'; webSearchOn.value=config.value.web_search_enabled==='true'; config.value.web_search_fallback=config.value.web_search_fallback||'true'; } catch(e) {} }
-    async function saveConfig() { saveError.value=''; config.value.ocr_enabled=ocrOn.value?'true':'false';config.value.embedding_enabled=embeddingOn.value?'true':'false';config.value.reranker_enabled=rerankerOn.value?'true':'false';config.value.web_search_enabled=webSearchOn.value?'true':'false'; try { await api('/api/v1/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config.value)}); saved.value=true;setTimeout(()=>saved.value=false,2000); checkSearchStatus(); } catch(e) { saveError.value='✗ 保存失败: '+e.message; } }
+    async function loadConfig() { try { const d=await api('/api/v1/config'); config.value=d.data||{}; ocrOn.value=config.value.ocr_enabled!=='false'; preferLocalOcr.value=config.value.ocr_prefer_local==='true'; embeddingOn.value=config.value.embedding_enabled==='true'; rerankerOn.value=config.value.reranker_enabled==='true'; webSearchOn.value=config.value.web_search_enabled==='true'; config.value.web_search_fallback=config.value.web_search_fallback||'true'; } catch(e) {} }
+    async function saveConfig() { saveError.value=''; config.value.ocr_enabled=ocrOn.value?'true':'false';config.value.ocr_prefer_local=preferLocalOcr.value?'true':'false';config.value.embedding_enabled=embeddingOn.value?'true':'false';config.value.reranker_enabled=rerankerOn.value?'true':'false';config.value.web_search_enabled=webSearchOn.value?'true':'false'; try { await api('/api/v1/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config.value)}); saved.value=true;setTimeout(()=>saved.value=false,2000); checkSearchStatus(); } catch(e) { saveError.value='✗ 保存失败: '+e.message; } }
     async function testAnysearch() { testingAnysearch.value=true; anysearchResult.value=null; try { const d=await api('/api/v1/config/test-search/anysearch',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); const r=d.data; anysearchResult.value={ok:r.ok,msg:r.ok?`✓ AnySearch 连接正常 (${r.latency_ms}ms)`:'✗ AnySearch 测试失败: '+(r.error||'未知错误')}; } catch(e) { anysearchResult.value={ok:false,msg:'✗ 请求失败: '+e.message}; } finally { testingAnysearch.value=false; checkSearchStatus(); } }
     async function testTavily() { testingTavily.value=true; tavilyResult.value=null; try { const d=await api('/api/v1/config/test-search/tavily',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); const r=d.data; tavilyResult.value={ok:r.ok,msg:r.ok?`✓ Tavily 连接正常 (${r.latency_ms}ms)`:'✗ Tavily 测试失败: '+(r.error||'未知错误')}; } catch(e) { tavilyResult.value={ok:false,msg:'✗ 请求失败: '+e.message}; } finally { testingTavily.value=false; checkSearchStatus(); } }
     async function checkSearchStatus() { try { const d=await api('/api/v1/config/search-status'); const s=d.data; webSearchAvailable.value=s.web_search_available; } catch(e) { webSearchAvailable.value=false; } }
@@ -1250,7 +1252,7 @@ createApp({
       else { if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } }
     });
 
-    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,docsPage,docsTotal,PAGE_SIZE,jobStats,jobPercent,docStats,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,embeddingOn,rerankerOn,webSearchOn,vectorInfo,saved,saveError,chatResult,ocrResult,editingId,editTitle,confirmShow,confirmMsg,confirmX,confirmY,embeddingResult,rerankerResult,testingChat,testingOcr,testingEmbedding,testingReranker,testingAnysearch,testingTavily,anysearchResult,tavilyResult,webSearchAvailable,webSearch,msgBox,inputEl,memoriesList,
+    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,docsPage,docsTotal,PAGE_SIZE,jobStats,jobPercent,docStats,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,preferLocalOcr,embeddingOn,rerankerOn,webSearchOn,vectorInfo,saved,saveError,chatResult,ocrResult,editingId,editTitle,confirmShow,confirmMsg,confirmX,confirmY,embeddingResult,rerankerResult,testingChat,testingOcr,testingEmbedding,testingReranker,testingAnysearch,testingTavily,anysearchResult,tavilyResult,webSearchAvailable,webSearch,msgBox,inputEl,memoriesList,
       allTags, folderTree, filters, sections, sidebarOpen, docsSidebarCollapsed, tagPickerDoc, tagSearch, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds, onFilterChange,
       loadTags, loadFolders, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, toggleSection,
       newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,showConfirm,confirmOk,confirmCancel,testChat,testOcr,testEmbedding,testReranker,testAnysearch,testTavily,checkSearchStatus,loadMemories,rememberMessage,deleteMsg:deleteMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,loadVectorInfo,
