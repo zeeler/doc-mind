@@ -9,6 +9,7 @@ from sqlalchemy import func
 import logging
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Form, Body, HTTPException, Depends, Request
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from server.database import get_session, get_session_ctx, DATA_DIR, fts_delete_by_document_id
 from server.models.document import Document, DocumentChunk
@@ -442,6 +443,71 @@ def get_document(doc_id: str, session: Session = Depends(get_session)):
             "chunks": [
                 {"id": c.id, "chunk_no": c.chunk_no, "content": c.content[:200] + "..." if len(c.content) > 200 else c.content, "token_count": c.token_count}
                 for c in chunks
+            ],
+        },
+    }
+
+
+# 可内嵌预览的文件类型 → media_type（url 导入存为 .md 文本）
+_PREVIEW_MEDIA_TYPES = {
+    "pdf": "application/pdf",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "webp": "image/webp",
+    "bmp": "image/bmp",
+    "md": "text/plain; charset=utf-8",
+    "markdown": "text/plain; charset=utf-8",
+    "txt": "text/plain; charset=utf-8",
+    "url": "text/plain; charset=utf-8",
+}
+
+
+@router.get("/{doc_id}/file")
+def get_document_file(doc_id: str, session: Session = Depends(get_session)):
+    """内嵌预览原始文件（PDF/图片/文本）。供前端引用面板 iframe/img 使用。"""
+    doc = session.get(Document, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    media_type = _PREVIEW_MEDIA_TYPES.get((doc.file_type or "").lower())
+    if not media_type:
+        raise HTTPException(status_code=415, detail=f"该格式不支持预览: {doc.file_type}")
+    file_path = Path(doc.file_path).resolve()
+    # 路径安全：必须位于 DATA_DIR/files 内，防路径穿越
+    files_root = (DATA_DIR / "files").resolve()
+    if files_root not in file_path.parents or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return FileResponse(file_path, media_type=media_type, filename=doc.file_name, content_disposition_type="inline")
+
+
+@router.get("/{doc_id}/chunks/{chunk_no}/context")
+def get_chunk_context(doc_id: str, chunk_no: int, window: int = 1, session: Session = Depends(get_session)):
+    """返回目标 chunk 全文 + 前后各 window 个 chunk，供引用面板展示上下文。"""
+    doc = session.get(Document, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    window = max(0, min(window, 5))
+    chunks = (
+        session.query(DocumentChunk)
+        .filter(
+            DocumentChunk.document_id == doc_id,
+            DocumentChunk.chunk_no >= chunk_no - window,
+            DocumentChunk.chunk_no <= chunk_no + window,
+        )
+        .order_by(DocumentChunk.chunk_no)
+        .all()
+    )
+    target = next((c for c in chunks if c.chunk_no == chunk_no), None)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"chunk {chunk_no} 不存在")
+    return {
+        "code": "OK",
+        "message": "success",
+        "data": {
+            "target": {"id": target.id, "chunk_no": target.chunk_no, "content": target.content},
+            "context": [
+                {"chunk_no": c.chunk_no, "content": c.content}
+                for c in chunks if c.chunk_no != chunk_no
             ],
         },
     }

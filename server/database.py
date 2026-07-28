@@ -1,3 +1,4 @@
+import logging
 """数据库连接管理。"""
 
 import os
@@ -8,6 +9,7 @@ import sqlalchemy as sa
 from sqlalchemy import create_engine, Engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
+logger = logging.getLogger(__name__)
 DATA_DIR = Path(os.environ.get("KB_DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 (DATA_DIR / "files").mkdir(exist_ok=True)
@@ -28,7 +30,7 @@ def get_engine() -> Engine:
         )
 
         @event.listens_for(_engine, "connect")
-        def _set_sqlite_pragma(dbapi_connection, connection_record):
+        def _set_sqlite_pragma(dbapi_connection, connection_record) -> None:
             """每次连接时启用外键约束和 WAL 模式（SQLite 默认关闭）。"""
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys = ON")
@@ -71,14 +73,14 @@ def get_session_ctx() -> Session:
         db.close()
 
 
-def reset_engine():
+def reset_engine() -> None:
     """重置引擎和会话工厂（用于测试时切换 DATA_DIR）。"""
     global _engine, _SessionLocal
     _engine = None
     _SessionLocal = None
 
 
-def init_db():
+def init_db() -> None:
     """创建所有表，并执行迁移。显式导入所有模型确保 create_all 正确工作。"""
     from server.models.base import Base
     from server.models import Document, DocumentChunk, Conversation, Message, Job, Tag  # noqa: F401
@@ -92,7 +94,7 @@ def _table_exists(conn, name: str) -> bool:
     return result.fetchone() is not None
 
 
-def _migrate(engine):
+def _migrate(engine) -> None:
     """增量迁移：为旧数据库补齐缺失的列，并创建新表。"""
     conn = engine.raw_connection()
     try:
@@ -169,7 +171,7 @@ def _migrate(engine):
             n = fts_rebuild_all()
             conn.execute("PRAGMA user_version = 4")
             conn.commit()
-            print(f"[kb_migrate] FTS5 CJK 索引重建完成: {n} 条 chunk", flush=True)
+            logger.info(f"[kb_migrate] FTS5 CJK 索引重建完成: {n} 条 chunk")
     finally:
         conn.close()
 
@@ -183,7 +185,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
 """
 
 
-def ensure_fts5_table():
+def ensure_fts5_table() -> None:
     """创建 FTS5 全文索引虚拟表（若不存在）。使用 SQLAlchemy 连接池。"""
     with get_engine().connect() as conn:
         conn.execute(sa.text(FTS5_DDL))

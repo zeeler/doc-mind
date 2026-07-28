@@ -165,3 +165,72 @@ class TestRAGService:
                 mock_retriever.retrieve.assert_called_once()
                 # 空 KB 应该触发 web search
                 mock_ws.search.assert_called_once()
+
+    def test_manual_web_search_gated_by_master_switch(self):
+        """Bug: 手动勾选联网搜索绕过 web_search_enabled 总开关。"""
+        from server.services.rag import RAGService
+
+        config = {
+            "web_search_enabled": "false",  # 总开关关闭
+            "tavily_api_key": "tvly-test123",
+        }
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve.return_value = []  # 空 KB（自动路径若不受控也会触发）
+        mock_ws = MagicMock()
+
+        with patch("server.services.rag.WebSearchClient", return_value=mock_ws):
+            with patch("server.services.rag.LLMAdapter") as mock_llm:
+                mock_llm.return_value.chat.return_value = {"content": "本地回答"}
+                rag = RAGService(mock_retriever, config)
+                result = rag.ask_sync("问题", web_search=True)
+
+                assert result["answer"] == "本地回答"
+                mock_ws.search.assert_not_called()
+
+    def test_manual_web_search_works_when_enabled(self):
+        """总开关开启时，手动勾选联网搜索正常触发。"""
+        from server.services.rag import RAGService
+
+        config = {
+            "web_search_enabled": "true",
+            "tavily_api_key": "tvly-test123",
+            "web_search_max_results": "5",
+        }
+        # 3 个高分 KB chunk，自动补充不会触发，隔离出手动路径
+        kb_chunks = [
+            {"content": f"KB 内容 {i}", "document_title": "d", "chunk_id": f"c{i}",
+             "chunk_no": i, "score": 0.5, "document_id": "d1", "file_name": "f.pdf"}
+            for i in range(3)
+        ]
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve.return_value = kb_chunks
+        mock_ws = MagicMock()
+        mock_ws.search.return_value = [{"content": "网络内容", "document_title": "w", "url": "http://x"}]
+
+        with patch("server.services.rag.WebSearchClient", return_value=mock_ws):
+            with patch("server.services.rag.LLMAdapter") as mock_llm:
+                mock_llm.return_value.chat.return_value = {"content": "混合回答"}
+                rag = RAGService(mock_retriever, config)
+                result = rag.ask_sync("问题", web_search=True)
+
+                assert result["answer"] == "混合回答"
+                mock_ws.search.assert_called_once()
+
+    def test_doc_ids_passed_to_retriever(self):
+        """限定检索范围：doc_ids 应透传到 retriever.retrieve。"""
+        from server.services.rag import RAGService
+
+        config = {"web_search_enabled": "false"}
+        kb_chunks = [
+            {"content": f"KB 内容 {i}", "document_title": "d", "chunk_id": f"c{i}",
+             "chunk_no": i, "score": 0.5, "document_id": "d1", "file_name": "f.pdf"}
+            for i in range(3)
+        ]
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve.return_value = kb_chunks
+
+        with patch("server.services.rag.LLMAdapter") as mock_llm:
+            mock_llm.return_value.chat.return_value = {"content": "回答"}
+            rag = RAGService(mock_retriever, config)
+            rag.ask_sync("问题", doc_ids=["d1", "d2"])
+            mock_retriever.retrieve.assert_called_once_with("问题", doc_ids=["d1", "d2"])

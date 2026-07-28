@@ -71,6 +71,16 @@ class AnySearchClient:
                 raise
             return []
 
+        # JSON-RPC 错误（鉴权失败/配额耗尽等）HTTP 状态也是 200，需显式识别，
+        # 否则会被误判为「无结果」，连接测试对无效 key 也显示成功
+        rpc_error = body.get("error")
+        if rpc_error:
+            msg = rpc_error.get("message", str(rpc_error)) if isinstance(rpc_error, dict) else str(rpc_error)
+            logger.error("AnySearch JSON-RPC 错误: %s", msg)
+            if raise_errors:
+                raise RuntimeError(f"AnySearch JSON-RPC 错误: {msg}")
+            return []
+
         # 解析 JSON-RPC 响应: result.content[0].text 是 JSON 字符串
         content_list = body.get("result", {}).get("content", [])
         raw_text = ""

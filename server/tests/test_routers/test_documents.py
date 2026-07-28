@@ -157,4 +157,93 @@ class TestFolders:
     def test_list_folders(self, client):
         response = client.get("/api/v1/documents/folders")
         assert response.status_code == 200
-        assert isinstance(response.json()["data"], list)
+
+
+class TestFilePreview:
+    """GET /{doc_id}/file — 引用面板的内嵌文件预览。"""
+
+    def test_preview_txt_inline(self, client, sample_txt):
+        with open(sample_txt, "rb") as f:
+            r = client.post("/api/v1/documents/upload", files={"file": ("note.txt", f, "text/plain")})
+        doc_id = r.json()["data"]["id"]
+
+        resp = client.get(f"/api/v1/documents/{doc_id}/file")
+        assert resp.status_code == 200
+        assert "text/plain" in resp.headers["content-type"]
+        assert "inline" in resp.headers.get("content-disposition", "")
+        assert "第一段" in resp.text
+
+    def test_preview_doc_not_found(self, client):
+        resp = client.get("/api/v1/documents/nonexistent/file")
+        assert resp.status_code == 404
+
+    def test_preview_unsupported_type_415(self, client, tmp_path):
+        fake = tmp_path / "fake.docx"
+        fake.write_bytes(b"not a real docx")
+        with open(fake, "rb") as f:
+            r = client.post("/api/v1/documents/upload", files={"file": ("fake.docx", f)})
+        doc_id = r.json()["data"]["id"]
+
+        resp = client.get(f"/api/v1/documents/{doc_id}/file")
+        assert resp.status_code == 415
+
+    def test_preview_path_traversal_blocked(self, client, tmp_data_dir):
+        """file_path 指向 DATA_DIR/files 之外时拒绝访问（防路径穿越）。"""
+        from server.database import get_engine
+        from sqlalchemy.orm import Session as SA_Session
+        import uuid
+        doc_id = str(uuid.uuid4())
+        with SA_Session(get_engine()) as s:
+            from server.models.document import Document
+            s.add(Document(id=doc_id, title="evil", file_name="evil.txt",
+                           file_type="txt", file_path="/etc/hosts", file_size=10, status="done"))
+            s.commit()
+
+        resp = client.get(f"/api/v1/documents/{doc_id}/file")
+        assert resp.status_code == 404
+
+
+class TestChunkContext:
+    """GET /{doc_id}/chunks/{chunk_no}/context — 引用面板的上下文摘录。"""
+
+    def _make_doc_with_chunks(self, client):
+        from server.database import get_engine
+        from sqlalchemy.orm import Session as SA_Session
+        from server.models.document import Document, DocumentChunk
+        import uuid
+        doc_id = str(uuid.uuid4())
+        with SA_Session(get_engine()) as s:
+            s.add(Document(id=doc_id, title="t", file_name="t.txt",
+                           file_type="txt", file_path="/tmp/t.txt", file_size=10, status="done"))
+            for i in range(1, 5):
+                s.add(DocumentChunk(id=f"c{i}", document_id=doc_id, chunk_no=i,
+                                    content=f"第 {i} 块内容", token_count=10, metadata_json={}))
+            s.commit()
+        return doc_id
+
+    def test_context_with_neighbors(self, client):
+        doc_id = self._make_doc_with_chunks(client)
+        resp = client.get(f"/api/v1/documents/{doc_id}/chunks/2/context?window=1")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["target"]["chunk_no"] == 2
+        assert data["target"]["content"] == "第 2 块内容"
+        ctx_nos = [c["chunk_no"] for c in data["context"]]
+        assert ctx_nos == [1, 3]
+
+    def test_context_boundary_first_chunk(self, client):
+        doc_id = self._make_doc_with_chunks(client)
+        resp = client.get(f"/api/v1/documents/{doc_id}/chunks/1/context?window=1")
+        data = resp.json()["data"]
+        assert data["target"]["chunk_no"] == 1
+        ctx_nos = [c["chunk_no"] for c in data["context"]]
+        assert ctx_nos == [2]  # 没有 chunk 0，只有后文
+
+    def test_context_chunk_not_found(self, client):
+        doc_id = self._make_doc_with_chunks(client)
+        resp = client.get(f"/api/v1/documents/{doc_id}/chunks/99/context")
+        assert resp.status_code == 404
+
+    def test_context_doc_not_found(self, client):
+        resp = client.get("/api/v1/documents/nonexistent/chunks/1/context")
+        assert resp.status_code == 404

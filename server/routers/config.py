@@ -5,7 +5,7 @@ import time
 import threading
 from fastapi import APIRouter, HTTPException, Body
 from server.config import AppConfig, DEFAULTS
-from server.services.embedder import Embedder
+
 from server.services.registry import ServiceRegistry
 from server.schemas import UpdateConfigRequest
 
@@ -80,7 +80,7 @@ def test_embedding():
         raise HTTPException(status_code=400, detail="未配置 embedding API Base URL")
 
     try:
-        embedder = Embedder(config)
+        embedder = ServiceRegistry.get_singleton().get_embedder()
         # 用简短的测试文本生成向量
         vectors = embedder.embed(["test"])
         if not vectors or not vectors[0]:
@@ -114,8 +114,7 @@ def test_reranker():
         raise HTTPException(status_code=400, detail="未启用 Reranker 模型或配置不完整")
 
     try:
-        from server.services.reranker import Reranker
-        reranker = Reranker(config)
+        reranker = ServiceRegistry.get_singleton().get_reranker()
         # 用两条测试文档验证 API 连通性
         results = reranker.rerank(
             query="测试查询",

@@ -20,7 +20,7 @@ _stop = False
 _claim_lock = threading.Lock()
 
 
-def start_workers(num: int = 2):
+def start_workers(num: int = 2) -> None:
     global _stop
     _stop = False
     _recover_stuck_jobs()
@@ -31,7 +31,7 @@ def start_workers(num: int = 2):
     logger.info(f"Worker 启动: {num} 线程")
 
 
-def _recover_stuck_jobs():
+def _recover_stuck_jobs() -> None:
     """启动时清理：恢复卡住的 running 任务、删除孤儿 jobs、去重。"""
     with get_session_ctx() as s:
         # 恢复卡住的 running 任务
@@ -72,7 +72,7 @@ def _recover_stuck_jobs():
     _check_chromadb_consistency()
 
 
-def _check_chromadb_consistency():
+def _check_chromadb_consistency() -> None:
     """检查 ChromaDB 中是否存在 SQLite 不存在的孤儿向量（进程崩溃残留）。"""
     try:
         from server.vector.store import get_client
@@ -107,14 +107,14 @@ def _check_chromadb_consistency():
         logger.warning(f"ChromaDB 一致性检查失败（非致命）: {e}")
 
 
-def stop_workers():
+def stop_workers() -> None:
     global _stop
     _stop = True
     for t in _workers:
         t.join(timeout=5)
 
 
-def _worker_loop(idx: int):
+def _worker_loop(idx: int) -> None:
     logger.info(f"Worker {idx} 就绪")
     while not _stop:
         try:
@@ -137,6 +137,11 @@ def _worker_loop(idx: int):
                     j.status = "failed"
                     j.error_message = str(e)[:500]
                     j.finished_at = datetime.now(timezone.utc)
+                    # 同步标记文档状态，前端列表可见「失败」（否则永远停留在待处理）
+                    if j.document_id:
+                        d = s.get(Document, j.document_id)
+                        if d:
+                            d.status = "failed"
                     s.commit()
 
 
@@ -252,7 +257,7 @@ def _execute_bookmark_import(job, config):
     logger.info(f"书签导入完成: {success} 成功, {fail} 失败, {skip} 跳过")
 
 
-def _execute_job(job: Job):
+def _execute_job(job: Job) -> None:
     config = AppConfig().get_all()
     job_id = job.id  # 先保存 ID，防止 s.get() 返回 None 后访问 .id 崩溃
     with get_session_ctx() as s:
@@ -347,7 +352,7 @@ def _execute_job(job: Job):
             _execute_bookmark_import(job, config)
 
 
-def create_jobs_for_document(doc_id: str, session=None):
+def create_jobs_for_document(doc_id: str, session=None) -> None:
     """为一篇文档创建 quick_scan + full_index 两个任务（跳过已有活跃任务）。
 
     可选传入已有 session 避免 SQLite 并发写入锁冲突。
@@ -360,7 +365,7 @@ def create_jobs_for_document(doc_id: str, session=None):
         s.commit()
 
 
-def _create_jobs(s, doc_id: str):
+def _create_jobs(s, doc_id: str) -> None:
     """内部：在已有 session 中创建任务。"""
     s.query(Job).filter(
         Job.document_id == doc_id,

@@ -51,6 +51,9 @@ def _index_chunks(
     logger.warning(
         f"外部 embedding 失败，回退全部 {len(chunks_text)} 个 chunk 到内置 embedding"
     )
+    # 先 rollback 撤掉第一次尝试遗留的 pending chunk（否则 _clear_document_index
+    # 的 flush 会把它们 INSERT 进库，重试后出现重复幽灵行），再统一清理三处索引
+    session.rollback()
     _clear_document_index(session, doc.id, store)
     return _try_index_chunks(session, doc, chunks_text, config, store, None, False)
 
@@ -69,22 +72,12 @@ def _try_index_chunks(
 ) -> int | None:
     """尝试索引所有 chunk（分批 embedding + 批量写入），返回写入数；外部 embedding 失败返回 None。"""
     chunk_ids = [str(uuid.uuid4()) for _ in chunks_text]
-    metadatas = []
-    for i, (chunk_id, chunk_content) in enumerate(zip(chunk_ids, chunks_text)):
-        session.add(DocumentChunk(
-            id=chunk_id,
-            document_id=doc.id,
-            chunk_no=i + 1,
-            content=chunk_content,
-            token_count=estimate_tokens(chunk_content),
-            metadata_json={},
-        ))
-        metadatas.append({
-            "document_id": doc.id,
-            "title": doc.title,
-            "file_name": doc.file_name,
-            "chunk_no": i + 1,
-        })
+    metadatas = [{
+        "document_id": doc.id,
+        "title": doc.title,
+        "file_name": doc.file_name,
+        "chunk_no": i + 1,
+    } for i in range(len(chunks_text))]
 
     for start in range(0, len(chunks_text), _EMBED_BATCH_SIZE):
         batch_ids = chunk_ids[start:start + _EMBED_BATCH_SIZE]
@@ -108,7 +101,17 @@ def _try_index_chunks(
             # 内置 embedding
             store.add(ids=batch_ids, texts=batch_texts, metadatas=batch_metas)
 
-        for cid, content in zip(batch_ids, batch_texts):
+        # 本批 embedding 成功后才把 chunk 加入 session（pending），
+        # 避免失败回退时未入库的 chunk 被 flush 写成幽灵行
+        for i, (cid, content) in enumerate(zip(batch_ids, batch_texts), start):
+            session.add(DocumentChunk(
+                id=cid,
+                document_id=doc.id,
+                chunk_no=i + 1,
+                content=content,
+                token_count=estimate_tokens(content),
+                metadata_json={},
+            ))
             _safe_fts_insert(cid, content, doc.title)
 
     return len(chunks_text)

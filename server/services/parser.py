@@ -20,6 +20,12 @@ IMAGE_TYPES = {"png", "jpg", "jpeg", "webp", "bmp"}
 pdf_lock = threading.Lock()
 
 
+class OCREngineError(Exception):
+    """OCR 引擎错误（依赖缺失/调用失败/超时），与「识别结果为空」区分开。
+
+    引擎错误会导致任务标记为 failed 并可重试；识别为空（图片本身无文字）仍为 done。"""
+
+
 def parse_file(file_path: str | Path, config: dict | None = None) -> str:
     path = Path(file_path)
     suffix = path.suffix.lower().lstrip(".")
@@ -135,7 +141,8 @@ def _ocr_ollama(path: str, page_count: int, config: dict) -> str:
         api_key = config.get("ocr_api_key", "").strip()
         if not api_key:
             api_key = config.get("llm_api_key", "").strip() or "ocr"
-        client = OpenAI(base_url=base_url, api_key=api_key)
+        client = OpenAI(base_url=base_url, api_key=api_key,
+                        timeout=_ocr_timeout(config), max_retries=1)
         img_b64 = base64.b64encode(s.image_bytes).decode()
         try:
             response = client.chat.completions.create(
@@ -180,8 +187,18 @@ def _parse_docx(path: Path) -> str:
 # ====== 图片 OCR 解析 ======
 
 
+def _ocr_timeout(config: dict) -> float:
+    """OCR API 超时秒数，复用 llm_timeout 配置（默认 300）。"""
+    try:
+        return float(config.get("llm_timeout") or 300)
+    except (TypeError, ValueError):
+        return 300.0
+
+
 def _parse_image(path: Path, config: dict) -> str:
-    """图片文件 → OCR 文字识别。ocr_prefer_local 勾选且模型已配置时优先本地多模态模型。"""
+    """图片文件 → OCR 文字识别。ocr_prefer_local 勾选且模型已配置时优先本地多模态模型。
+
+    引擎错误抛 OCREngineError（上层据此标记任务失败）；识别为空返回 ""。"""
     ocr_enabled = config.get("ocr_enabled", "true") != "false"
     if not ocr_enabled:
         logger.info(f"图片 OCR 已禁用（ocr_enabled=false），跳过: {path.name}")
@@ -193,7 +210,15 @@ def _parse_image(path: Path, config: dict) -> str:
     logger.info(f"图片 OCR 开始: {path.name} (引擎: {engine_label})")
 
     if use_local or engine == "ollama":
-        text = _ocr_image_ollama(path, config)
+        try:
+            text = _ocr_image_ollama(path, config)
+        except OCREngineError as e:
+            if engine != "ollama":
+                # prefer_local 勾选但本地模型失败 → 回退到 tesseract
+                logger.warning(f"本地模型 OCR 失败，回退 tesseract: {e}")
+                text = _ocr_image_tesseract(path)
+            else:
+                raise
     else:
         text = _ocr_image_tesseract(path)
 
@@ -206,65 +231,71 @@ def _parse_image(path: Path, config: dict) -> str:
 
 
 def _ocr_image_tesseract(path: Path) -> str:
-    """Tesseract 本地 OCR：读图片 → pytesseract 识别中英文。"""
+    """Tesseract 本地 OCR：读图片 → pytesseract 识别中英文。
+
+    缺 chi_sim 语言包时自动降级 eng；引擎错误抛 OCREngineError。"""
     try:
-        from PIL import Image
-    except ImportError:
-        logger.warning("Pillow 未安装，无法读取图片")
-        return ""
+        from PIL import Image, ImageOps
+    except ImportError as e:
+        raise OCREngineError("Pillow 未安装，无法读取图片") from e
     try:
         import pytesseract
-    except ImportError:
-        logger.warning("pytesseract 未安装，无法使用 Tesseract OCR")
-        return ""
+    except ImportError as e:
+        raise OCREngineError("pytesseract 未安装，无法使用 Tesseract OCR") from e
 
     try:
-        img = Image.open(path)
-        # 转换为 RGB 确保兼容性（RGBA/P 模式需要转换）
-        if img.mode not in ("RGB", "L"):
-            img = img.convert("RGB")
-        text = pytesseract.image_to_string(img, lang="chi_sim+eng")
-        return text
-    except pytesseract.TesseractError as e:
-        logger.error(f"Tesseract OCR 失败: {e}")
-        return ""
+        with Image.open(path) as img:
+            # 按 EXIF 方向标签旋转，避免手机照片横竖颠倒导致识别为空
+            img = ImageOps.exif_transpose(img)
+            # 转换为 RGB 确保兼容性（RGBA/P 模式需要转换）
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            try:
+                return pytesseract.image_to_string(img, lang="chi_sim+eng", timeout=120)
+            except pytesseract.TesseractError as e:
+                if "Failed loading language" in str(e):
+                    logger.warning(f"Tesseract 缺少 chi_sim 语言包，降级为 eng: {e}")
+                    return pytesseract.image_to_string(img, lang="eng", timeout=120)
+                raise OCREngineError(f"Tesseract OCR 失败: {e}") from e
+    except OCREngineError:
+        raise
+    except RuntimeError as e:  # pytesseract timeout 抛 RuntimeError
+        raise OCREngineError(f"Tesseract OCR 超时: {e}") from e
     except Exception as e:
-        logger.error(f"图片读取/OCR 失败 {path.name}: {e}")
-        return ""
+        raise OCREngineError(f"图片读取/OCR 失败 {path.name}: {e}") from e
 
 
 def _ocr_image_ollama(path: Path, config: dict) -> str:
-    """多模态模型 OCR（Ollama / MLX / 自定义 API）。读图片 → base64 → Vision API。"""
+    """多模态模型 OCR（Ollama / MLX / 自定义 API）。读图片 → base64 → Vision API。
+
+    引擎错误抛 OCREngineError；识别为空返回 ""。"""
     try:
-        from PIL import Image
-    except ImportError:
-        logger.warning("Pillow 未安装，无法读取图片")
-        return ""
+        from PIL import Image, ImageOps
+    except ImportError as e:
+        raise OCREngineError("Pillow 未安装，无法读取图片") from e
 
     try:
         from openai import OpenAI
-    except ImportError:
-        logger.warning("openai 未安装，无法调用 OCR API")
-        return ""
+    except ImportError as e:
+        raise OCREngineError("openai 未安装，无法调用 OCR API") from e
 
     model = config.get("ocr_ollama_model", "")
     base_url = config.get("ocr_ollama_base_url", "http://localhost:11434/v1")
     if not model:
-        logger.warning("OCR 模型 ID 未配置（ocr_ollama_model），请在设置中填写")
-        return ""
+        raise OCREngineError("OCR 模型 ID 未配置（ocr_ollama_model），请在设置中填写")
 
     try:
-        img = Image.open(path)
-        if img.mode not in ("RGB", "L"):
-            img = img.convert("RGB")
+        with Image.open(path) as img:
+            img = ImageOps.exif_transpose(img)
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
 
-        import io
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        img_b64 = base64.b64encode(buf.getvalue()).decode()
+            import io
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            img_b64 = base64.b64encode(buf.getvalue()).decode()
     except Exception as e:
-        logger.error(f"图片读取/编码失败 {path.name}: {e}")
-        return ""
+        raise OCREngineError(f"图片读取/编码失败 {path.name}: {e}") from e
 
     # API key: ocr_api_key > llm_api_key > 本地 dummy
     api_key = config.get("ocr_api_key", "").strip()
@@ -272,7 +303,8 @@ def _ocr_image_ollama(path: Path, config: dict) -> str:
         api_key = config.get("llm_api_key", "").strip() or "ocr"
 
     try:
-        client = OpenAI(base_url=base_url, api_key=api_key)
+        client = OpenAI(base_url=base_url, api_key=api_key,
+                        timeout=_ocr_timeout(config), max_retries=1)
         response = client.chat.completions.create(
             model=model,
             messages=[{
@@ -286,5 +318,4 @@ def _ocr_image_ollama(path: Path, config: dict) -> str:
         )
         return response.choices[0].message.content or ""
     except Exception as e:
-        logger.error(f"OCR API 调用失败 {path.name}: {e}")
-        return ""
+        raise OCREngineError(f"OCR API 调用失败 {path.name}: {e}") from e

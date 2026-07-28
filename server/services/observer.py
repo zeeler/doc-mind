@@ -30,7 +30,7 @@ def get_observe_executor():
     return _observe_executor
 
 
-def shutdown_observe_executor():
+def shutdown_observe_executor() -> None:
     """应用退出时关闭 observe 线程池，避免 daemon 线程被强制终止。"""
     global _observe_executor
     if _observe_executor is not None:

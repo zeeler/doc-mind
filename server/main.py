@@ -78,7 +78,7 @@ app.include_router(search_router)
 app.include_router(tags_router)
 
 @app.get("/api/v1/health")
-def health_check():
+def health_check() -> dict:
     try:
         engine = get_engine()
         engine.connect().close()

@@ -2,7 +2,7 @@
 
 import ipaddress
 import socket
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 import httpx
 import logging
@@ -10,15 +10,19 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
+# SSRF 防护：重定向最大跳数、响应体最大字节数
+_MAX_REDIRECTS = 5
+_MAX_BODY_BYTES = 5 * 1024 * 1024
+
 
 def _is_private_host(host: str | None) -> bool:
-    """判断主机是否解析到内网/环回地址（SSRF 防护）。解析失败返回 False（让请求自然报错）。"""
+    """判断主机是否解析到内网/环回地址（SSRF 防护）。解析失败视为危险（fail-closed）。"""
     if not host:
         return True
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror:
-        return False
+        return True
     for info in infos:
         try:
             ip = ipaddress.ip_address(info[4][0])
@@ -36,7 +40,7 @@ def fetch_url(url: str, timeout: int = 30) -> dict:
     """
     result = {"title": "", "text_content": "", "error": None}
 
-    # SSRF 防护：拒绝解析到内网/环回地址的 URL（重定向落点也检查）
+    # SSRF 防护：拒绝解析到内网/环回地址的 URL（重定向逐跳检查）
     if _is_private_host(urlparse(url).hostname):
         result["error"] = "不允许访问内网地址"
         return result
@@ -46,15 +50,44 @@ def fetch_url(url: str, timeout: int = 30) -> dict:
             "User-Agent": "Mozilla/5.0 (compatible; KnowledgeBase/1.0)",
             "Accept": "text/html,application/xhtml+xml",
         }
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            resp = client.get(url, headers=headers)
-            resp.raise_for_status()
+        # 关闭自动重定向，手动逐跳跟随：每一跳先检查目标 host 再发请求，
+        # 避免「先请求后检查」导致内网请求已经发出
+        current_url = url
+        html_text = None
+        with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+            for _ in range(_MAX_REDIRECTS + 1):
+                with client.stream("GET", current_url, headers=headers) as resp:
+                    if resp.is_redirect:
+                        location = resp.headers.get("location")
+                        if not location:
+                            break
+                        next_url = urljoin(current_url, location)
+                        if _is_private_host(urlparse(next_url).hostname):
+                            result["error"] = "不允许访问内网地址（重定向）"
+                            return result
+                        current_url = next_url
+                        continue
+                    resp.raise_for_status()
+                    # 限制响应体大小，防止恶意 URL 撑爆内存
+                    chunks = []
+                    total = 0
+                    for chunk in resp.iter_bytes():
+                        chunks.append(chunk)
+                        total += len(chunk)
+                        if total >= _MAX_BODY_BYTES:
+                            break
+                    encoding = resp.encoding or "utf-8"
+                    html_text = b"".join(chunks).decode(encoding, errors="replace")
+                    break
+            else:
+                result["error"] = "重定向次数过多"
+                return result
 
-        if _is_private_host(resp.url.host):
-            result["error"] = "不允许访问内网地址（重定向）"
+        if html_text is None:
+            result["error"] = "重定向响应缺少 Location 头"
             return result
 
-        soup = BeautifulSoup(resp.text, "html.parser")
+        soup = BeautifulSoup(html_text, "html.parser")
 
         # Extract title
         if soup.title and soup.title.string:

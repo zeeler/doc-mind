@@ -213,6 +213,10 @@ class RAGService:
         """任一搜索引擎配置可用（AnySearch 或 Tavily）。"""
         return self._anysearch_usable() or bool(self.config.get("tavily_api_key", "").strip())
 
+    def _web_search_enabled(self) -> bool:
+        """网络搜索总开关（设置页）。对话框手动勾选与自动补充都受它控制。"""
+        return self.config.get("web_search_enabled", "false") == "true"
+
     def _is_web_search_needed(self, chunks: list[dict]) -> bool:
         """判断是否需要自动触发网络搜索：KB 结果太少或相关性太低。
 
@@ -222,7 +226,7 @@ class RAGService:
         - FTS5: 0.09–0.5（1/(1+rank)）
         因此需根据实际分数范围动态判断，而非使用固定阈值。
         """
-        if self.config.get("web_search_enabled", "false") != "true":
+        if not self._web_search_enabled():
             return False
         if not self._has_web_engine():
             return False
@@ -292,11 +296,12 @@ class RAGService:
         return [], None
 
     def ask_sync(self, question: str, history: list[dict] | None = None,
-                 memory_context: str = "", web_search: bool = False) -> dict:
-        chunks = self.retriever.retrieve(question)
+                 memory_context: str = "", web_search: bool = False,
+                 doc_ids: list[str] | None = None) -> dict:
+        chunks = self.retriever.retrieve(question, doc_ids=doc_ids)
         web_sourced = False
 
-        if web_search:
+        if web_search and self._web_search_enabled():
             web_chunks, source = self._do_web_search(question)
             if web_chunks:
                 if not chunks:
@@ -325,12 +330,13 @@ class RAGService:
         return {"answer": result["content"], "citations": citations}
 
     async def ask_stream(self, question: str, history: list[dict] | None = None,
-                         memory_context: str = "", web_search: bool = False) -> AsyncIterator[dict]:
+                         memory_context: str = "", web_search: bool = False,
+                         doc_ids: list[str] | None = None) -> AsyncIterator[dict]:
         loop = asyncio.get_running_loop()
-        chunks = await loop.run_in_executor(None, self.retriever.retrieve, question)
+        chunks = await loop.run_in_executor(None, self.retriever.retrieve, question, doc_ids)
         web_sourced = False
 
-        if web_search:
+        if web_search and self._web_search_enabled():
             web_chunks, source = await loop.run_in_executor(None, self._do_web_search, question)
             if web_chunks:
                 if not chunks:

@@ -120,7 +120,7 @@ class SearchService:
             logger.warning(f"查询 embedding 失败，回退 ChromaDB 内置: {e}")
             return None
 
-    def _fts_search(self, query: str, top_k: int | None = None, document_id: str | None = None) -> list[dict]:
+    def _fts_search(self, query: str, top_k: int | None = None, document_id: str | None = None, document_ids: list[str] | None = None) -> list[dict]:
         """FTS5 关键词搜索，返回排名结果。"""
         k = top_k or self.top_k
         cjk_spaced = space_cjk(query)
@@ -136,7 +136,13 @@ class SearchService:
             WHERE chunks_fts MATCH :query
         """
         params: dict = {"query": query_str, "limit": k}
-        if document_id:
+        if document_ids:
+            # 用户显式限定的检索范围（优先于单文档过滤）
+            placeholders = ", ".join(f":scope_{i}" for i in range(len(document_ids)))
+            base_sql += f" AND d.id IN ({placeholders})"
+            for i, did in enumerate(document_ids):
+                params[f"scope_{i}"] = did
+        elif document_id:
             base_sql += " AND d.id = :doc_id"
             params["doc_id"] = document_id
         base_sql += " ORDER BY rank LIMIT :limit"
@@ -159,10 +165,14 @@ class SearchService:
             logger.warning(f"FTS search error: {e}")
             return []
 
-    def _vector_search(self, query: str, top_k: int | None = None, document_id: str | None = None) -> list[dict]:
+    def _vector_search(self, query: str, top_k: int | None = None, document_id: str | None = None, document_ids: list[str] | None = None) -> list[dict]:
         """ChromaDB 向量搜索。"""
         k = top_k or self.top_k
-        where = {"document_id": document_id} if document_id else None
+        if document_ids:
+            # 用户显式限定的检索范围（优先于单文档过滤）
+            where = {"document_id": {"$in": list(document_ids)}}
+        else:
+            where = {"document_id": document_id} if document_id else None
         query_embeddings = self._get_query_embedding(query)
         hits = self.vector_store.search(query, top_k=k, where=where, query_embeddings=query_embeddings)
         return [
@@ -322,11 +332,12 @@ class SearchService:
 
         return [results[i] for i in selected]
 
-    def hybrid_search(self, query: str, top_k: int | None = None, document_id: str | None = None, config: dict | None = None) -> list[dict]:
+    def hybrid_search(self, query: str, top_k: int | None = None, document_id: str | None = None, config: dict | None = None, document_ids: list[str] | None = None) -> list[dict]:
         """混合搜索：FTS5 关键词 + 向量搜索（有外部 embedding 时）+ RRF 融合 + 可选 MMR。
 
         无外部 embedding 模型时跳过 ChromaDB 向量搜索，仅用 FTS5，
         避免 ChromaDB 内置英文 embedding 对中文的低质量搜索和卡顿。
+        document_ids: 用户显式限定的文档范围（优先于 document_id）。
         """
         from server.config import has_embedding_model
 
@@ -337,13 +348,13 @@ class SearchService:
             fetch_mult = 2
         fetch_k = k * fetch_mult
 
-        keyword_results = self._fts_search(query, top_k=fetch_k, document_id=document_id)
+        keyword_results = self._fts_search(query, top_k=fetch_k, document_id=document_id, document_ids=document_ids)
 
         # 仅在有外部 embedding 模型时使用向量搜索
         use_vector = config and has_embedding_model(config) if config else False
         if use_vector:
             try:
-                vector_results = self._vector_search(query, top_k=fetch_k, document_id=document_id)
+                vector_results = self._vector_search(query, top_k=fetch_k, document_id=document_id, document_ids=document_ids)
             except Exception as e:
                 logger.warning(f"向量搜索失败，仅用 FTS5: {e}")
                 vector_results = []

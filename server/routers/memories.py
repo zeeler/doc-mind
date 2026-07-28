@@ -3,7 +3,8 @@
 from fastapi import APIRouter, HTTPException
 from server.services.memory_manager import MemoryManager
 from server.config import AppConfig
-from server.services.llm import LLMAdapter
+
+from server.services.registry import ServiceRegistry
 from server.schemas import RememberRequest, ObserveRequest, ConsolidateRequest, ExportMemoriesRequest
 
 router = APIRouter(prefix="/api/v1/memories", tags=["memories"])
@@ -11,7 +12,7 @@ router = APIRouter(prefix="/api/v1/memories", tags=["memories"])
 
 def _get_mgr(with_llm: bool = False) -> MemoryManager:
     config = AppConfig().get_all()
-    llm = LLMAdapter(config) if with_llm else None
+    llm = ServiceRegistry.get_singleton().get_llm() if with_llm else None
     return MemoryManager(config=config, llm=llm)
 
 

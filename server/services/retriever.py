@@ -155,22 +155,26 @@ class Retriever:
             logger.warning(f"文档 ID 查找失败: {book_name}", exc_info=True)
             return None
 
-    def retrieve(self, query: str) -> list[dict]:
+    def retrieve(self, query: str, doc_ids: list[str] | None = None) -> list[dict]:
         from server.database import get_session_ctx
 
         queries = self._expand_query(query)
 
+        # 用户显式限定检索范围时跳过书名探测，直接使用该范围
+        scope_ids = list(doc_ids) if doc_ids else None
+
         # 检测查询中是否包含书名 → 尝试定位文档用于过滤
         # 共享一个 DB 会话，避免每个变体都创建新连接
         doc_id_filter = None
-        with get_session_ctx() as lookup_session:
-            for q in queries:
-                if q == query:
-                    continue
-                doc_id = self._find_document_id(q, session=lookup_session)
-                if doc_id:
-                    doc_id_filter = doc_id
-                    break
+        if not scope_ids:
+            with get_session_ctx() as lookup_session:
+                for q in queries:
+                    if q == query:
+                        continue
+                    doc_id = self._find_document_id(q, session=lookup_session)
+                    if doc_id:
+                        doc_id_filter = doc_id
+                        break
 
         all_results = []
         seen_ids: set[str] = set()
@@ -179,7 +183,7 @@ class Retriever:
             # 如果找到了文档 ID，用其过滤章节搜索
             doc_filter = doc_id_filter if doc_id_filter and q != query else None
             results = self.search_service.hybrid_search(
-                q, top_k=self.top_k, config=self.config, document_id=doc_filter
+                q, top_k=self.top_k, config=self.config, document_id=doc_filter, document_ids=scope_ids
             )
             for r in results:
                 if r["chunk_id"] not in seen_ids:

@@ -77,7 +77,7 @@ def chat_ask(req: ChatAskRequest, session: Session = Depends(get_session)):
 
         memory_context = _recall_memory_context(question, conversation_id)
 
-        result = rag.ask_sync(question, history=history, memory_context=memory_context, web_search=req.web_search)
+        result = rag.ask_sync(question, history=history, memory_context=memory_context, web_search=req.web_search, doc_ids=req.doc_ids or None)
     except Exception as e:
         logger.error(f"LLM 调用失败: {e}", exc_info=True)
         session.commit()
@@ -132,7 +132,6 @@ async def chat_stream(req: ChatAskRequest, request: Request, session: Session = 
     session.commit()
 
     try:
-        from server.services.registry import ServiceRegistry
         rag = ServiceRegistry.get_singleton().get_rag_service(DATA_DIR)
         # DB 查询与记忆召回（含 embedding 网络调用）都是同步阻塞操作，放线程池避免卡事件循环
         history = await asyncio.to_thread(_get_conversation_history, session, conversation_id)
@@ -148,7 +147,7 @@ async def chat_stream(req: ChatAskRequest, request: Request, session: Session = 
         async with _stream_semaphore:
             try:
                 yield {"event": "meta", "data": json.dumps({"conversation_id": conversation_id}, ensure_ascii=False)}
-                async for chunk in rag.ask_stream(question, history=history, memory_context=memory_context, web_search=req.web_search):
+                async for chunk in rag.ask_stream(question, history=history, memory_context=memory_context, web_search=req.web_search, doc_ids=req.doc_ids or None):
                     # 客户端断开连接时提前终止，避免浪费 LLM 资源
                     if await request.is_disconnected():
                         logger.info(f"客户端断开连接，终止流式生成 conv={conversation_id}")

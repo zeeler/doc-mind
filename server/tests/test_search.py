@@ -70,6 +70,85 @@ class TestFTSSearch:
         assert len(results) == 0
 
 
+@pytest.fixture
+def search_service_two_docs(monkeypatch):
+    """两个文档的 SearchService，用于 document_ids 范围过滤测试。"""
+    td = tempfile.mkdtemp()
+    data_dir = Path(td)
+    (data_dir / "chroma").mkdir()
+    db_path = data_dir / "app.db"
+
+    import sqlite3
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS documents (
+            id TEXT PRIMARY KEY,
+            title TEXT,
+            file_name TEXT,
+            file_type TEXT,
+            status TEXT,
+            folder_path TEXT,
+            category TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS document_chunks (
+            id TEXT PRIMARY KEY,
+            document_id TEXT,
+            chunk_no INTEGER,
+            content TEXT,
+            token_count INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+            chunk_id, content, document_title, tokenize='unicode61'
+        )
+    """)
+    conn.execute("INSERT INTO documents VALUES ('doc1', 'Python入门', 'python.pdf', 'pdf', 'done', '', '技术')")
+    conn.execute("INSERT INTO documents VALUES ('doc2', 'Java入门', 'java.pdf', 'pdf', 'done', '', '技术')")
+    conn.execute("INSERT INTO document_chunks VALUES ('c1', 'doc1', 1, '编程语言是用于编写计算机程序的形式语言。', 20)")
+    conn.execute("INSERT INTO document_chunks VALUES ('c2', 'doc2', 1, '编程语言在大型企业系统中应用广泛。', 20)")
+    from server.database import space_cjk
+    t1 = "编程语言是用于编写计算机程序的形式语言。"
+    t2 = "编程语言在大型企业系统中应用广泛。"
+    conn.execute("INSERT INTO chunks_fts VALUES ('c1', ?, 'Python入门')", (space_cjk(t1),))
+    conn.execute("INSERT INTO chunks_fts VALUES ('c2', ?, 'Java入门')", (space_cjk(t2),))
+    conn.commit()
+    conn.close()
+
+    # get_engine() 使用 server.database.DATA_DIR 模块级变量，需直接 monkeypatch
+    monkeypatch.setattr("server.database.DATA_DIR", data_dir)
+    from server.database import reset_engine
+    reset_engine()
+
+    from server.services.search import SearchService
+    return SearchService(data_dir=data_dir, top_k=10)
+
+
+class TestDocumentIdsFilter:
+    def test_filter_returns_only_scoped_docs(self, search_service_two_docs):
+        """document_ids 限定范围时，只返回范围内文档的 chunk。"""
+        results = search_service_two_docs.hybrid_search("编程语言", document_ids=["doc2"])
+        assert len(results) > 0
+        assert all(r["document_id"] == "doc2" for r in results)
+
+    def test_filter_multiple_docs(self, search_service_two_docs):
+        results = search_service_two_docs.hybrid_search("编程语言", document_ids=["doc1", "doc2"])
+        doc_ids = {r["document_id"] for r in results}
+        assert doc_ids == {"doc1", "doc2"}
+
+    def test_filter_no_match_doc(self, search_service_two_docs):
+        """范围内文档无匹配时返回空。"""
+        results = search_service_two_docs.hybrid_search("编程语言", document_ids=["nonexistent"])
+        assert results == []
+
+    def test_no_filter_returns_all(self, search_service_two_docs):
+        results = search_service_two_docs.hybrid_search("编程语言")
+        doc_ids = {r["document_id"] for r in results}
+        assert doc_ids == {"doc1", "doc2"}
+
+
 class TestRRFMerge:
     def test_rrf_merge_ranks(self, search_service):
         kw = [

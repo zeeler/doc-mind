@@ -10,6 +10,7 @@ class ChatAskRequest(BaseModel):
     conversation_id: str
     question: str
     web_search: bool = False
+    doc_ids: list[str] = []  # 限定检索范围的文档 ID（空 = 全库）
 
     @field_validator("question")
     @classmethod
