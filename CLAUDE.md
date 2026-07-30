@@ -40,7 +40,7 @@ server/
 │   ├── reranker.py        # Reranker 精排
 │   ├── pipeline.py        # 文档处理管道（切块→embedding→ChromaDB）
 │   ├── chunker.py         # 文本切块
-│   ├── parser.py          # 文件解析（PDF/Word/Markdown/TXT）
+│   ├── parser.py          # 文件解析（PDF/Word/Markdown/图片 → 文本，Tesseract + Ollama OCR 双引擎）
 │   ├── search.py          # 混合搜索（FTS5 + ChromaDB + RRF 融合 + MMR）
 │   ├── retriever.py       # 检索服务（查询扩展 + Reranker 精排 + 上下文扩展）
 │   ├── rag.py             # RAG 编排（组装 prompt + 调用 LLM）
@@ -49,9 +49,9 @@ server/
 │   ├── tag_utils.py       # 标签工具
 │   ├── scanner.py         # 快速扫描
 │   ├── bookmark_parser.py # Chrome 书签解析
-│   ├── url_fetcher.py     # URL 抓取（含内网地址 SSRF 防护）
-│   ├── anysearch.py       # AnySearch 网络搜索（主引擎，JSON-RPC）
-│   └── web_search.py      # Tavily 网络搜索（备用引擎）
+│   ├── url_fetcher.py     # URL 抓取（SSRF 防护：内网/环回拦截 + 逐跳重定向检查 + 5MB 截断）
+│   ├── anysearch.py       # AnySearch 网络搜索（主引擎，JSON-RPC + raise_errors 错误检测）
+│   └── web_search.py      # Tavily 网络搜索（备用引擎，raise_errors 参数）
 ├── templates/index.html   # Vue 3 单文件前端（inline in Jinja2 template）
 ├── tests/                 # pytest 测试
 └── vector/store.py        # ChromaDB VectorStore 封装
@@ -68,10 +68,13 @@ server/
 - `AppConfig().get_all()` 有 5 秒 TTL 缓存，无需担心性能
 - `AppConfig().set()` 写入后立即失效缓存
 - 配置默认值在 `config.py:DEFAULTS` 中统一定义
+- 检索支持 `doc_ids` 限定范围：`rag.ask_sync(question, doc_ids=["d1","d2"])`，前端通过 ChatAskRequest.doc_ids 传递
+- OCR 可选 `ocr_prefer_local` 优先本地多模态模型（勾选后即使 ocr_engine=tesseract 也走 Ollama）
 
 ### Session 管理
 - FastAPI 路由：`Depends(get_session)` 注入
 - 非路由代码（Worker、Service）：`with get_session_ctx() as session:`（正常退出自动 commit，异常自动 rollback；显式 commit 亦可，幂等）
+- 书签导入等循环场景：在 session 上下文内调用 `create_jobs_for_document(doc_id, session=s)` 并显式 `s.commit()`
 
 ### 单例模式
 - ServiceRegistry: 双重检查锁，`get_singleton()` / `reset_singleton()`
@@ -102,3 +105,4 @@ server/
 - 用户偏好「直接做」模式 — 简洁指令后期望直接实施
 - 决策时偏好最全面/功能最丰富的方案
 - 默认使用 MLX 本地模型，不依赖云端 API
+- 图片 OCR 优先 Tesseract（本地离线），可切换 Ollama 多模态模型
