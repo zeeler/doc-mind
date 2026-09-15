@@ -67,6 +67,7 @@ DEFAULTS = {
     "anysearch_api_key": "",           # 在设置页配置，切勿提交真实 key
     "anysearch_max_results": "5",
     "web_search_fallback": "true",  # AnySearch 失败时回退到 Tavily
+    "web_search_speculative": "true",  # 与知识库检索并行预取（省时，但知识库充足时也会多一次搜索请求）
     "embedding_enabled": "false",
     "embedding_model": "",
     "embedding_api_base": "",

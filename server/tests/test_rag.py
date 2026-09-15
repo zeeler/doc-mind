@@ -133,8 +133,70 @@ class TestRAGService:
 
                 assert result["answer"] == "合并回答"
                 mock_retriever.retrieve.assert_called_once()
-                # ≥3 个高分 KB chunk 不应触发 web search
+                # 网络搜索会与检索并行预取，但 KB 结果充足时应被丢弃：
+                # 引用里不能出现网络来源，KB chunk 必须完整保留
+                titles = {c["document_title"] for c in result["citations"]}
+                assert "Web标题" not in titles
+                assert sum(1 for c in result["citations"]
+                           if c["source_type"] == "document_chunk") == 3
+
+    def test_web_search_serial_when_speculative_disabled(self):
+        """web_search_speculative=false 时保持旧行为：KB 充足则不发起网络搜索。"""
+        from server.services.rag import RAGService
+
+        kb_chunks = [
+            {"content": f"知识库内容 {i}", "document_title": "KB文档", "chunk_id": f"c{i}",
+             "chunk_no": i, "score": 0.016, "document_id": "d1", "file_name": "kb.pdf"}
+            for i in range(1, 4)
+        ]
+        config = {
+            "web_search_enabled": "true",
+            "tavily_api_key": "tvly-test123",
+            "web_search_max_results": "5",
+            "web_search_speculative": "false",
+        }
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve.return_value = kb_chunks
+        mock_ws = MagicMock()
+        mock_ws.search.return_value = [{"content": "网络内容", "document_title": "Web标题"}]
+
+        with patch("server.services.rag.WebSearchClient", return_value=mock_ws):
+            with patch("server.services.rag.LLMAdapter") as mock_llm:
+                mock_llm.return_value.chat.return_value = {"content": "回答"}
+                rag = RAGService(mock_retriever, config)
+                rag.ask_sync("测试问题")
+
                 mock_ws.search.assert_not_called()
+
+    def test_ask_stream_emits_retrieval_event_before_tokens(self):
+        """流式回答应在生成 token 前先推送检索统计，供前端显示命中数量。"""
+        import asyncio
+        from server.services.rag import RAGService
+
+        kb_chunks = [
+            {"content": "知识库内容 A", "document_title": "KB文档", "chunk_id": "c1",
+             "chunk_no": 1, "score": 0.5, "document_id": "d1", "file_name": "kb.pdf"},
+        ]
+        config = {"web_search_enabled": "false"}
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve.return_value = kb_chunks
+
+        async def _fake_stream(**_kwargs):
+            yield {"type": "token", "content": "你好"}
+            yield {"type": "done"}
+
+        with patch("server.services.rag.LLMAdapter") as mock_llm:
+            mock_llm.return_value.chat_stream = _fake_stream
+            rag = RAGService(mock_retriever, config)
+
+            async def _collect():
+                return [c async for c in rag.ask_stream("测试问题")]
+
+            events = asyncio.run(_collect())
+
+        assert events[0]["type"] == "retrieval"
+        assert events[0]["data"] == {"kb_count": 1, "web_count": 0}
+        assert events[1]["type"] == "token"
 
     def test_web_search_replaces_empty_kb(self):
         """KB 结果为空时 web search 应完全替代（olds behavior for empty KB）。"""

@@ -197,6 +197,10 @@ body {
   transition: all .15s;
 }
 .sidebar-footer button:hover { background: var(--bg-hover); color: var(--text); }
+.build-tag {
+  padding: 6px 12px 2px; font-size: 10.5px; color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums; user-select: text;
+}
 .sidebar-footer button.nav-active {
   background: var(--text);
   color: var(--bg);
@@ -300,6 +304,19 @@ body {
   border-radius: 2px;
 }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.15} }
+.stream-status {
+  display:inline-flex; align-items:center; gap:8px;
+  font-size:12.5px; color:var(--text-secondary);
+  background:var(--bg-hover); border:1px solid var(--border);
+  padding:8px 13px; border-radius:10px;
+}
+.stream-status::before {
+  content:''; width:12px; height:12px; border-radius:50%;
+  border:2px solid var(--border); border-top-color:var(--accent);
+  animation: spin .7s linear infinite; flex-shrink:0;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+.stream-status .stream-secs { color:var(--text-tertiary); font-variant-numeric:tabular-nums; }
 
 /* === Input === */
 .chat-input-wrap { flex-shrink:0; padding: 0 36px 28px; }
@@ -714,6 +731,7 @@ body {
       <button @click="page='docs'" :class="{'nav-active':page==='docs'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8"/></svg>资料管理</button>
       <button @click="page='settings'" :class="{'nav-active':page==='settings'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>设置</button>
       <button @click="page='memories'" :class="{'nav-active':page==='memories'}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2c-2.5 0-4.5 2-4.5 4.5v0c0 2.5 2 4.5 4.5 4.5s4.5-2 4.5-4.5v0c0-2.5-2-4.5-4.5-4.5z"/><path d="M7 14c-2.8 0-5 2.2-5 5v1c0 .6.4 1 1 1h18c.6 0 1-.4 1-1v-1c0-2.8-2.2-5-5-5"/></svg>记忆</button>
+      <div class="build-tag" title="前端构建版本，用于确认浏览器是否加载到了最新页面">前端构建 {{ FRONTEND_BUILD }}</div>
     </div>
   </aside>
 
@@ -755,8 +773,9 @@ body {
           <div v-if="streaming" class="msg assistant">
             <div class="avatar">知</div>
             <div class="content">
-              <div class="bubble" v-html="md(streamText)"></div>
-              <span class="typing"></span>
+              <div v-if="streamText" class="bubble" v-html="md(streamText)"></div>
+              <div v-else class="stream-status">{{ streamStatus }}<span class="stream-secs" v-if="streamSecs">已等待 {{ streamSecs }}s</span></div>
+              <span v-if="streamText" class="typing"></span>
             </div>
           </div>
         </div>
@@ -1067,6 +1086,7 @@ body {
             <div v-if="tavilyResult" :class="tavilyResult.ok?'result-ok':'result-err'" style="margin-top:6px">{{ tavilyResult.msg }}</div>
           </div>
           <label class="check-lbl" style="margin-top:14px;display:block"><input type="checkbox" v-model="config.web_search_fallback" true-value="true" false-value="false"> AnySearch 失败时回退到 Tavily</label>
+          <label class="check-lbl" style="margin-top:8px;display:block"><input type="checkbox" v-model="config.web_search_speculative" true-value="true" false-value="false"> 联网搜索与知识库检索并行（更快；知识库命中充足时也会多一次搜索请求）</label>
           <div v-if="anysearchResult && tavilyResult" style="margin-top:8px">
             <div :class="webSearchAvailable?'result-ok':'result-err'" style="font-family:var(--sans)">
               {{ webSearchAvailable ? '✓ 联网搜索可用' : '✗ 两个搜索引擎均不可用，对话框联网搜索将禁用' }}
@@ -1107,6 +1127,10 @@ body {
 <script>
 const { createApp, ref, reactive, computed, nextTick, onMounted, onUnmounted, watch } = Vue;
 
+// 前端构建标识：改动前端后改这里，便于确认浏览器是否真的加载到了新版本
+const FRONTEND_BUILD = 'v5-2026-09-15-cits-scope-fix';
+console.log('%c知识库前端构建', 'color:#2563eb;font-weight:600', FRONTEND_BUILD);
+
 createApp({
   setup() {
     const page = ref('chat');
@@ -1120,6 +1144,8 @@ createApp({
     const streaming = ref(false);
     const streamText = ref('');
     const streamErr = ref('');
+    const streamStatus = ref('');  // 检索/生成阶段的状态提示（首个 token 前显示）
+    const streamSecs = ref(0);  // 本次生成的已等待秒数
     const webSearch = ref(false);  // 网络搜索复选框
     const documents = ref([]);
     const docsPage = ref(1);
@@ -1293,24 +1319,118 @@ createApp({
     }
     function scrollBottom() { const el=msgBox.value; if(el) el.scrollTop=el.scrollHeight; }
 
+    // 把后端检索统计转成一句人话提示
+    function retrievalStatus(p) {
+      const kb = (p && p.kb_count) || 0, web = (p && p.web_count) || 0;
+      const parts = [];
+      if (kb) parts.push(`知识库 ${kb} 个片段`);
+      if (web) parts.push(`网络 ${web} 条结果`);
+      if (!parts.length) return '未命中相关内容，正在生成回答…';
+      return `已命中 ${parts.join(' + ')}，正在生成回答…`;
+    }
+
     async function send() {
       if (!input.value.trim() || streaming.value) return;
       const q = input.value.trim(); input.value = '';
       messages.value = [...messages.value, {id:Date.now().toString(),role:'user',content:q}];
       streaming.value = true; streamText.value = ''; streamErr.value = '';
+      streamStatus.value = webSearch.value ? '正在检索知识库并联网搜索…' : '正在检索知识库…';
+      // 计时器：本地生成可能要一两分钟，让用户知道还在跑而不是卡死
+      streamSecs.value = 0;
+      const timer = setInterval(() => { streamSecs.value++; }, 1000);
+      // 连接失联检测：服务端每 15 秒发一次 ping，40 秒收不到任何字节即判定连接已死
+      const ac = new AbortController();
+      let stalled = false;
+      let nBytes = 0, nTokens = 0, evtKinds = [];
+      const dbg = (...a) => console.log('[KB]', ...a);
+      const readOrStall = (r, ms) => new Promise((resolve, reject) => {
+        const t = setTimeout(() => resolve({ stalled: true }), ms);
+        r.read().then(v => { clearTimeout(t); resolve(v); },
+                      e => { clearTimeout(t); reject(e); });
+      });
       nextTick(scrollBottom);
+      // 这几个变量必须在 try 外声明：收尾拼装消息用的是它们，
+      // 若声明在 try 块内会因块级作用域抛 "cits is not defined"，
+      // 异常正好落在"把回答加入消息列表"那一步 → 界面永远不显示回答。
+      let buf='', evt='', full='', cits=[];
       try {
-        const res = await fetch('/api/v1/chat/stream', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:currentConv.value,question:q,web_search:webSearch.value,doc_ids:[...selectedDocs.value.keys()]})});
-        if (!res.ok) { const e=await res.json().catch(()=>({detail:res.statusText})); messages.value=[...messages.value,{id:Date.now().toString(),role:'assistant',content:'❌ '+e.detail}]; streaming.value=false; return; }
-        const reader=res.body.getReader(),dec=new TextDecoder(); let buf='',evt='',full='',cits=[];
-        while(true){const{value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});const lines=buf.split('\n');buf=lines.pop()||'';for(const l of lines){if(l.startsWith('event: ')){evt=l.slice(7).trim()}else if(l.startsWith('data: ')){try{const p=JSON.parse(l.slice(6));if(evt==='error')streamErr.value=p.message||'未知错误';else if(evt==='citations'&&Array.isArray(p))cits=p;else if(p.type==='token'){full+=p.content;streamText.value=full;nextTick(scrollBottom)}}catch(e){}}}}
+        const res = await fetch('/api/v1/chat/stream', {method:'POST',signal:ac.signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:currentConv.value,question:q,web_search:webSearch.value,doc_ids:[...selectedDocs.value.keys()]})});
+        dbg('流式请求已建立', res.status, res.headers.get('content-type'));
+        if (!res.ok) { const e=await res.json().catch(()=>({detail:res.statusText})); clearInterval(timer); messages.value=[...messages.value,{id:Date.now().toString(),role:'assistant',content:'❌ '+e.detail}]; streaming.value=false; return; }
+        const reader=res.body.getReader(),dec=new TextDecoder();
+        while(true){
+          const r=await readOrStall(reader,40000);
+          if(r.stalled){ stalled=true; dbg(`✗ 连接失联：40 秒内没有收到任何字节（累计 ${nBytes} 字节）`); try{ac.abort()}catch(_){} break; }
+          if(r.done){ dbg(`✓ 流式结束：${nBytes} 字节 / ${nTokens} 个 token / 事件 ${evtKinds.join(',')}`); break; }
+          nBytes += r.value.length;
+          buf+=dec.decode(r.value,{stream:true});
+          const lines=buf.split('\n');buf=lines.pop()||'';
+          for(const l of lines){
+            if(l.startsWith('event: ')){evt=l.slice(7).trim();if(!evtKinds.includes(evt)){evtKinds.push(evt);dbg('收到事件:',evt)}}
+            else if(l.startsWith('data: ')){
+              try{const p=JSON.parse(l.slice(6));
+                if(evt==='error')streamErr.value=p.message||'未知错误';
+                else if(evt==='citations'&&Array.isArray(p))cits=p;
+                else if(evt==='retrieval')streamStatus.value=retrievalStatus(p);
+                else if(p.type==='token'){full+=p.content;streamText.value=full;nTokens++;if(nTokens===1)dbg('收到首个 token');nextTick(scrollBottom)}
+              }catch(e){}
+              evt='';
+            }
+          }
+        }
       } catch(e) { streamErr.value = '网络错误: '+e.message; }
+      clearInterval(timer);
       streaming.value = false;
-      const f = streamText.value + (streamErr.value ? '\n\n---\n❌ '+streamErr.value : '');
-      if (f) messages.value = [...messages.value, {id:Date.now().toString(),role:'assistant',content:f,citations:cits}];
-      streamText.value = ''; streamErr.value = '';
-      await loadConversations();
-      await openTask(currentConv.value);
+      const elapsed = streamSecs.value;
+      // 收尾阶段再兜一层：这一段无论如何出错，都不能让界面留白
+      try {
+        const got = streamText.value;
+        const f = got + (streamErr.value ? '\n\n---\n❌ '+streamErr.value : '');
+        if (f) messages.value = [...messages.value, {id:Date.now().toString(),role:'assistant',content:f,citations:cits}];
+        streamText.value = ''; streamErr.value = ''; streamStatus.value = '';
+        await loadConversations();
+        await openTask(currentConv.value);
+        // 会话最后一条不是助手消息 → 说明回答还没落到界面上（连接中断/卡死，
+        // 但服务端通常仍在继续生成并会写库）→ 轮询取回
+        const msgs = messages.value;
+        dbg(`收尾：本地正文 ${f.length} 字，会话消息 [${msgs.map(m => m.role).join(', ')}]`);
+        if (!(msgs.length && msgs[msgs.length-1].role === 'assistant')) {
+          dbg('→ 界面上没有回答，启动轮询取回');
+          await recoverMissingAnswer(currentConv.value, elapsed, stalled);
+        }
+      } catch(e) {
+        console.error('[KB] 收尾阶段出错，改为直接取回会话:', e);
+        streamText.value = ''; streamErr.value = ''; streamStatus.value = '';
+        try { await openTask(currentConv.value); } catch(_) {}
+        await recoverMissingAnswer(currentConv.value, elapsed, stalled);
+      }
+    }
+
+    // 流式连接中断时轮询会话，直到服务端把回答写库（最长约 2 分钟）
+    async function recoverMissingAnswer(convId, elapsed, stalled) {
+      const noticeId = 'recover-' + Date.now();
+      messages.value = [...messages.value, {id: noticeId, role:'assistant',
+        content: `⏳ ${stalled ? '连接已失联' : '流式连接在出结果前中断了'}（已等待 ${elapsed} 秒）。`
+               + `回答可能仍在后台生成，正在尝试取回…`}];
+      nextTick(scrollBottom);
+      for (let i = 0; i < 24; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        if (currentConv.value !== convId) return;  // 用户已切走，停止轮询
+        try {
+          const d = await api('/api/v1/conversations/' + convId);
+          const msgs = d.data.messages || [];
+          if (msgs.length && msgs[msgs.length - 1].role === 'assistant') {
+            console.log('[KB] ✓ 轮询取回成功，已显示回答');
+            messages.value = msgs; await nextTick(); scrollBottom();
+            return;
+          }
+        } catch(e) { /* 单次失败继续重试 */ }
+      }
+      console.log('[KB] ✗ 轮询 2 分钟仍未取到回答');
+      messages.value = messages.value.map(m => m.id === noticeId ? {...m,
+        content: `⚠️ 流式连接在出结果前中断了（已等待 ${elapsed} 秒），后台也没取到回答。\n\n`
+               + `常见原因是本地模型处理长上下文太慢（一次要喂 15 个知识库片段 + 网络结果）。`
+               + `可稍后重新打开本对话查看，或在设置中调小「检索结果上限」后重试。`} : m);
     }
 
     async function loadDocuments() {
@@ -1449,7 +1569,7 @@ createApp({
       else { if (jobInterval) { clearInterval(jobInterval); jobInterval = null; } }
     });
 
-    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,documents,docsPage,docsTotal,PAGE_SIZE,jobStats,jobPercent,docStats,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,preferLocalOcr,embeddingOn,rerankerOn,webSearchOn,vectorInfo,saved,saveError,chatResult,ocrResult,editingId,editTitle,confirmShow,confirmMsg,confirmX,confirmY,embeddingResult,rerankerResult,testingChat,testingOcr,testingEmbedding,testingReranker,testingAnysearch,testingTavily,anysearchResult,tavilyResult,webSearchAvailable,webSearch,msgBox,inputEl,memoriesList,
+    return { page,conversations,convBatchMode,convSelected,convMenuId,currentConv,messages,input,streaming,streamText,streamStatus,streamSecs,FRONTEND_BUILD,documents,docsPage,docsTotal,PAGE_SIZE,jobStats,jobPercent,docStats,totalPending,totalRunning,anyFailed,anyRunning,uploading,dirProcessing,dirProgress,dirResult,config,ocrOn,preferLocalOcr,embeddingOn,rerankerOn,webSearchOn,vectorInfo,saved,saveError,chatResult,ocrResult,editingId,editTitle,confirmShow,confirmMsg,confirmX,confirmY,embeddingResult,rerankerResult,testingChat,testingOcr,testingEmbedding,testingReranker,testingAnysearch,testingTavily,anysearchResult,tavilyResult,webSearchAvailable,webSearch,msgBox,inputEl,memoriesList,
       allTags, folderTree, filters, sections, sidebarOpen, docsSidebarCollapsed, tagPickerDoc, tagSearch, filteredTags, searchResults, searchType, searchDocs, clearSearch, retryingIds, onFilterChange,
       loadTags, loadFolders, openTagPicker, closeTagPicker, addTagToDoc, toggleDocTag, toggleSection,
       newTask,openTask,renameStart,renameDone,deleteConv,toggleConvMenu,toggleConvSelect,batchDeleteConvs,send,loadDocuments,loadJobStats,retryFailedJobs,uploadFile,uploadDrop,scanDirectory,delDoc,retryDoc,loadConfig,saveConfig,showConfirm,confirmOk,confirmCancel,testChat,testOcr,testEmbedding,testReranker,testAnysearch,testTavily,checkSearchStatus,loadMemories,rememberMessage,deleteMsg:deleteMessage,deleteMemory, md,copyId,copyMd,fmtSize,fmtTime,statusText,statusColor,loadVectorInfo,

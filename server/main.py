@@ -9,7 +9,7 @@ from pathlib import Path
 _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from server.database import init_db, get_engine
@@ -94,10 +94,25 @@ def health_check() -> dict:
     }
 
 
+class _HTMLNoCacheStaticFiles(StaticFiles):
+    """前端单文件入口：HTML 始终回源校验。
+
+    StaticFiles 默认只发 last-modified/etag，浏览器会按启发式规则（约文件年龄的
+    10%）缓存 index.html 而不回源，导致前端改完后刷新仍在跑旧版 JS。
+    no-cache 要求每次带 If-None-Match 校验，未变则 304，变了立刻拿到新版。
+    """
+
+    async def get_response(self, path: str, scope) -> Response:
+        response = await super().get_response(path, scope)
+        if response.headers.get("content-type", "").startswith("text/html"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        return response
+
+
 # 挂载前端
 _templates_dir = Path(__file__).parent / "templates"
 if _templates_dir.exists():
-    app.mount("/", StaticFiles(directory=str(_templates_dir), html=True), name="static")
+    app.mount("/", _HTMLNoCacheStaticFiles(directory=str(_templates_dir), html=True), name="static")
 
 
 if __name__ == "__main__":

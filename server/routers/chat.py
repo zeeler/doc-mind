@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 from server.database import get_session, get_session_ctx, DATA_DIR
 from server.models.conversation import Conversation, Message
+from server.services.registry import ServiceRegistry
 
 # 并发控制：限制同时流式请求数，防止 GPU OOM
 _stream_semaphore = asyncio.Semaphore(2)
@@ -71,7 +72,6 @@ def chat_ask(req: ChatAskRequest, session: Session = Depends(get_session)):
         conv.title = question[:50] + ("..." if len(question) > 50 else "")
 
     try:
-        from server.services.registry import ServiceRegistry
         rag = ServiceRegistry.get_singleton().get_rag_service(DATA_DIR)
         history = _get_conversation_history(session, conversation_id)
 
@@ -155,6 +155,9 @@ async def chat_stream(req: ChatAskRequest, request: Request, session: Session = 
                     if chunk["type"] == "token":
                         full_answer += chunk["content"]
                         yield {"data": json.dumps({"type": "token", "content": chunk["content"]}, ensure_ascii=False)}
+                    elif chunk["type"] == "retrieval":
+                        # 检索完成、生成开始前先告知前端命中数量，避免长时间空白
+                        yield {"event": "retrieval", "data": json.dumps(chunk["data"], ensure_ascii=False)}
                     elif chunk["type"] == "citations":
                         citations = chunk["data"]
                         yield {"event": "citations", "data": json.dumps(citations, ensure_ascii=False)}

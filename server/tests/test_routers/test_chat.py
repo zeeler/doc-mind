@@ -79,3 +79,30 @@ class TestChatRoutes:
             "question": "问题",
         })
         assert response.status_code == 404
+
+    def test_chat_stream_emits_retrieval_before_tokens(self, client, mock_rag):
+        """流式接口应在首个 token 之前推送 retrieval 事件，前端据此显示命中数量。"""
+
+        async def _fake_stream(**_kwargs):
+            yield {"type": "retrieval", "data": {"kb_count": 3, "web_count": 1}}
+            yield {"type": "token", "content": "你好"}
+            yield {"type": "citations", "data": []}
+            yield {"type": "done"}
+
+        mock_rag.ask_stream = lambda *a, **k: _fake_stream()
+
+        conv_resp = client.post("/api/v1/conversations", json={})
+        conv_id = conv_resp.json()["data"]["id"]
+
+        with client.stream("POST", "/api/v1/chat/stream", json={
+            "conversation_id": conv_id,
+            "question": "测试问题",
+        }) as resp:
+            assert resp.status_code == 200
+            body = "".join(resp.iter_text())
+
+        assert "event: retrieval" in body
+        assert '"kb_count": 3' in body and '"web_count": 1' in body
+        # 关键：必须在生成 token 之前送达，否则起不到"消除空白等待"的作用
+        assert body.index("event: retrieval") < body.index('"type": "token"')
+        assert "event: citations" in body

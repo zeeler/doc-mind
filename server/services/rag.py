@@ -2,12 +2,27 @@
 
 import asyncio
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import AsyncIterator
 from server.services.llm import LLMAdapter
 from server.services.web_search import WebSearchClient
 from server.services.anysearch import AnySearchClient
 
 logger = logging.getLogger(__name__)
+
+# 网络搜索专用线程池（延迟初始化）：用于与知识库检索并行预取
+_web_executor: ThreadPoolExecutor | None = None
+_web_executor_lock = threading.Lock()
+
+
+def _get_web_executor() -> ThreadPoolExecutor:
+    global _web_executor
+    if _web_executor is None:
+        with _web_executor_lock:
+            if _web_executor is None:
+                _web_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="web-prefetch")
+    return _web_executor
 
 
 def _build_history_text(history: list[dict] | None) -> str:
@@ -295,31 +310,64 @@ class RAGService:
 
         return [], None
 
+    def _can_parallel_web(self, web_search: bool) -> bool:
+        """网络搜索是否与知识库检索并行预取。
+
+        用户显式勾选联网时必然用得上，直接并行；自动补充模式下需要等检索结果
+        才能判断，只能投机预取——是否允许由 web_search_speculative 控制（关掉
+        就不会白花一次搜索请求，但会退回串行、耗时更长）。
+        """
+        if not (self._web_search_enabled() and self._has_web_engine()):
+            return False
+        if web_search:
+            return True
+        return self.config.get("web_search_speculative", "true") == "true"
+
+    def _merge_web_results(
+        self,
+        kb_chunks: list[dict],
+        web_chunks: list[dict],
+        source: str | None,
+        web_search: bool,
+    ) -> tuple[list[dict], bool, int, int]:
+        """合并知识库与网络结果，返回 (chunks, web_sourced, kb_count, web_count)。
+
+        网络结果是检索阶段并行预取来的：若检索完成后判定不需要联网（用户未勾选
+        且知识库结果充足），直接丢弃，避免无谓地塞进 prompt。
+        """
+        if not web_chunks:
+            return kb_chunks, False, len(kb_chunks), 0
+
+        explicit = web_search and self._web_search_enabled()
+        if not explicit and not self._is_web_search_needed(kb_chunks):
+            logger.info("网络搜索预取结果未使用（知识库结果充足），丢弃 %d 条", len(web_chunks))
+            return kb_chunks, False, len(kb_chunks), 0
+
+        if not kb_chunks:
+            return web_chunks, True, 0, len(web_chunks)
+
+        logger.info("网络搜索补充(%s): %d 条结果", source, len(web_chunks))
+        return kb_chunks + web_chunks, False, len(kb_chunks), len(web_chunks)
+
     def ask_sync(self, question: str, history: list[dict] | None = None,
                  memory_context: str = "", web_search: bool = False,
                  doc_ids: list[str] | None = None) -> dict:
-        chunks = self.retriever.retrieve(question, doc_ids=doc_ids)
-        web_sourced = False
+        if self._can_parallel_web(web_search):
+            # 网络搜索是纯 I/O 且最耗时，与检索并行发起，避免串行累加
+            web_fut = _get_web_executor().submit(self._do_web_search, question)
+            kb_chunks = self.retriever.retrieve(question, doc_ids=doc_ids)
+            try:
+                web_chunks, source = web_fut.result()
+            except Exception as e:
+                logger.warning("网络搜索失败: %s", e)
+                web_chunks, source = [], None
+        else:
+            kb_chunks = self.retriever.retrieve(question, doc_ids=doc_ids)
+            web_chunks, source = [], None
 
-        if web_search and self._web_search_enabled():
-            web_chunks, source = self._do_web_search(question)
-            if web_chunks:
-                if not chunks:
-                    chunks = web_chunks
-                    web_sourced = True
-                else:
-                    chunks = chunks + web_chunks
-                    web_sourced = False  # 混合模式，KB 为主
-        elif self._is_web_search_needed(chunks):
-            web_chunks, source = self._do_web_search(question)
-            if web_chunks:
-                logger.info("网络搜索补充(%s): %d 条结果", source, len(web_chunks))
-                if not chunks:
-                    chunks = web_chunks
-                    web_sourced = True
-                else:
-                    chunks = chunks + web_chunks
-                    web_sourced = False
+        chunks, web_sourced, _, _ = self._merge_web_results(
+            kb_chunks, web_chunks, source, web_search
+        )
 
         prompt = build_qa_prompt(question, chunks, web_sourced=web_sourced)
 
@@ -333,28 +381,27 @@ class RAGService:
                          memory_context: str = "", web_search: bool = False,
                          doc_ids: list[str] | None = None) -> AsyncIterator[dict]:
         loop = asyncio.get_running_loop()
-        chunks = await loop.run_in_executor(None, self.retriever.retrieve, question, doc_ids)
-        web_sourced = False
+        # 网络搜索与知识库检索并行预取，省去"先检索再决定是否联网"的串行等待
+        web_fut = (
+            loop.run_in_executor(_get_web_executor(), self._do_web_search, question)
+            if self._can_parallel_web(web_search) else None
+        )
+        kb_chunks = await loop.run_in_executor(None, self.retriever.retrieve, question, doc_ids)
 
-        if web_search and self._web_search_enabled():
-            web_chunks, source = await loop.run_in_executor(None, self._do_web_search, question)
-            if web_chunks:
-                if not chunks:
-                    chunks = web_chunks
-                    web_sourced = True
-                else:
-                    chunks = chunks + web_chunks
-                    web_sourced = False
-        elif self._is_web_search_needed(chunks):
-            web_chunks, source = await loop.run_in_executor(None, self._do_web_search, question)
-            if web_chunks:
-                logger.info("网络搜索补充(%s): %d 条结果", source, len(web_chunks))
-                if not chunks:
-                    chunks = web_chunks
-                    web_sourced = True
-                else:
-                    chunks = chunks + web_chunks
-                    web_sourced = False
+        web_chunks: list[dict] = []
+        source: str | None = None
+        if web_fut is not None:
+            try:
+                web_chunks, source = await web_fut
+            except Exception as e:
+                logger.warning("网络搜索失败: %s", e)
+
+        chunks, web_sourced, kb_count, web_count = self._merge_web_results(
+            kb_chunks, web_chunks, source, web_search
+        )
+
+        # 先推送检索结果，前端可立即显示"已命中 N 篇"，不必空等到第一个 token
+        yield {"type": "retrieval", "data": {"kb_count": kb_count, "web_count": web_count}}
 
         prompt = build_qa_prompt(question, chunks, web_sourced=web_sourced)
 
