@@ -16,7 +16,7 @@ logger = logging.getLogger("reembed")
 
 
 def main():
-    from server.database import get_session_ctx, init_db, DATA_DIR, fts_insert
+    from server.database import get_session_ctx, init_db, DATA_DIR
     from server.models.document import Document, DocumentChunk
     from server.vector.store import VectorStore
     from server.config import AppConfig, has_embedding_model

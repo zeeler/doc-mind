@@ -163,24 +163,32 @@ def _migrate(engine) -> None:
         # v3 迁移：FTS5 全文索引
         ensure_fts5_table()
 
-        # v4 迁移：FTS5 CJK 空格分隔（使每个 CJK 字符成为独立 token）
+        # v4/v5 迁移：FTS5 索引结构
+        #   v4 — CJK 字符间插空格（让每个汉字成为独立 token），由 fts_insert 保证
+        #   v5 — 增加 document_id 列，删除文档时不再依赖 document_chunks 反查
+        #        （旧写法在 chunk 行尚未提交/已被删除时无法清理，会留下永久孤儿）
+        # FTS5 虚拟表不能 ALTER 加列，只能整表重建后从 document_chunks 回填。
         ver = conn.execute("PRAGMA user_version").fetchone()[0]
-        if ver < 4:
-            conn.execute("DELETE FROM chunks_fts")
+        if ver < 5:
+            conn.execute("DROP TABLE IF EXISTS chunks_fts")
+            conn.commit()
+            conn.execute(FTS5_DDL)
             conn.commit()
             n = fts_rebuild_all()
-            conn.execute("PRAGMA user_version = 4")
+            conn.execute("PRAGMA user_version = 5")
             conn.commit()
-            logger.info(f"[kb_migrate] FTS5 CJK 索引重建完成: {n} 条 chunk")
+            logger.info(f"[kb_migrate] FTS5 索引重建完成: {n} 条 chunk (v{ver} → v5)")
     finally:
         conn.close()
 
 
 FTS5_DDL = """
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-    chunk_id,
+    chunk_id UNINDEXED,
+    document_id UNINDEXED,
     content,
-    document_title
+    document_title,
+    tokenize='unicode61'
 )
 """
 
@@ -210,11 +218,15 @@ def space_cjk(text: str) -> str:
     return CJK_CHARS_RE.sub(' ', text)
 
 
-def fts_insert(chunk_id: str, content: str, title: str) -> None:
-    """向 FTS5 索引写入一条 chunk（自动 CJK 字符间插空格）。"""
+def fts_insert(chunk_id: str, document_id: str, content: str, title: str) -> None:
+    """向 FTS5 索引写入一条 chunk（自动 CJK 字符间插空格）。
+
+    带 document_id 是为了删除时能直接按它匹配，不依赖 document_chunks 是否还有对应的行。
+    """
     _fts_execute(
-        "INSERT INTO chunks_fts(chunk_id, content, document_title) VALUES (:cid, :c, :t)",
-        {"cid": chunk_id, "c": space_cjk(content), "t": space_cjk(title)},
+        "INSERT INTO chunks_fts(chunk_id, document_id, content, document_title)"
+        " VALUES (:cid, :did, :c, :t)",
+        {"cid": chunk_id, "did": document_id, "c": space_cjk(content), "t": space_cjk(title)},
     )
 
 
@@ -223,26 +235,43 @@ def fts_rebuild_all() -> int:
     with get_engine().connect() as conn:
         conn.execute(sa.text("DELETE FROM chunks_fts"))
         rows = conn.execute(sa.text(
-            "SELECT dc.id, dc.content, d.title FROM document_chunks dc JOIN documents d ON dc.document_id = d.id"
+            "SELECT dc.id, dc.document_id, dc.content, d.title"
+            " FROM document_chunks dc JOIN documents d ON dc.document_id = d.id"
         )).fetchall()
-        for chunk_id, content, title in rows:
+        for chunk_id, document_id, content, title in rows:
             conn.execute(
-                sa.text("INSERT INTO chunks_fts(chunk_id, content, document_title) VALUES (:cid, :c, :t)"),
-                {"cid": chunk_id, "c": space_cjk(content), "t": space_cjk(title)},
+                sa.text("INSERT INTO chunks_fts(chunk_id, document_id, content, document_title)"
+                        " VALUES (:cid, :did, :c, :t)"),
+                {"cid": chunk_id, "did": document_id,
+                 "c": space_cjk(content), "t": space_cjk(title)},
             )
         conn.commit()
         return len(rows)
 
 
 def fts_delete_by_document_id(document_id: str) -> None:
-    """从 FTS5 索引删除某文档的所有 chunk。"""
-    from server.models.document import DocumentChunk
-    tbl = DocumentChunk.__tablename__
-    _fts_execute(
-        "DELETE FROM chunks_fts WHERE chunk_id IN ("
-        f"SELECT id FROM {tbl} WHERE document_id = :did"
-        ")",
-        {"did": document_id},
-    )
+    """从 FTS5 索引删除某文档的所有 chunk（按 document_id 直接匹配）。"""
+    _fts_execute("DELETE FROM chunks_fts WHERE document_id = :did", {"did": document_id})
 
+
+def fts_count_orphans() -> int:
+    """统计 FTS5 中 chunk_id 已不存在于 document_chunks 的残留条目。"""
+    with get_engine().connect() as conn:
+        row = conn.execute(sa.text(
+            "SELECT COUNT(*) FROM chunks_fts f"
+            " LEFT JOIN document_chunks c ON f.chunk_id = c.id WHERE c.id IS NULL"
+        )).fetchone()
+        return int(row[0]) if row else 0
+
+
+def fts_delete_orphans() -> int:
+    """删除 FTS5 中所有孤儿条目（chunk 行已不存在）。返回删除条数。"""
+    with get_engine().connect() as conn:
+        before = conn.execute(sa.text("SELECT COUNT(*) FROM chunks_fts")).fetchone()[0]
+        conn.execute(sa.text(
+            "DELETE FROM chunks_fts WHERE chunk_id NOT IN (SELECT id FROM document_chunks)"
+        ))
+        conn.commit()
+        after = conn.execute(sa.text("SELECT COUNT(*) FROM chunks_fts")).fetchone()[0]
+        return int(before - after)
 

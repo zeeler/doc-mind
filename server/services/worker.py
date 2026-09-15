@@ -68,8 +68,9 @@ def _recover_stuck_jobs() -> None:
         if count or orphan or dup:
             logger.info(f"启动清理: {count or 0} running→pending, {orphan or 0} 孤儿, {dup or 0} 重复已删除")
 
-    # 检查 ChromaDB/SQLite 一致性：清理孤儿向量
+    # 检查各索引/存储与 SQLite 的一致性
     _check_chromadb_consistency()
+    _check_index_consistency()
 
 
 def _check_chromadb_consistency() -> None:
@@ -105,6 +106,74 @@ def _check_chromadb_consistency() -> None:
             logger.info(f"已清理 ChromaDB 孤儿向量: {len(orphan_list)} 个")
     except Exception as e:
         logger.warning(f"ChromaDB 一致性检查失败（非致命）: {e}")
+
+
+def _check_index_consistency() -> None:
+    """检查 FTS5 / 文件目录 / 关联表的一致性。
+
+    分级处理：
+    - FTS5 孤儿条目：直接删除。它是纯派生索引，随时可从 document_chunks 重建，
+      之前删除文档时靠 chunk 行反查，漏掉过一批（这些残留永远不会再被清到）。
+    - 孤儿文件目录、孤儿 chunk/job/消息行：**只统计并告警，不自动删除**。
+      启动时静默删文件风险太大（例如 DB 被重置后会把还在用的文件全清掉），
+      交给 scripts/cleanup_orphans.py 由人工确认后清理。
+    """
+    try:
+        from server.database import DATA_DIR, fts_delete_orphans, fts_count_orphans
+        from server.models.document import Document, DocumentChunk
+        from server.models.job import Job
+        from server.models.conversation import Message, Conversation
+
+        # 1) FTS5 孤儿：安全，直接清
+        n_fts = fts_count_orphans()
+        if n_fts:
+            removed = fts_delete_orphans()
+            logger.warning(f"FTS5 一致性检查: 清理 {removed} 条孤儿全文索引（chunk 行已不存在）")
+
+        # 2) 其余孤儿：只告警
+        with get_session_ctx() as s:
+            n_chunks = (
+                s.query(DocumentChunk)
+                .filter(~DocumentChunk.document_id.in_(s.query(Document.id)))
+                .count()
+            )
+            n_jobs = (
+                s.query(Job)
+                .filter(Job.document_id.isnot(None),
+                        ~Job.document_id.in_(s.query(Document.id)))
+                .count()
+            )
+            n_msgs = (
+                s.query(Message)
+                .filter(~Message.conversation_id.in_(s.query(Conversation.id)))
+                .count()
+            )
+
+        files_root = DATA_DIR / "files"
+        orphans: list = []
+        if files_root.exists():
+            from server.models.document import Document as _Doc
+            with get_session_ctx() as s:
+                doc_ids = {r[0] for r in s.query(_Doc.id).all()}
+            orphans = [p for p in files_root.iterdir()
+                       if p.is_dir() and p.name not in doc_ids
+                       and not p.name.startswith("_import_")]
+
+        if orphans:
+            size_mb = sum(f.stat().st_size for p in orphans for f in p.rglob("*") if f.is_file()) / 1024 / 1024
+            logger.warning(
+                f"一致性检查: 发现 {len(orphans)} 个无主文件目录（占 {size_mb:.1f} MB）"
+            )
+        if n_chunks or n_jobs or n_msgs:
+            logger.warning(
+                f"一致性检查: 孤儿数据 chunk={n_chunks} job={n_jobs} 消息={n_msgs}"
+            )
+        if orphans or n_chunks or n_jobs or n_msgs:
+            logger.warning(
+                "如需清理以上残留（不会自动删除），请运行: python scripts/cleanup_orphans.py"
+            )
+    except Exception as e:
+        logger.warning(f"索引一致性检查失败（非致命）: {e}")
 
 
 def stop_workers() -> None:

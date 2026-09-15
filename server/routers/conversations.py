@@ -82,6 +82,10 @@ def delete_conversation(conv_id: str, session: Session = Depends(get_session)):
 @router.post("/batch-delete")
 def batch_delete_conversations(req: BatchDeleteConvsRequest, session: Session = Depends(get_session)):
     ids = req.ids
+    # messages.conversation_id 没有 ON DELETE CASCADE，而这里的批量 delete 又绕过了
+    # ORM 级联，直接删会话会触发 FOREIGN KEY constraint failed（并留下孤儿消息）。
+    # 所以必须先显式删掉消息。
+    session.query(Message).filter(Message.conversation_id.in_(ids)).delete(synchronize_session=False)
     count = session.query(Conversation).filter(Conversation.id.in_(ids)).delete(synchronize_session=False)
     session.commit()
     from server.services.observer import forget_conversation

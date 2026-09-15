@@ -37,16 +37,17 @@ def search_service():
     """)
     conn.execute("""
         CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-            chunk_id, content, document_title, tokenize='unicode61'
+            chunk_id UNINDEXED, document_id UNINDEXED, content, document_title,
+            tokenize='unicode61'
         )
     """)
     conn.execute("INSERT INTO documents VALUES ('doc1', 'Python入门', 'python.pdf', 'pdf', 'done', '', '技术')")
     conn.execute("INSERT INTO document_chunks VALUES ('c1', 'doc1', 1, 'Python 是一种解释型编程语言，广泛用于数据科学和机器学习。', 20)")
     conn.execute("INSERT INTO document_chunks VALUES ('c2', 'doc1', 2, '机器学习是人工智能的一个分支，专注于从数据中学习模式。', 20)")
     conn.execute("INSERT INTO document_chunks VALUES ('c3', 'doc1', 3, 'Python 拥有丰富的科学计算库，如 NumPy、Pandas 和 Scikit-learn。', 20)")
-    conn.execute("INSERT INTO chunks_fts VALUES ('c1', 'Python 是一种解释型编程语言，广泛用于数据科学和机器学习。', 'Python入门')")
-    conn.execute("INSERT INTO chunks_fts VALUES ('c2', '机器学习是人工智能的一个分支，专注于从数据中学习模式。', 'Python入门')")
-    conn.execute("INSERT INTO chunks_fts VALUES ('c3', 'Python 拥有丰富的科学计算库，如 NumPy、Pandas 和 Scikit-learn。', 'Python入门')")
+    conn.execute("INSERT INTO chunks_fts VALUES ('c1', 'doc1', 'Python 是一种解释型编程语言，广泛用于数据科学和机器学习。', 'Python入门')")
+    conn.execute("INSERT INTO chunks_fts VALUES ('c2', 'doc1', '机器学习是人工智能的一个分支，专注于从数据中学习模式。', 'Python入门')")
+    conn.execute("INSERT INTO chunks_fts VALUES ('c3', 'doc1', 'Python 拥有丰富的科学计算库，如 NumPy、Pandas 和 Scikit-learn。', 'Python入门')")
     conn.commit()
     conn.close()
 
@@ -102,7 +103,8 @@ def search_service_two_docs(monkeypatch):
     """)
     conn.execute("""
         CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-            chunk_id, content, document_title, tokenize='unicode61'
+            chunk_id UNINDEXED, document_id UNINDEXED, content, document_title,
+            tokenize='unicode61'
         )
     """)
     conn.execute("INSERT INTO documents VALUES ('doc1', 'Python入门', 'python.pdf', 'pdf', 'done', '', '技术')")
@@ -112,8 +114,8 @@ def search_service_two_docs(monkeypatch):
     from server.database import space_cjk
     t1 = "编程语言是用于编写计算机程序的形式语言。"
     t2 = "编程语言在大型企业系统中应用广泛。"
-    conn.execute("INSERT INTO chunks_fts VALUES ('c1', ?, 'Python入门')", (space_cjk(t1),))
-    conn.execute("INSERT INTO chunks_fts VALUES ('c2', ?, 'Java入门')", (space_cjk(t2),))
+    conn.execute("INSERT INTO chunks_fts VALUES ('c1', 'doc1', ?, 'Python入门')", (space_cjk(t1),))
+    conn.execute("INSERT INTO chunks_fts VALUES ('c2', 'doc2', ?, 'Java入门')", (space_cjk(t2),))
     conn.commit()
     conn.close()
 

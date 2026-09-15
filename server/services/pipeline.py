@@ -112,7 +112,7 @@ def _try_index_chunks(
                 token_count=estimate_tokens(content),
                 metadata_json={},
             ))
-            _safe_fts_insert(cid, content, doc.title)
+            _safe_fts_insert(cid, doc.id, content, doc.title)
 
     return len(chunks_text)
 
@@ -128,15 +128,18 @@ def _clear_document_index(session, doc_id: str, store) -> None:
     except Exception as e:
         logger.warning(f"清理 ChromaDB 失败 doc {doc_id}: {e}")
 
-    _clear_old_index(doc_id)  # FTS5 依赖 chunk 行做子查询，须在删除行之前执行
+    # FTS5 现在按 document_id 直接匹配，不依赖 chunk 行是否已提交——
+    # 之前用 chunk_id 子查询反查，导致 embedding 失败回滚（chunk 行未提交）
+    # 时 FTS 条目永远清不掉。
+    _clear_old_index(doc_id)
     session.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).delete()
     session.flush()
 
 
-def _safe_fts_insert(chunk_id: str, content: str, title: str) -> None:
+def _safe_fts_insert(chunk_id: str, document_id: str, content: str, title: str) -> None:
     """写入 FTS5 索引，失败时仅警告不中断流程。"""
     try:
-        fts_insert(chunk_id, content, title)
+        fts_insert(chunk_id, document_id, content, title)
     except Exception as e:
         logger.warning(f"FTS5 索引写入失败 chunk {chunk_id}: {e}")
 

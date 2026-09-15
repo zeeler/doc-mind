@@ -223,3 +223,33 @@ class TestClickTaskFlow:
         """点击不存在的任务返回 404。"""
         response = client.get("/api/v1/conversations/nonexistent")
         assert response.status_code == 404
+
+    def test_batch_delete_removes_messages(self, client):
+        """批量删除会话必须连带删除消息。
+
+        回归：messages.conversation_id 没有 ON DELETE CASCADE，而批量删除用的是
+        query(...).delete()（绕过 ORM 级联），之前会直接抛 FOREIGN KEY constraint
+        failed，删不掉任何带消息的会话，并留下孤儿消息。
+        """
+        from server.database import get_session_ctx
+        from server.models.conversation import Message
+
+        ids = []
+        for q in ("问题一", "问题二"):
+            conv_id = client.post("/api/v1/conversations", json={}).json()["data"]["id"]
+            ids.append(conv_id)
+            with get_session_ctx() as s:
+                s.add(Message(id=f"msg-{conv_id}", conversation_id=conv_id,
+                              role="user", content=q))
+                s.commit()
+
+        resp = client.post("/api/v1/conversations/batch-delete", json={"ids": ids})
+        assert resp.status_code == 200
+        assert resp.json()["data"]["deleted"] == 2
+
+        with get_session_ctx() as s:
+            left = s.query(Message).filter(Message.conversation_id.in_(ids)).count()
+        assert left == 0, "批量删除后仍残留消息（会产生孤儿行）"
+
+        # 会话本身也应已消失
+        assert client.get(f"/api/v1/conversations/{ids[0]}").status_code == 404

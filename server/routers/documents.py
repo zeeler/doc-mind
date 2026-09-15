@@ -50,6 +50,21 @@ def _cleanup_document_indices(doc_id: str) -> None:
         logger.warning(f"FTS5 清除索引失败 doc {doc_id}: {e}")
 
 
+def _remove_document_files(doc_id: str) -> None:
+    """删除文档在 data/files/<doc_id>/ 下的落盘文件。
+
+    失败只记日志：此时数据库行已经删除，抛异常只会让用户看到 500，
+    而文件依旧留在磁盘上（反而更难排查）。残留目录由清理脚本处理。
+    """
+    file_dir = DATA_DIR / "files" / doc_id
+    if not file_dir.exists():
+        return
+    try:
+        shutil.rmtree(file_dir)
+    except Exception as e:
+        logger.warning(f"删除文件目录失败 doc {doc_id}: {e}")
+
+
 def _process_upload(content: bytes, filename: str, suffix: str, folder_path: str) -> dict:
     """同步处理上传内容（去重 + 落盘 + 建档 + 排队）。由路由放线程池执行，避免阻塞事件循环。"""
     checksum = _compute_sha256(content)
@@ -370,9 +385,7 @@ def batch_operation(req: BatchOperationRequest, session: Session = Depends(get_s
                 session.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).delete()
                 session.query(Job).filter(Job.document_id == doc_id).delete()
                 session.delete(doc)
-                file_dir = DATA_DIR / "files" / doc_id
-                if file_dir.exists():
-                    shutil.rmtree(file_dir)
+                _remove_document_files(doc_id)
             elif action == "categorize":
                 doc.category = (params.get("category") or "").strip()
             elif action == "tag":
@@ -527,9 +540,7 @@ def delete_document(doc_id: str, session: Session = Depends(get_session)):
     session.delete(doc)
     session.commit()
 
-    file_dir = DATA_DIR / "files" / doc_id
-    if file_dir.exists():
-        shutil.rmtree(file_dir)
+    _remove_document_files(doc_id)
 
     return {"code": "OK", "message": "success", "data": None}
 

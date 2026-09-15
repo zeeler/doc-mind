@@ -14,8 +14,9 @@ def client(tmp_data_dir, monkeypatch):
     from server.database import reset_engine
     reset_engine()
     from server.models.base import Base
-    from server.database import get_engine
+    from server.database import get_engine, ensure_fts5_table
     Base.metadata.create_all(bind=get_engine())
+    ensure_fts5_table()
     return TestClient(app)
 
 
@@ -55,6 +56,52 @@ class TestDocumentRoutes:
         doc_id = upload_resp.json()["data"]["id"]
         response = client.delete(f"/api/v1/documents/{doc_id}")
         assert response.status_code == 200
+
+    def test_delete_document_cleans_all_traces(self, client, sample_txt, tmp_data_dir):
+        """删除文档要同时清掉：DB 行、FTS 索引、磁盘文件目录。"""
+        from server.database import get_session_ctx, get_engine
+        from server.models.document import Document, DocumentChunk
+        from server.models.job import Job
+        import sqlalchemy as sa
+
+        with open(sample_txt, "rb") as f:
+            doc_id = client.post(
+                "/api/v1/documents/upload", files={"file": ("test.txt", f, "text/plain")}
+            ).json()["data"]["id"]
+
+        # 模拟索引已完成：写 chunk 行 + FTS 条目 + 落盘文件
+        file_dir = tmp_data_dir / "files" / doc_id
+        file_dir.mkdir(parents=True, exist_ok=True)
+        (file_dir / "test.txt").write_text("内容", encoding="utf-8")
+        from server.database import fts_insert
+        with get_session_ctx() as s:
+            s.add(DocumentChunk(id="chk-1", document_id=doc_id, chunk_no=1,
+                                content="测试内容", token_count=4))
+            s.commit()
+        fts_insert("chk-1", doc_id, "测试内容", "test文档")
+
+        def counts():
+            with get_engine().connect() as conn:
+                fts = conn.execute(sa.text("SELECT COUNT(*) FROM chunks_fts")).fetchone()[0]
+            with get_session_ctx() as s:
+                return (
+                    fts,
+                    s.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).count(),
+                    s.query(Job).filter(Job.document_id == doc_id).count(),
+                    s.get(Document, doc_id) is not None,
+                )
+
+        fts_before, chunks_before, _, _ = counts()
+        assert fts_before == 1 and chunks_before == 1
+
+        assert client.delete(f"/api/v1/documents/{doc_id}").status_code == 200
+
+        fts_after, chunks_after, jobs_after, doc_exists = counts()
+        assert fts_after == 0, "FTS 索引未清理"
+        assert chunks_after == 0, "document_chunks 未清理"
+        assert jobs_after == 0, "jobs 未清理"
+        assert doc_exists is False, "documents 行未删除"
+        assert not file_dir.exists(), "磁盘文件目录未清理"
 
 
 class TestDedup:
