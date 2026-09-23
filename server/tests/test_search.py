@@ -1,16 +1,13 @@
 """SearchService 单元测试。"""
 import pytest
 import tempfile
-import os
 from pathlib import Path
 
 
 @pytest.fixture
-def search_service():
+def search_service(tmp_data_dir, monkeypatch):
     """创建带测试数据的 SearchService。"""
-    td = tempfile.mkdtemp()
-    data_dir = Path(td)
-    (data_dir / "chroma").mkdir()
+    data_dir = tmp_data_dir
     db_path = data_dir / "app.db"
 
     import sqlite3
@@ -51,13 +48,14 @@ def search_service():
     conn.commit()
     conn.close()
 
-    os.environ["KB_DATA_DIR"] = td
-    from server.database import reset_engine, DATA_DIR
+    monkeypatch.setattr("server.database.DATA_DIR", data_dir)
+    from server.database import reset_engine
     reset_engine()
 
     from server.services.search import SearchService
     svc = SearchService(data_dir=data_dir, top_k=10)
-    return svc
+    yield svc
+    reset_engine()
 
 
 class TestFTSSearch:

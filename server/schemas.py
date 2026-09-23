@@ -9,7 +9,7 @@ from typing import Literal
 class ChatAskRequest(BaseModel):
     conversation_id: str
     question: str
-    web_search: bool = False
+    web_search: bool = True  # 默认联网；显式 false 时只检索本地知识库
     doc_ids: list[str] = []  # 限定检索范围的文档 ID（空 = 全库）
 
     @field_validator("question")

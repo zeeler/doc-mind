@@ -583,9 +583,10 @@ def update_document(doc_id: str, payload: dict, session: Session = Depends(get_s
 
 def _get_document_text(doc_id: str, file_path: str, session: Session) -> str:
     """获取文档文本内容：优先读取 markdown 文件，回退到数据库 chunks。"""
-    md_path = Path(file_path).with_suffix(".md")
-    if md_path.exists():
-        return md_path.read_text(encoding="utf-8")
+    source = Path(file_path)
+    for md_path in (source.parent / ".generated" / "parsed.md", source.with_suffix(".md")):
+        if md_path.exists():
+            return md_path.read_text(encoding="utf-8")
 
     from server.models.document import DocumentChunk
     chunks = (

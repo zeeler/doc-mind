@@ -44,10 +44,13 @@ class MemoryStore:
         return mid
 
     def search(self, query: str, top_k: int = 5, scope: str | None = None,
-               exclude_expired: bool = True) -> list[dict]:
-        where_filter = None
+               exclude_expired: bool = True, conv_id: str | None = None) -> list[dict]:
+        filters = []
         if scope:
-            where_filter = {"scope": scope}
+            filters.append({"scope": scope})
+        if conv_id is not None:
+            filters.append({"source_conv_id": conv_id})
+        where_filter = {"$and": filters} if len(filters) > 1 else (filters[0] if filters else None)
         # 过期过滤时多取一倍，补偿过滤后数量不足
         fetch_k = top_k * 2 if exclude_expired else top_k
         results = self.collection.query(

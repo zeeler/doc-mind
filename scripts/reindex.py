@@ -71,6 +71,9 @@ def main():
             # 3. 读取文本后重新索引（优先从 .md 备份读取）
             try:
                 md_path = Path(doc.file_path).with_suffix(".md")
+                generated_md = Path(doc.file_path).parent / ".generated" / "parsed.md"
+                if generated_md.exists():
+                    md_path = generated_md
                 if md_path.exists():
                     text = md_path.read_text(encoding="utf-8")
                 else:

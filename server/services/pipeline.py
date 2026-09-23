@@ -112,7 +112,8 @@ def _try_index_chunks(
                 token_count=estimate_tokens(content),
                 metadata_json={},
             ))
-            _safe_fts_insert(cid, doc.id, content, doc.title)
+            # FTS 与片段共用事务；写入失败必须让任务失败，不能报告虚假的索引成功。
+            fts_insert(cid, doc.id, content, doc.title, session=session)
 
     return len(chunks_text)
 
@@ -131,25 +132,9 @@ def _clear_document_index(session, doc_id: str, store) -> None:
     # FTS5 现在按 document_id 直接匹配，不依赖 chunk 行是否已提交——
     # 之前用 chunk_id 子查询反查，导致 embedding 失败回滚（chunk 行未提交）
     # 时 FTS 条目永远清不掉。
-    _clear_old_index(doc_id)
+    fts_delete_by_document_id(doc_id, session=session)
     session.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id).delete()
     session.flush()
-
-
-def _safe_fts_insert(chunk_id: str, document_id: str, content: str, title: str) -> None:
-    """写入 FTS5 索引，失败时仅警告不中断流程。"""
-    try:
-        fts_insert(chunk_id, document_id, content, title)
-    except Exception as e:
-        logger.warning(f"FTS5 索引写入失败 chunk {chunk_id}: {e}")
-
-
-def _clear_old_index(doc_id: str) -> None:
-    """清除文档旧的 FTS5 索引（失败时警告）。"""
-    try:
-        fts_delete_by_document_id(doc_id)
-    except Exception as e:
-        logger.warning(f"FTS5 清除旧索引失败 doc {doc_id}: {e}")
 
 
 def index_document(doc_id: str, text: str, config: dict) -> None:

@@ -199,6 +199,8 @@ class LLMAdapter:
         """将 OpenAI 格式 messages 转为 Anthropic 格式。"""
         result = []
         for m in messages:
+            if m["role"] == "system":
+                continue
             result.append({
                 "role": m["role"],
                 "content": [{"type": "text", "text": m["content"]}],
@@ -214,6 +216,9 @@ class LLMAdapter:
             "temperature": temperature,
             "messages": self._to_anthropic_messages(messages),
         }
+        system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+        if system:
+            body["system"] = system
 
         timeout = int(self._cfg.get("llm_timeout", "300"))
         with httpx.Client(timeout=timeout) as http:
@@ -238,6 +243,9 @@ class LLMAdapter:
             "messages": self._to_anthropic_messages(messages),
             "stream": True,
         }
+        system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+        if system:
+            body["system"] = system
 
         timeout = int(self._cfg.get("llm_timeout", "300"))
         async with httpx.AsyncClient(timeout=timeout) as http:

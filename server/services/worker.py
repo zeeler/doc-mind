@@ -365,7 +365,9 @@ def _execute_job(job: Job) -> None:
             info = quick_scan(str(file_path))
             doc.title = info["title"] or doc.title
             doc.status = "scanned"
-            md_dir = file_path.parent
+            # 派生文件放独立子目录，避免覆盖上传的 index.md（含大小写变体）。
+            md_dir = file_path.parent / ".generated"
+            md_dir.mkdir(exist_ok=True)
             md_path = md_dir / "index.md"
             info["status"] = "scanned"
             md_path.write_text(build_index_md(info), encoding="utf-8")
@@ -377,11 +379,12 @@ def _execute_job(job: Job) -> None:
 
         elif job.job_type == "full_index":
             text = parse_file(str(file_path), config)
-            md_dir = file_path.parent
+            md_dir = file_path.parent / ".generated"
+            md_dir.mkdir(exist_ok=True)
 
             # PDF 解析后保存一份 .md 备份（OCR 结果可读、供 auto-tag 使用）
             if doc.file_type == "pdf" and text:
-                pdf_md = Path(file_path).with_suffix(".md")
+                pdf_md = md_dir / "parsed.md"
                 try:
                     pdf_md.write_text(f"# {doc.title}\n\n{text}", encoding="utf-8")
                 except Exception as e:

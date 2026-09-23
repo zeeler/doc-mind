@@ -175,13 +175,30 @@ def _ocr_ollama(path: str, page_count: int, config: dict) -> str:
 
 def _parse_docx(path: Path) -> str:
     from docx import Document
+    from docx.table import Table
 
     doc = Document(str(path))
-    parts = []
-    for para in doc.paragraphs:
-        if para.text.strip():
-            parts.append(para.text.strip())
-    return "\n\n".join(parts)
+
+    def read_blocks(container) -> str:
+        """保持段落/表格顺序，并递归读取单元格内的嵌套表格。"""
+        parts = []
+        for block in container.iter_inner_content():
+            if isinstance(block, Table):
+                for row in block.rows:
+                    cells = []
+                    seen = set()
+                    for cell in row.cells:
+                        if cell._tc in seen:  # 横向合并单元格不重复输出
+                            continue
+                        seen.add(cell._tc)
+                        cells.append(read_blocks(cell))
+                    if any(cells):
+                        parts.append(" | ".join(cells))
+            elif block.text.strip():
+                parts.append(block.text.strip())
+        return "\n\n".join(parts)
+
+    return read_blocks(doc)
 
 
 # ====== 图片 OCR 解析 ======

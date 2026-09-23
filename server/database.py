@@ -174,10 +174,12 @@ def _migrate(engine) -> None:
             conn.commit()
             conn.execute(FTS5_DDL)
             conn.commit()
+        # v6：回填旧管道因跨连接写锁而遗漏的 FTS；只重建派生索引，不改原文/向量。
+        if ver < 6:
             n = fts_rebuild_all()
-            conn.execute("PRAGMA user_version = 5")
+            conn.execute("PRAGMA user_version = 6")
             conn.commit()
-            logger.info(f"[kb_migrate] FTS5 索引重建完成: {n} 条 chunk (v{ver} → v5)")
+            logger.info(f"[kb_migrate] FTS5 索引重建完成: {n} 条 chunk (v{ver} → v6)")
     finally:
         conn.close()
 
@@ -200,8 +202,11 @@ def ensure_fts5_table() -> None:
         conn.commit()
 
 
-def _fts_execute(sql: str, params: dict | None = None) -> None:
-    """执行 FTS5 DML 语句（使用 SQLAlchemy engine 连接池）。"""
+def _fts_execute(sql: str, params: dict | None = None, session: Session | None = None) -> None:
+    """有外部事务时复用连接，避免 SQLite 单写者锁冲突；提交由调用方负责。"""
+    if session is not None:
+        session.execute(sa.text(sql), params or {})
+        return
     with get_engine().connect() as conn:
         conn.execute(sa.text(sql), params or {})
         conn.commit()
@@ -218,7 +223,8 @@ def space_cjk(text: str) -> str:
     return CJK_CHARS_RE.sub(' ', text)
 
 
-def fts_insert(chunk_id: str, document_id: str, content: str, title: str) -> None:
+def fts_insert(chunk_id: str, document_id: str, content: str, title: str,
+               session: Session | None = None) -> None:
     """向 FTS5 索引写入一条 chunk（自动 CJK 字符间插空格）。
 
     带 document_id 是为了删除时能直接按它匹配，不依赖 document_chunks 是否还有对应的行。
@@ -227,6 +233,7 @@ def fts_insert(chunk_id: str, document_id: str, content: str, title: str) -> Non
         "INSERT INTO chunks_fts(chunk_id, document_id, content, document_title)"
         " VALUES (:cid, :did, :c, :t)",
         {"cid": chunk_id, "did": document_id, "c": space_cjk(content), "t": space_cjk(title)},
+        session=session,
     )
 
 
@@ -249,9 +256,9 @@ def fts_rebuild_all() -> int:
         return len(rows)
 
 
-def fts_delete_by_document_id(document_id: str) -> None:
+def fts_delete_by_document_id(document_id: str, session: Session | None = None) -> None:
     """从 FTS5 索引删除某文档的所有 chunk（按 document_id 直接匹配）。"""
-    _fts_execute("DELETE FROM chunks_fts WHERE document_id = :did", {"did": document_id})
+    _fts_execute("DELETE FROM chunks_fts WHERE document_id = :did", {"did": document_id}, session=session)
 
 
 def fts_count_orphans() -> int:
@@ -274,4 +281,3 @@ def fts_delete_orphans() -> int:
         conn.commit()
         after = conn.execute(sa.text("SELECT COUNT(*) FROM chunks_fts")).fetchone()[0]
         return int(before - after)
-

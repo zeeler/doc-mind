@@ -23,6 +23,7 @@ from server.routers.jobs import router as jobs_router
 from server.routers.memories import router as memories_router
 from server.routers.search import router as search_router
 from server.routers.tags import router as tags_router
+from server.routers.auth import router as auth_router
 
 # 配置日志
 logging.basicConfig(
@@ -76,6 +77,7 @@ app.include_router(jobs_router)
 app.include_router(memories_router)
 app.include_router(search_router)
 app.include_router(tags_router)
+app.include_router(auth_router)
 
 @app.get("/api/v1/health")
 def health_check() -> dict:

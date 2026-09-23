@@ -74,7 +74,7 @@ class MemoryManager:
         global_mems = self.store.search(query, top_k=fetch_k, scope="global")
         session_mems = []
         if conv_id:
-            session_mems = self.store.search(query, top_k=fetch_k // 2, scope="session")
+            session_mems = self.store.search(query, top_k=fetch_k // 2, scope="session", conv_id=conv_id)
 
         # 合并去重
         seen = set()
@@ -150,7 +150,10 @@ class MemoryManager:
             raise ValueError(f"无效的 mem_type: {mem_type}")
 
         # 去重
-        existing = self.store.search(content, top_k=3)
+        existing = self.store.search(
+            content, top_k=3, scope=scope,
+            conv_id=meta.get("source_conv_id", "") if scope == "session" else None,
+        )
         for hit in existing:
             if hit["score"] >= self.dedup_threshold:
                 old_meta = hit["metadata"]
@@ -275,7 +278,11 @@ class MemoryManager:
         seen_pairs = set()
 
         for mem in all_mems[:effective_limit]:
-            similar = self.store.search(mem["content"], top_k=3)
+            scope = mem["metadata"].get("scope", "global")
+            similar = self.store.search(
+                mem["content"], top_k=3, scope=scope,
+                conv_id=mem["metadata"].get("source_conv_id", "") if scope == "session" else None,
+            )
             for hit in similar:
                 if hit["id"] == mem["id"]:
                     continue

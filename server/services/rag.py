@@ -61,11 +61,13 @@ def build_qa_prompt(
     question: str,
     chunks: list[dict],
     web_sourced: bool = False,
+    web_searched: bool = False,
 ) -> str:
     if not chunks:
+        search_scope = "知识库和网络搜索" if web_searched else "知识库"
         return (
             f"## 用户问题\n{question}\n\n"
-            f"## 重要：知识库和网络搜索均未找到相关内容。\n"
+            f"## 重要：{search_scope}未找到相关内容。\n"
             f"请如实告知用户未找到相关信息，不要编造、推测或追问。"
             f"建议用户尝试更换关键词或上传相关文档。"
             f"使用中文回答，简洁明确。"
@@ -229,44 +231,12 @@ class RAGService:
         return self._anysearch_usable() or bool(self.config.get("tavily_api_key", "").strip())
 
     def _web_search_enabled(self) -> bool:
-        """网络搜索总开关（设置页）。对话框手动勾选与自动补充都受它控制。"""
+        """网络搜索总开关（设置页）。对话框勾选联网时也受它控制。"""
         return self.config.get("web_search_enabled", "false") == "true"
 
-    def _is_web_search_needed(self, chunks: list[dict]) -> bool:
-        """判断是否需要自动触发网络搜索：KB 结果太少或相关性太低。
-
-        评分体系因 match_type 而异：
-        - rerank_score: 0–1（余弦相似度）
-        - RRF 融合: ~0.008–0.017（k=60）
-        - FTS5: 0.09–0.5（1/(1+rank)）
-        因此需根据实际分数范围动态判断，而非使用固定阈值。
-        """
-        if not self._web_search_enabled():
-            return False
-        if not self._has_web_engine():
-            return False
-        if not chunks:
-            return True
-
-        scores = [c.get("score", 0.0) for c in chunks]
-        avg = sum(scores) / len(scores)
-        max_score = max(scores)
-
-        # 有 reranker 精排分数（范围 0–1）：使用 rerank_score 而非原始 score，避免评分体系混淆
-        has_rerank = any("rerank_score" in c for c in chunks)
-        if has_rerank:
-            rerank_scores = [c.get("rerank_score", 0.0) for c in chunks]
-            good = [s for s in rerank_scores if s > 0.3]
-            return len(good) < 2
-
-        # RRF 融合分数（范围 ~0.008–0.017）：avg < 0.01 或 max < 0.012 视为低质量
-        if max_score < 0.1:
-            good = [s for s in scores if s > 0.01]
-            return len(good) < 2
-
-        # FTS5 纯文本分数（范围 0.09–0.5）：avg < 0.15 视为低质量
-        good = [s for s in scores if s > 0.15]
-        return len(good) < 2
+    def _should_search_web(self, web_search: bool) -> bool:
+        """复选框是本次请求的硬开关；不因本地结果不足而自动联网。"""
+        return web_search and self._web_search_enabled() and self._has_web_engine()
 
     def _do_web_search(self, question: str) -> tuple[list[dict], str | None]:
         """执行网络搜索：AnySearch 主 → Tavily 备。返回 (chunks, source)。
@@ -311,17 +281,11 @@ class RAGService:
         return [], None
 
     def _can_parallel_web(self, web_search: bool) -> bool:
-        """网络搜索是否与知识库检索并行预取。
-
-        用户显式勾选联网时必然用得上，直接并行；自动补充模式下需要等检索结果
-        才能判断，只能投机预取——是否允许由 web_search_speculative 控制（关掉
-        就不会白花一次搜索请求，但会退回串行、耗时更长）。
-        """
-        if not (self._web_search_enabled() and self._has_web_engine()):
-            return False
-        if web_search:
-            return True
-        return self.config.get("web_search_speculative", "true") == "true"
+        """仅在本次允许联网时决定并行/串行；旧配置键仅控制执行顺序。"""
+        return (
+            self._should_search_web(web_search)
+            and self.config.get("web_search_speculative", "true") == "true"
+        )
 
     def _merge_web_results(
         self,
@@ -330,17 +294,8 @@ class RAGService:
         source: str | None,
         web_search: bool,
     ) -> tuple[list[dict], bool, int, int]:
-        """合并知识库与网络结果，返回 (chunks, web_sourced, kb_count, web_count)。
-
-        网络结果是检索阶段并行预取来的：若检索完成后判定不需要联网（用户未勾选
-        且知识库结果充足），直接丢弃，避免无谓地塞进 prompt。
-        """
-        if not web_chunks:
-            return kb_chunks, False, len(kb_chunks), 0
-
-        explicit = web_search and self._web_search_enabled()
-        if not explicit and not self._is_web_search_needed(kb_chunks):
-            logger.info("网络搜索预取结果未使用（知识库结果充足），丢弃 %d 条", len(web_chunks))
+        """勾选联网时保留两类来源；取消勾选时仅返回本地结果。"""
+        if not self._should_search_web(web_search) or not web_chunks:
             return kb_chunks, False, len(kb_chunks), 0
 
         if not kb_chunks:
@@ -350,7 +305,7 @@ class RAGService:
         return kb_chunks + web_chunks, False, len(kb_chunks), len(web_chunks)
 
     def ask_sync(self, question: str, history: list[dict] | None = None,
-                 memory_context: str = "", web_search: bool = False,
+                 memory_context: str = "", web_search: bool = True,
                  doc_ids: list[str] | None = None) -> dict:
         if self._can_parallel_web(web_search):
             # 网络搜索是纯 I/O 且最耗时，与检索并行发起，避免串行累加
@@ -364,12 +319,15 @@ class RAGService:
         else:
             kb_chunks = self.retriever.retrieve(question, doc_ids=doc_ids)
             web_chunks, source = [], None
+            if self._should_search_web(web_search):
+                web_chunks, source = self._do_web_search(question)
 
         chunks, web_sourced, _, _ = self._merge_web_results(
             kb_chunks, web_chunks, source, web_search
         )
 
-        prompt = build_qa_prompt(question, chunks, web_sourced=web_sourced)
+        prompt = build_qa_prompt(question, chunks, web_sourced=web_sourced,
+                                 web_searched=self._should_search_web(web_search))
 
         messages = _build_messages(prompt, history=history, memory_context=memory_context)
 
@@ -378,10 +336,10 @@ class RAGService:
         return {"answer": result["content"], "citations": citations}
 
     async def ask_stream(self, question: str, history: list[dict] | None = None,
-                         memory_context: str = "", web_search: bool = False,
+                         memory_context: str = "", web_search: bool = True,
                          doc_ids: list[str] | None = None) -> AsyncIterator[dict]:
         loop = asyncio.get_running_loop()
-        # 网络搜索与知识库检索并行预取，省去"先检索再决定是否联网"的串行等待
+        # 本次允许联网且启用并行时，同时检索两类来源。
         web_fut = (
             loop.run_in_executor(_get_web_executor(), self._do_web_search, question)
             if self._can_parallel_web(web_search) else None
@@ -395,6 +353,10 @@ class RAGService:
                 web_chunks, source = await web_fut
             except Exception as e:
                 logger.warning("网络搜索失败: %s", e)
+        elif self._should_search_web(web_search):
+            web_chunks, source = await loop.run_in_executor(
+                _get_web_executor(), self._do_web_search, question
+            )
 
         chunks, web_sourced, kb_count, web_count = self._merge_web_results(
             kb_chunks, web_chunks, source, web_search
@@ -403,7 +365,8 @@ class RAGService:
         # 先推送检索结果，前端可立即显示"已命中 N 篇"，不必空等到第一个 token
         yield {"type": "retrieval", "data": {"kb_count": kb_count, "web_count": web_count}}
 
-        prompt = build_qa_prompt(question, chunks, web_sourced=web_sourced)
+        prompt = build_qa_prompt(question, chunks, web_sourced=web_sourced,
+                                 web_searched=self._should_search_web(web_search))
 
         messages = _build_messages(prompt, history=history, memory_context=memory_context)
 

@@ -62,46 +62,11 @@ class TestRAGService:
         assert "测试问题" in prompt
         assert "文档1" in prompt
 
-    def test_is_web_search_needed_rrf_scores(self):
-        """Bug: RRF 分数（~0.008-0.016）永远低于旧阈值 0.15，导致每次都触发网络搜索。"""
-        from server.services.rag import RAGService
-
-        config = {
-            "web_search_enabled": "true",
-            "tavily_api_key": "tvly-test123",
-            "web_search_max_results": "5",
-        }
-        mock_retriever = MagicMock()
-
-        with patch("server.services.rag.WebSearchClient") as mock_ws:
-            mock_ws.return_value = MagicMock()
-            rag = RAGService(mock_retriever, config)
-
-            # 模拟 RRF 分数范围（0.008-0.016）的好结果
-            rrf_chunks = [
-                {"score": 0.016, "content": "高度相关"},
-                {"score": 0.014, "content": "比较相关"},
-                {"score": 0.012, "content": "相关"},
-                {"score": 0.010, "content": "一般相关"},
-            ]
-            # 这些分数 > 0.006 且存在 > 0.01 的"好结果"，不应触发网络搜索
-            assert rag._is_web_search_needed(rrf_chunks) is False
-
-            # 低质量结果（所有分数 < 0.006）应触发
-            low_quality = [
-                {"score": 0.004, "content": "低相关"},
-                {"score": 0.003, "content": "很低"},
-            ]
-            assert rag._is_web_search_needed(low_quality) is True
-
-            # 空结果应触发
-            assert rag._is_web_search_needed([]) is True
-
     def test_web_search_supplements_not_replaces_kb(self):
         """Bug: 网络搜索结果完全替换知识库结果，而不是补充。"""
         from server.services.rag import RAGService
 
-        # 足够多的 KB 结果（≥3），防止触发 web search 阈值
+        # KB 结果充足时，默认勾选联网仍应保留网络来源
         kb_chunks = [
             {"content": "知识库内容 A", "document_title": "KB文档", "chunk_id": "c1",
              "chunk_no": 1, "score": 0.016, "document_id": "d1", "file_name": "kb.pdf"},
@@ -111,7 +76,7 @@ class TestRAGService:
              "chunk_no": 3, "score": 0.012, "document_id": "d1", "file_name": "kb.pdf"},
         ]
         web_chunks = [
-            {"content": "网络内容", "document_title": "Web标题", "url": "http://x"},
+            {"content": "网络内容", "document_title": "Web标题", "url": "http://x", "match_type": "web"},
         ]
 
         config = {
@@ -133,15 +98,14 @@ class TestRAGService:
 
                 assert result["answer"] == "合并回答"
                 mock_retriever.retrieve.assert_called_once()
-                # 网络搜索会与检索并行预取，但 KB 结果充足时应被丢弃：
-                # 引用里不能出现网络来源，KB chunk 必须完整保留
+                # 默认勾选联网：保留网络来源，也保留全部本地片段
                 titles = {c["document_title"] for c in result["citations"]}
-                assert "Web标题" not in titles
+                assert "Web标题" in titles
                 assert sum(1 for c in result["citations"]
                            if c["source_type"] == "document_chunk") == 3
 
     def test_web_search_serial_when_speculative_disabled(self):
-        """web_search_speculative=false 时保持旧行为：KB 充足则不发起网络搜索。"""
+        """勾选联网但禁用并行时，仍应串行搜索网络并保留结果。"""
         from server.services.rag import RAGService
 
         kb_chunks = [
@@ -164,9 +128,10 @@ class TestRAGService:
             with patch("server.services.rag.LLMAdapter") as mock_llm:
                 mock_llm.return_value.chat.return_value = {"content": "回答"}
                 rag = RAGService(mock_retriever, config)
-                rag.ask_sync("测试问题")
+                result = rag.ask_sync("测试问题", web_search=True)
 
-                mock_ws.search.assert_not_called()
+                mock_ws.search.assert_called_once()
+                assert any(c["document_title"] == "Web标题" for c in result["citations"])
 
     def test_ask_stream_emits_retrieval_event_before_tokens(self):
         """流式回答应在生成 token 前先推送检索统计，供前端显示命中数量。"""
@@ -208,7 +173,7 @@ class TestRAGService:
             "web_search_max_results": "5",
         }
         web_chunks = [
-            {"content": "网络内容", "document_title": "Web标题", "url": "http://x"},
+            {"content": "网络内容", "document_title": "Web标题", "url": "http://x", "match_type": "web"},
         ]
 
         mock_retriever = MagicMock()
@@ -296,3 +261,63 @@ class TestRAGService:
             rag = RAGService(mock_retriever, config)
             rag.ask_sync("问题", doc_ids=["d1", "d2"])
             mock_retriever.retrieve.assert_called_once_with("问题", doc_ids=["d1", "d2"])
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("parallel", ["false", "true"])
+@pytest.mark.parametrize("kb_count", [0, 1, 3])
+@pytest.mark.asyncio
+async def test_unchecked_web_search_never_calls_search_engine(stream, parallel, kb_count):
+    """取消勾选是硬开关：空库、低质量或充足结果、串行/并行都不得联网。"""
+    retriever = MagicMock()
+    retriever.retrieve.return_value = [
+        {"content": "本地内容", "document_title": "本地文档", "chunk_id": f"c{i}", "score": 0.001}
+        for i in range(kb_count)
+    ]
+    config = {"web_search_enabled": "true", "web_search_speculative": parallel,
+              "tavily_api_key": "dummy", "anysearch_enabled": "true", "anysearch_api_key": "dummy"}
+    with patch("server.services.rag.LLMAdapter") as llm, patch("server.services.rag.WebSearchClient.search", return_value=[]) as search, patch("server.services.rag.AnySearchClient.search", return_value=[]) as anysearch:
+        llm.return_value.chat.return_value = {"content": "本地回答"}
+        async def tokens(**kwargs):
+            yield {"type": "token", "content": "本地回答"}
+        llm.return_value.chat_stream = tokens
+        rag = RAGService(retriever, config)
+        if stream:
+            output = [event async for event in rag.ask_stream("问题", web_search=False)]
+            assert output[0]["data"]["web_count"] == 0
+        else:
+            result = rag.ask_sync("问题", web_search=False)
+            assert all(c["source_type"] == "document_chunk" for c in result["citations"])
+        search.assert_not_called()
+        anysearch.assert_not_called()
+
+
+def test_api_defaults_to_web_search_but_accepts_explicit_false():
+    from server.schemas import ChatAskRequest
+    assert ChatAskRequest(conversation_id="c", question="问题").web_search is True
+    assert ChatAskRequest(conversation_id="c", question="问题", web_search=False).web_search is False
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.asyncio
+async def test_default_web_search_keeps_both_sources_with_sufficient_kb(stream):
+    retriever = MagicMock()
+    retriever.retrieve.return_value = [
+        {"content": "本地内容", "document_title": "本地文档", "chunk_id": f"c{i}", "score": 0.5}
+        for i in range(3)
+    ]
+    config = {"web_search_enabled": "true", "web_search_speculative": "false", "tavily_api_key": "dummy"}
+    web_hit = {"content": "网络内容", "document_title": "网络文档", "chunk_id": "web-1", "url": "https://example.com", "match_type": "web"}
+    with patch("server.services.rag.LLMAdapter") as llm, patch("server.services.rag.WebSearchClient.search", return_value=[web_hit]):
+        llm.return_value.chat.return_value = {"content": "回答"}
+        async def tokens(**kwargs):
+            yield {"type": "token", "content": "回答"}
+        llm.return_value.chat_stream = tokens
+        rag = RAGService(retriever, config)
+        if stream:
+            output = [event async for event in rag.ask_stream("问题")]
+            citations = next(event["data"] for event in output if event["type"] == "citations")
+        else:
+            citations = rag.ask_sync("问题")["citations"]
+        assert len(citations) == 4
+        assert {c["source_type"] for c in citations} == {"document_chunk", "web_search"}
